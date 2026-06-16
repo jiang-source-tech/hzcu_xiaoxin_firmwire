@@ -1,6 +1,6 @@
 #include "wifi_board.h"
 #include "codecs/no_audio_codec.h"
-#include "display/lcd_display.h"
+#include "display/display.h"
 #include "system_reset.h"
 #include "application.h"
 #include "button.h"
@@ -15,44 +15,133 @@
 #include <esp_lcd_spd2010.h>
 #include <esp_timer.h>
 #include "esp_io_expander_tca9554.h"
-#include "lcd_display.h"
 #include <iot_button.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include <freertos/task.h>
+#include <cstring>
+
+extern "C" {
+#include "paopao_pet_renderer.h"
+#include "paopao_pet_state.h"
+}
 
 #define TAG "waveshare_lcd_1_46"
 
-// 在waveshare_lcd_1_46类之前添加新的显示类
-class CustomLcdDisplay : public SpiLcdDisplay {
-public:
-    static void rounder_event_cb(lv_event_t * e) {
-        lv_area_t * area = (lv_area_t *)lv_event_get_param(e);
-        uint16_t x1 = area->x1;
-        uint16_t x2 = area->x2;
+// Draw the paopao pet frames directly so the on-device look matches paopao_ui.
+static esp_lcd_panel_handle_t s_paopao_panel = nullptr;
 
-        area->x1 = (x1 >> 2) << 2;          // round the start of coordinate down to the nearest 4M number
-        area->x2 = ((x2 >> 2) << 2) + 3;    // round the end of coordinate up to the nearest 4N+3 number
+extern "C" esp_err_t paopao_pet_board_draw_bitmap(
+    int x_start,
+    int y_start,
+    int x_end,
+    int y_end,
+    const uint16_t* pixels
+) {
+    if (s_paopao_panel == nullptr) {
+        return ESP_ERR_INVALID_STATE;
     }
+    return esp_lcd_panel_draw_bitmap(s_paopao_panel, x_start, y_start, x_end, y_end, pixels);
+}
 
-    CustomLcdDisplay(esp_lcd_panel_io_handle_t io_handle, 
-                    esp_lcd_panel_handle_t panel_handle,
-                    int width,
-                    int height,
-                    int offset_x,
-                    int offset_y,
-                    bool mirror_x,
-                    bool mirror_y,
-                    bool swap_xy) 
-        : SpiLcdDisplay(io_handle, panel_handle,
-                    width, height, offset_x, offset_y, mirror_x, mirror_y, swap_xy) {
-        // Note: UI customization should be done in SetupUI(), not in constructor
-        // to ensure lvgl objects are created before accessing them
+class PaopaoPetDisplay : public Display {
+public:
+    PaopaoPetDisplay() {
+        width_ = DISPLAY_WIDTH;
+        height_ = DISPLAY_HEIGHT;
+        mutex_ = xSemaphoreCreateRecursiveMutex();
     }
 
     virtual void SetupUI() override {
-        // Call parent SetupUI() first to create all lvgl objects
-        SpiLcdDisplay::SetupUI();
-
+        Display::SetupUI();
         DisplayLockGuard lock(this);
-        lv_display_add_event_cb(display_, rounder_event_cb, LV_EVENT_INVALIDATE_AREA, NULL);
+        paopao_pet_renderer_init();
+        paopao_pet_play_state(current_state_);
+
+        if (render_task_ == nullptr) {
+            xTaskCreatePinnedToCore(RenderTask, "paopao_pet", 4096, this, 4, &render_task_, 1);
+        }
+    }
+
+    virtual void SetStatus(const char* status) override {
+        if (status == nullptr) {
+            return;
+        }
+
+        if (std::strstr(status, "Listening") || std::strstr(status, "listening")) {
+            SetPetState(PAOPAO_PET_STATE_WAITING);
+        } else if (std::strstr(status, "Speaking") || std::strstr(status, "speaking")) {
+            SetPetState(PAOPAO_PET_STATE_WORKING);
+        } else if (std::strstr(status, "Thinking") || std::strstr(status, "thinking")) {
+            SetPetState(PAOPAO_PET_STATE_THINKING);
+        } else if (std::strstr(status, "Standby") || std::strstr(status, "standby")) {
+            SetPetState(PAOPAO_PET_STATE_IDLE);
+        }
+    }
+
+    virtual void SetEmotion(const char* emotion) override {
+        if (emotion == nullptr) {
+            return;
+        }
+
+        if (std::strstr(emotion, "happy") || std::strstr(emotion, "laugh") ||
+            std::strstr(emotion, "loving") || std::strstr(emotion, "cool")) {
+            SetPetState(PAOPAO_PET_STATE_DONE);
+        } else if (std::strstr(emotion, "think")) {
+            SetPetState(PAOPAO_PET_STATE_THINKING);
+        } else if (std::strstr(emotion, "sleep")) {
+            SetPetState(PAOPAO_PET_STATE_SLEEPING);
+        } else if (std::strstr(emotion, "sad") || std::strstr(emotion, "angry") ||
+                   std::strstr(emotion, "cry") || std::strstr(emotion, "shock")) {
+            SetPetState(PAOPAO_PET_STATE_FAILING);
+        } else if (std::strstr(emotion, "neutral") || std::strstr(emotion, "microchip")) {
+            SetPetState(PAOPAO_PET_STATE_IDLE);
+        }
+    }
+
+    virtual void SetChatMessage(const char* role, const char* content) override {}
+    virtual void ClearChatMessages() override {}
+    virtual void ShowNotification(const char* notification, int duration_ms = 3000) override {}
+    virtual void UpdateStatusBar(bool update_all = false) override {}
+    virtual void SetPowerSaveMode(bool on) override {}
+
+private:
+    SemaphoreHandle_t mutex_ = nullptr;
+    TaskHandle_t render_task_ = nullptr;
+    paopao_pet_state_t current_state_ = PAOPAO_PET_STATE_IDLE;
+
+    void SetPetState(paopao_pet_state_t state) {
+        DisplayLockGuard lock(this);
+        current_state_ = state;
+        paopao_pet_play_state(state);
+    }
+
+    void RunRenderLoop() {
+        while (true) {
+            {
+                DisplayLockGuard lock(this);
+                paopao_pet_renderer_tick((uint32_t)(esp_timer_get_time() / 1000ULL));
+            }
+            vTaskDelay(pdMS_TO_TICKS(8));
+        }
+    }
+
+    static void RenderTask(void* arg) {
+        static_cast<PaopaoPetDisplay*>(arg)->RunRenderLoop();
+    }
+
+    virtual bool Lock(int timeout_ms = 0) override {
+        if (mutex_ == nullptr) {
+            return true;
+        }
+        const TickType_t ticks = timeout_ms <= 0 ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
+        return xSemaphoreTakeRecursive(mutex_, ticks) == pdTRUE;
+    }
+
+    virtual void Unlock() override {
+        if (mutex_ != nullptr) {
+            xSemaphoreGiveRecursive(mutex_);
+        }
     }
 };
 
@@ -60,7 +149,7 @@ class CustomBoard : public WifiBoard {
 private:
     i2c_master_bus_handle_t i2c_bus_;
     esp_io_expander_handle_t io_expander = NULL;
-    LcdDisplay* display_;
+    Display* display_;
     button_handle_t boot_btn, pwr_btn;
     button_driver_t* boot_btn_driver_ = nullptr;
     button_driver_t* pwr_btn_driver_ = nullptr;
@@ -143,8 +232,8 @@ private:
         esp_lcd_panel_disp_on_off(panel, true);
         esp_lcd_panel_swap_xy(panel, DISPLAY_SWAP_XY);
         esp_lcd_panel_mirror(panel, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
-        display_ = new CustomLcdDisplay(panel_io, panel,
-                                    DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
+        s_paopao_panel = panel;
+        display_ = new PaopaoPetDisplay();
     }
  
     void InitializeButtonsCustom() {
