@@ -21,3 +21,6 @@ __pycache__/
 *.tmp
 *.bak
 *.swp
+
+# Local git worktrees
+.worktrees/
