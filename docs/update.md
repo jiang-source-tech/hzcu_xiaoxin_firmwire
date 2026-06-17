@@ -1,5 +1,25 @@
 # Update
 
+## 2026-06-17 12:11:57 +08:00
+
+### Wi-Fi 默认配置清理
+
+#### 背景
+
+重新烧录后设备会自动写入默认 Wi-Fi `Jiang`，导致设备没有进入配网模式，并可能在错误网络环境下进行 OTA 检查，出现 `ESP_ERR_ESP_TLS_CONNECTION_TIMEOUT` / `code=32774`。
+
+#### 修改内容
+
+- 移除 `main/boards/common/wifi_board.cc` 中自动写入默认 Wi-Fi 密码的逻辑。
+- 保留默认 SSID 名称仅用于识别旧记录，不再保存默认密码。
+- 启动连接 Wi-Fi 前，如果 NVS 中仍存在旧的默认 SSID `Jiang`，自动删除该条记录。
+- 删除旧默认记录后，如果没有其他已保存 Wi-Fi，设备会进入配网模式。
+
+#### 涉及文件
+
+- `main/boards/common/wifi_board.cc`
+- `docs/update.md`
+
 ## 2026-06-17 10:21:37 +08:00
 
 ### Waveshare ESP32-S3 Touch LCD 1.46 桌宠动画显示尺寸统一

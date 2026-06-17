@@ -26,15 +26,16 @@ static const char *TAG = "WifiBoard";
 // Connection timeout in seconds
 static constexpr int CONNECT_TIMEOUT_SEC = 60;
 static constexpr char DEFAULT_WIFI_SSID[] = "Jiang";
-static constexpr char DEFAULT_WIFI_PASSWORD[] = "lhj123456";
 
-static void SeedDefaultWifiCredentialsIfNeeded(SsidManager& ssid_manager) {
-    if (!ssid_manager.GetSsidList().empty()) {
-        return;
+static void RemoveDefaultWifiCredentialsIfPresent(SsidManager& ssid_manager) {
+    const auto& ssid_list = ssid_manager.GetSsidList();
+    for (int i = 0; i < static_cast<int>(ssid_list.size()); ++i) {
+        if (ssid_list[i].ssid == DEFAULT_WIFI_SSID) {
+            ESP_LOGI(TAG, "Removing stale default WiFi credentials for SSID: %s", DEFAULT_WIFI_SSID);
+            ssid_manager.RemoveSsid(i);
+            return;
+        }
     }
-
-    ESP_LOGI(TAG, "Seeding default WiFi credentials for SSID: %s", DEFAULT_WIFI_SSID);
-    ssid_manager.AddSsid(DEFAULT_WIFI_SSID, DEFAULT_WIFI_PASSWORD);
 }
 
 WifiBoard::WifiBoard() {
@@ -99,7 +100,7 @@ void WifiBoard::StartNetwork() {
 
 void WifiBoard::TryWifiConnect() {
     auto& ssid_manager = SsidManager::GetInstance();
-    SeedDefaultWifiCredentialsIfNeeded(ssid_manager);
+    RemoveDefaultWifiCredentialsIfPresent(ssid_manager);
     bool have_ssid = !ssid_manager.GetSsidList().empty();
 
     if (have_ssid) {
