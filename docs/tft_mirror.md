@@ -10,8 +10,8 @@ Run `idf.py menuconfig` and enable:
 
 - `Board Type -> Waveshare ESP32-S3-Touch-LCD-1.46`
 - `Display Mirror -> Enable pixel-exact TFT mirror`
-- `Display Mirror -> Use USB CDC transport for TFT mirror`
-- `Display Mirror -> TFT mirror USB CDC baud hint = 2000000`
+- `Display Mirror -> Use WiFi TCP transport`
+- `Display Mirror -> TFT mirror TCP port = 7788`
 - `Display Mirror -> Full-frame checkpoint interval = 60`
 
 Then build and flash the firmware:
@@ -20,35 +20,41 @@ Then build and flash the firmware:
 idf.py build flash monitor
 ```
 
-The mirror data must use its own USB CDC interface. Do not point the viewer at
-the ESP-IDF console port, because the binary mirror packets must not be mixed
-with text logs.
+The mirror transport opens a TCP server on the board after the device joins
+WiFi. USB remains available for flashing and ESP-IDF monitor logs.
 
 ## Run
 
-Install the only Python dependency once:
+Install the Python dependencies once:
 
 ```powershell
-python -m pip install pyserial
+python -m pip install pyserial PyQt6
 ```
 
-Find the mirror CDC serial port in Device Manager, then run:
+Put the PC and board on the same WiFi network. Find the board IP address from
+`idf.py monitor`, the device UI, or your router client list, then run:
 
 ```powershell
-python scripts\tft_mirror_viewer.py --serial COM7 --baud 2000000
+python scripts\tft_mirror_viewer.py --host 192.168.1.123 --port 7788 --scale 2
 ```
 
 Expected startup output:
 
 ```text
-connected COM7
+connected 192.168.1.123:7788
 hello 412x412 RGB565
 frame=<number> crc=<8 hex digits> rects=<count> ok
 ```
 
-The viewer keeps the window open while it reconnects. If the board is unplugged,
-reset, or the CDC endpoint disappears, the viewer reopens the same serial port
-once per second until packets return.
+The PyQt6 viewer keeps the window open while it reconnects. If the board is
+reset, leaves WiFi, or the TCP connection drops, the viewer reconnects once per
+second until packets return.
+
+The viewer still has a legacy serial mode for debugging:
+
+```powershell
+python scripts\tft_mirror_viewer.py --serial COM4 --baud 2000000
+```
 
 ## Protocol Guarantees
 
@@ -72,13 +78,13 @@ time.
 
 ## Throughput And Reconnect Limits
 
-A full 412x412 RGB565 frame is 339488 bytes, before packet headers and USB CDC
+A full 412x412 RGB565 frame is 339488 bytes before packet headers and TCP/IP
 overhead. Continuous full-frame streaming is slow and can affect UI smoothness,
 so rectangle packets are required for normal operation. Full-frame packets are
 checkpoints for initial sync, reconnect, and recovery.
 
 The viewer can resynchronize after stray or lost bytes by scanning for the next
 valid `TFTM` packet header. If a packet payload CRC fails, the viewer closes and
-reopens the serial port so firmware can provide a fresh checkpoint. During heavy
-UI updates, USB CDC throughput can still lag behind the physical display; the PC
-image may be delayed even when CRCs match.
+reopens the TCP connection so firmware can provide a fresh checkpoint. During
+heavy UI updates, WiFi throughput can still lag behind the physical display; the
+PC image may be delayed even when CRCs match.

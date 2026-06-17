@@ -650,11 +650,43 @@ config DISPLAY_MIRROR_ENABLE
         Streams the final RGB565 rectangles submitted to the TFT panel so a PC
         viewer can reconstruct the exact framebuffer.
 
-config DISPLAY_MIRROR_TRANSPORT_USB_CDC
-    bool "Use USB CDC transport for TFT mirror"
-    default y
+choice DISPLAY_MIRROR_TRANSPORT
+    prompt "TFT mirror transport"
+    default DISPLAY_MIRROR_TRANSPORT_TCP
     depends on DISPLAY_MIRROR_ENABLE
+
+config DISPLAY_MIRROR_TRANSPORT_TCP
+    bool "Use WiFi TCP transport"
+    help
+        Streams mirror packets from a TCP server on the device. The PC viewer
+        connects to the board IP address, so USB remains available for
+        flashing and logs.
+
+config DISPLAY_MIRROR_TRANSPORT_USB_SERIAL_JTAG
+    bool "Use built-in USB Serial/JTAG transport"
+    depends on IDF_TARGET_ESP32S3
+    help
+        Streams mirror packets over the ESP32-S3 built-in USB Serial/JTAG
+        port. This reuses the board's existing USB serial COM port and avoids
+        installing a TinyUSB CDC device.
+
+config DISPLAY_MIRROR_TRANSPORT_USB_CDC
+    bool "Use TinyUSB CDC transport"
     select TINYUSB_CDC_ENABLED
+    help
+        Streams mirror packets over a TinyUSB CDC interface. Use this only on
+        boards where TinyUSB does not conflict with the programming/log USB
+        interface.
+
+endchoice
+
+config DISPLAY_MIRROR_TCP_PORT
+    int "TFT mirror TCP port"
+    default 7788
+    range 1024 65535
+    depends on DISPLAY_MIRROR_TRANSPORT_TCP
+    help
+        TCP port listened on by the device-side mirror server.
 
 config DISPLAY_MIRROR_USB_CDC_BAUD_HINT
     int "TFT mirror USB CDC baud hint"

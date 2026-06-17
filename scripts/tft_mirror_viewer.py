@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
-"""PC viewer for TFT mirror packets sent over USB CDC serial."""
+"""PyQt6 PC viewer for TFT mirror packets sent over serial or TCP."""
 
 from __future__ import annotations
 
 import argparse
-import base64
 import queue
+import socket
 import struct
 import threading
-import time
-import tkinter as tk
 import zlib
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional, Protocol, Tuple
 
 import serial
+from PyQt6 import QtCore, QtGui, QtWidgets
 
 
 MAGIC = 0x4D544654  # "TFTM", little-endian
@@ -33,10 +32,31 @@ RECT_PAYLOAD_HEADER = struct.Struct("<IHHHHH")
 FRAME_END_PAYLOAD = struct.Struct("<III")
 
 MAX_PAYLOAD_SIZE = 512 * 1024
+HOST_HELLO = b"TFTM_HOST_V1\n"
 
 
 class MirrorStreamError(Exception):
     """Recoverable mirror stream failure."""
+
+
+class MirrorStream(Protocol):
+    def read(self, size: int) -> bytes:
+        ...
+
+    def write(self, data: bytes) -> int:
+        ...
+
+
+class SocketStream:
+    def __init__(self, sock: socket.socket) -> None:
+        self.sock = sock
+
+    def read(self, size: int) -> bytes:
+        return self.sock.recv(size)
+
+    def write(self, data: bytes) -> int:
+        self.sock.sendall(data)
+        return len(data)
 
 
 @dataclass
@@ -57,20 +77,20 @@ class StreamState:
         return self.framebuffer
 
 
-def read_exact(port: serial.Serial, size: int) -> bytes:
+def read_exact(stream: MirrorStream, size: int) -> bytes:
     data = bytearray()
     while len(data) < size:
-        chunk = port.read(size - len(data))
+        chunk = stream.read(size - len(data))
         if not chunk:
-            raise ConnectionError("USB CDC stream timed out")
+            raise MirrorStreamError("stream closed")
         data.extend(chunk)
     return bytes(data)
 
 
-def read_header_resync(port: serial.Serial, max_payload: int) -> Tuple[int, int, int, int, int, int, int]:
+def read_header_resync(stream: MirrorStream, max_payload: int) -> Tuple[int, int, int, int, int, int, int]:
     window = bytearray()
     while True:
-        window.extend(read_exact(port, 1))
+        window.extend(read_exact(stream, 1))
         if len(window) > HEADER.size:
             del window[0]
         if len(window) != HEADER.size:
@@ -114,15 +134,6 @@ def rgb565_framebuffer_to_rgb888(framebuffer: bytes, swapped: bool) -> bytes:
         rgb[out + 2] = blue
         out += 3
     return bytes(rgb)
-
-
-def photo_from_rgb888(width: int, height: int, rgb: bytes) -> tk.PhotoImage:
-    ppm = f"P6\n{width} {height}\n255\n".encode("ascii") + rgb
-    try:
-        return tk.PhotoImage(data=ppm, format="PPM")
-    except tk.TclError:
-        encoded = base64.b64encode(ppm).decode("ascii")
-        return tk.PhotoImage(data=encoded, format="PPM")
 
 
 def apply_rect(state: StreamState, payload: bytes) -> int:
@@ -196,13 +207,13 @@ def put_event(events: queue.Queue, event: Tuple) -> None:
             pass
 
 
-def receive_loop(port: serial.Serial, args: argparse.Namespace, events: queue.Queue) -> None:
+def receive_loop(stream: MirrorStream, args: argparse.Namespace, events: queue.Queue) -> None:
     state = StreamState()
 
     while True:
-        header = read_header_resync(port, args.max_payload)
+        header = read_header_resync(stream, args.max_payload)
         _magic, _version, packet_type, _header_size, sequence, payload_size, crc32 = header
-        payload = read_exact(port, payload_size)
+        payload = read_exact(stream, payload_size)
         assert_crc(payload, crc32)
         check_sequence(state, sequence)
 
@@ -271,78 +282,134 @@ def serial_worker(args: argparse.Namespace, events: queue.Queue, stop_event: thr
     while not stop_event.is_set():
         try:
             with serial.Serial(args.serial, args.baud, timeout=args.timeout) as port:
+                port.dtr = False
+                port.rts = False
+                port.reset_input_buffer()
+                port.write(HOST_HELLO)
+                port.flush()
                 print(f"connected {args.serial}")
                 put_event(events, ("status", f"connected {args.serial}"))
                 receive_loop(port, args, events)
-        except (serial.SerialException, ConnectionError, MirrorStreamError, ValueError) as exc:
+        except (serial.SerialException, MirrorStreamError, ValueError) as exc:
             message = f"mirror disconnected: {exc}; reconnecting in {args.reconnect_delay:g}s"
             print(message)
             put_event(events, ("status", message))
             stop_event.wait(args.reconnect_delay)
 
 
-def make_ui(args: argparse.Namespace) -> Tuple[tk.Tk, tk.Label, tk.StringVar]:
-    root = tk.Tk()
-    root.title(f"TFT Mirror - {args.serial}")
-    image_label = tk.Label(root, bd=0)
-    image_label.pack()
-    status_text = tk.StringVar(value="waiting for mirror stream")
-    status_label = tk.Label(root, textvariable=status_text, anchor="w")
-    status_label.pack(fill="x")
-    return root, image_label, status_text
+def tcp_worker(args: argparse.Namespace, events: queue.Queue, stop_event: threading.Event) -> None:
+    endpoint = f"{args.host}:{args.port}"
+    while not stop_event.is_set():
+        try:
+            with socket.create_connection((args.host, args.port), timeout=args.timeout) as sock:
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                sock.settimeout(None)
+                stream = SocketStream(sock)
+                print(f"connected {endpoint}")
+                put_event(events, ("status", f"connected {endpoint}"))
+                receive_loop(stream, args, events)
+        except (OSError, MirrorStreamError, ValueError) as exc:
+            message = f"mirror disconnected: {exc}; reconnecting in {args.reconnect_delay:g}s"
+            print(message)
+            put_event(events, ("status", message))
+            stop_event.wait(args.reconnect_delay)
 
 
-def poll_events(root: tk.Tk, label: tk.Label, status_text: tk.StringVar, events: queue.Queue, args: argparse.Namespace) -> None:
-    try:
-        while True:
-            event = events.get_nowait()
-            kind = event[0]
-            if kind == "status":
-                status_text.set(event[1])
-            elif kind == "frame":
-                _kind, width, height, swapped, framebuffer, frame_id, expected_crc, actual_crc, ok = event
-                rgb = rgb565_framebuffer_to_rgb888(framebuffer, swapped)
-                image = photo_from_rgb888(width, height, rgb)
-                if args.scale != 1:
-                    image = image.zoom(args.scale, args.scale)
-                label.configure(image=image)
-                label.image = image
-                crc_status = "ok" if ok else f"mismatch viewer={actual_crc:08x}"
-                status_text.set(f"frame={frame_id} crc={expected_crc:08x} {crc_status}")
-    except queue.Empty:
-        pass
+class MirrorWindow(QtWidgets.QWidget):
+    def __init__(self, args: argparse.Namespace, events: queue.Queue, stop_event: threading.Event) -> None:
+        super().__init__()
+        self.args = args
+        self.events = events
+        self.stop_event = stop_event
 
-    root.after(args.ui_interval_ms, poll_events, root, label, status_text, events, args)
+        self.setWindowTitle(f"TFT Mirror - {args.endpoint_label}")
+        self.image_label = QtWidgets.QLabel(alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.image_label.setMinimumSize(1, 1)
+        self.status_label = QtWidgets.QLabel("waiting for mirror stream")
+        self.status_label.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self.image_label, 1)
+        layout.addWidget(self.status_label, 0)
+
+        self.timer = QtCore.QTimer(self)
+        self.timer.timeout.connect(self.poll_events)
+        self.timer.start(args.ui_interval_ms)
+
+    def poll_events(self) -> None:
+        try:
+            while True:
+                event = self.events.get_nowait()
+                kind = event[0]
+                if kind == "status":
+                    self.status_label.setText(event[1])
+                elif kind == "frame":
+                    self.show_frame(event)
+        except queue.Empty:
+            pass
+
+    def show_frame(self, event: Tuple) -> None:
+        _kind, width, height, swapped, framebuffer, frame_id, expected_crc, actual_crc, ok = event
+        rgb = rgb565_framebuffer_to_rgb888(framebuffer, swapped)
+        image = QtGui.QImage(
+            rgb,
+            width,
+            height,
+            width * 3,
+            QtGui.QImage.Format.Format_RGB888,
+        ).copy()
+        pixmap = QtGui.QPixmap.fromImage(image)
+        if self.args.scale != 1:
+            pixmap = pixmap.scaled(
+                width * self.args.scale,
+                height * self.args.scale,
+                QtCore.Qt.AspectRatioMode.IgnoreAspectRatio,
+                QtCore.Qt.TransformationMode.FastTransformation,
+            )
+        self.image_label.setPixmap(pixmap)
+        self.resize(max(self.width(), pixmap.width()), max(self.height(), pixmap.height() + self.status_label.height()))
+
+        crc_status = "ok" if ok else f"mismatch viewer={actual_crc:08x}"
+        self.status_label.setText(f"frame={frame_id} crc={expected_crc:08x} {crc_status}")
+
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:
+        self.stop_event.set()
+        super().closeEvent(event)
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="View TFT mirror packets from a USB CDC serial port.")
-    parser.add_argument("--serial", required=True, help="USB CDC serial port, for example COM7")
+    parser = argparse.ArgumentParser(description="View TFT mirror packets with PyQt6.")
+    transport = parser.add_mutually_exclusive_group(required=True)
+    transport.add_argument("--host", help="Board IP address for WiFi/TCP mirror mode")
+    transport.add_argument("--serial", help="Mirror serial port, for example COM4")
+    parser.add_argument("--port", type=int, default=7788, help="TCP mirror port used with --host")
     parser.add_argument("--baud", type=int, default=2_000_000, help="CDC baud hint shown by host tools")
-    parser.add_argument("--timeout", type=float, default=2.0, help="serial read timeout in seconds")
-    parser.add_argument("--reconnect-delay", type=float, default=1.0, help="delay before reopening the serial port")
+    parser.add_argument("--timeout", type=float, default=2.0, help="connect/read timeout in seconds")
+    parser.add_argument("--reconnect-delay", type=float, default=1.0, help="delay before reconnecting")
     parser.add_argument("--max-payload", type=int, default=MAX_PAYLOAD_SIZE, help="largest accepted packet payload")
     parser.add_argument("--scale", type=int, default=1, choices=(1, 2, 3, 4), help="integer display scale")
-    parser.add_argument("--ui-interval-ms", type=int, default=16, help="Tk event polling interval")
-    return parser.parse_args()
+    parser.add_argument("--ui-interval-ms", type=int, default=16, help="Qt event polling interval")
+    args = parser.parse_args()
+    args.endpoint_label = f"{args.host}:{args.port}" if args.host else args.serial
+    return args
 
 
 def main() -> None:
     args = parse_args()
     events: queue.Queue = queue.Queue(maxsize=8)
     stop_event = threading.Event()
-    root, label, status_text = make_ui(args)
 
-    worker = threading.Thread(target=serial_worker, args=(args, events, stop_event), daemon=True)
+    target = tcp_worker if args.host else serial_worker
+    worker = threading.Thread(target=target, args=(args, events, stop_event), daemon=True)
     worker.start()
 
-    def on_close() -> None:
-        stop_event.set()
-        root.destroy()
-
-    root.protocol("WM_DELETE_WINDOW", on_close)
-    root.after(args.ui_interval_ms, poll_events, root, label, status_text, events, args)
-    root.mainloop()
+    app = QtWidgets.QApplication([])
+    window = MirrorWindow(args, events, stop_event)
+    window.show()
+    app.exec()
+    stop_event.set()
 
 
 if __name__ == "__main__":

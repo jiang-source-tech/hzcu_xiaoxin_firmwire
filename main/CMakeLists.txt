@@ -47,6 +47,12 @@ if(CONFIG_DISPLAY_MIRROR_ENABLE)
     if(CONFIG_DISPLAY_MIRROR_TRANSPORT_USB_CDC)
         list(APPEND SOURCES "display/display_mirror_transport_usb.cc")
     endif()
+    if(CONFIG_DISPLAY_MIRROR_TRANSPORT_USB_SERIAL_JTAG)
+        list(APPEND SOURCES "display/display_mirror_transport_usb_serial_jtag.cc")
+    endif()
+    if(CONFIG_DISPLAY_MIRROR_TRANSPORT_TCP)
+        list(APPEND SOURCES "display/display_mirror_transport_tcp.cc")
+    endif()
 endif()
 
 set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols")
@@ -925,6 +931,7 @@ idf_component_register(SRCS ${SOURCES}
                         esp_netif
                         esp_driver_gpio
                         esp_driver_uart
+                        esp_driver_usb_serial_jtag
                         esp_driver_spi
                         esp_driver_i2c
                         esp_driver_i2s
