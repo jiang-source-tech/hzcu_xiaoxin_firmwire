@@ -749,7 +749,6 @@ list(APPEND SOURCES ${BOARD_SOURCES})
 
 if(CONFIG_BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_46)
     list(REMOVE_ITEM SOURCES
-        ${CMAKE_CURRENT_SOURCE_DIR}/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_assets.c
         ${CMAKE_CURRENT_SOURCE_DIR}/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_renderer.c
     )
 endif()
