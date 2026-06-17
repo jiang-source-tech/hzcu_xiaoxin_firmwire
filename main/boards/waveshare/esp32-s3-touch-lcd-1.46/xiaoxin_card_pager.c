@@ -59,7 +59,7 @@ void xiaoxin_card_pager_init(xiaoxin_card_pager_t* pager, int16_t screen_height)
   pager->animation = XIAOXIN_CARD_ANIMATION_NONE;
   pager->screen_height = screen_height;
   pager->threshold_px = (int16_t)((screen_height * 20) / 100);
-  pager->max_drag_px = screen_height;
+  pager->max_drag_px = (int16_t)((screen_height * 25) / 100);
   pager->start_x = 0;
   pager->start_y = 0;
   pager->last_x = 0;

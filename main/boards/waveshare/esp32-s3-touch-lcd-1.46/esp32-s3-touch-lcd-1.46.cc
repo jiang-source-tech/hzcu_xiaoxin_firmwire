@@ -75,7 +75,8 @@ static constexpr uint8_t k_shake_required_samples = 3;
 static constexpr uint16_t k_white_rgb565 = 0xFFFF;
 static constexpr uint32_t k_pet_image_scale_base = LV_SCALE_NONE;
 static constexpr uint16_t k_pet_target_visual_longest = 162;
-static constexpr uint16_t k_card_snap_anim_ms = 210;
+static constexpr uint16_t k_card_snap_min_anim_ms = 150;
+static constexpr uint16_t k_card_snap_max_anim_ms = 240;
 static constexpr uint8_t k_card_glass_count = 3;
 static constexpr uint8_t k_overview_row_count = 4;
 static constexpr uint8_t k_overview_sep_count = 3;
@@ -615,6 +616,8 @@ private:
     GlassCard glass_cards_[k_card_glass_count];
     OverviewRow overview_rows_[k_overview_row_count];
     lv_obj_t* overview_separators_[k_overview_sep_count] = {};
+    xiaoxin_card_page_t rendered_card_page_ = XIAOXIN_CARD_PAGE_HOME;
+    bool rendered_card_prepare_entry_ = false;
     lv_img_dsc_t pet_frame_dsc_ = {};
     uint16_t* pet_frame_buffer_ = nullptr;
     lv_img_dsc_t gif_source_dsc_ = {};
@@ -971,31 +974,48 @@ private:
         xiaoxin_card_page_t current,
         xiaoxin_card_page_t target,
         int16_t offset,
-        int16_t screen_height
+        int16_t screen_height,
+        int16_t max_drag_px
     ) {
+        const int32_t drag_limit = std::max<int16_t>(max_drag_px, 1);
+        const int32_t abs_offset = std::min<int32_t>(std::abs(offset), drag_limit);
+        const int32_t travel = (int32_t)screen_height;
+        const int32_t revealed = (travel * abs_offset) / drag_limit;
+
         if (current == XIAOXIN_CARD_PAGE_HOME) {
             if (target == XIAOXIN_CARD_PAGE_NOTIFICATIONS) {
-                return ClampCardY((int32_t)-screen_height + std::max<int16_t>(offset, 0), -screen_height, 0);
+                return ClampCardY(-travel + revealed, -screen_height, 0);
             }
             if (target == XIAOXIN_CARD_PAGE_OVERVIEW) {
-                return ClampCardY((int32_t)screen_height + std::min<int16_t>(offset, 0), 0, screen_height);
+                return ClampCardY(travel - revealed, 0, screen_height);
             }
             return 0;
         }
 
         if (current == XIAOXIN_CARD_PAGE_NOTIFICATIONS) {
             return target == XIAOXIN_CARD_PAGE_HOME
-                ? ClampCardY(offset, -screen_height, 0)
+                ? ClampCardY(-revealed, -screen_height, 0)
                 : 0;
         }
 
         if (current == XIAOXIN_CARD_PAGE_OVERVIEW) {
             return target == XIAOXIN_CARD_PAGE_HOME
-                ? ClampCardY(offset, 0, screen_height)
+                ? ClampCardY(revealed, 0, screen_height)
                 : 0;
         }
 
         return 0;
+    }
+
+    static uint32_t CardReleaseDurationMs(int16_t from_y, int16_t to_y, int16_t screen_height) {
+        const int32_t distance = std::abs((int32_t)to_y - (int32_t)from_y);
+        const int32_t denominator = std::max<int16_t>(screen_height, 1);
+        const int32_t span = (int32_t)k_card_snap_max_anim_ms - (int32_t)k_card_snap_min_anim_ms;
+        const int32_t scaled = (distance * span) / denominator;
+        return (uint32_t)std::min<int32_t>(
+            k_card_snap_max_anim_ms,
+            std::max<int32_t>(k_card_snap_min_anim_ms, k_card_snap_min_anim_ms + scaled)
+        );
     }
 
     static lv_opa_t DragCardLayerOpacity(
@@ -1176,6 +1196,8 @@ private:
 
         if (page == XIAOXIN_CARD_PAGE_HOME) {
             lv_obj_add_flag(card_layer_, LV_OBJ_FLAG_HIDDEN);
+            rendered_card_page_ = XIAOXIN_CARD_PAGE_HOME;
+            rendered_card_prepare_entry_ = false;
             RaiseOverlayObjects();
             return;
         }
@@ -1286,6 +1308,21 @@ private:
         }
 
         RaiseOverlayObjects();
+        rendered_card_page_ = page;
+        rendered_card_prepare_entry_ = prepare_entry_animation;
+    }
+
+    void EnsureCardPageRendered(xiaoxin_card_page_t page, bool prepare_entry_animation = false) {
+        if (card_layer_ == nullptr) {
+            return;
+        }
+
+        if (page == XIAOXIN_CARD_PAGE_HOME ||
+            lv_obj_has_flag(card_layer_, LV_OBJ_FLAG_HIDDEN) ||
+            rendered_card_page_ != page ||
+            rendered_card_prepare_entry_ != prepare_entry_animation) {
+            RenderCardPage(page, prepare_entry_animation);
+        }
     }
 
     void ApplyCardPagerVisual() {
@@ -1300,7 +1337,7 @@ private:
             visual_page = target == XIAOXIN_CARD_PAGE_HOME ? current : target;
         }
 
-        RenderCardPage(visual_page);
+        EnsureCardPageRendered(visual_page, false);
         if (visual_page == XIAOXIN_CARD_PAGE_HOME) {
             return;
         }
@@ -1308,7 +1345,13 @@ private:
         const int16_t offset = xiaoxin_card_pager_offset_y(&card_pager_);
         const xiaoxin_card_page_t target = xiaoxin_card_pager_target_page(&card_pager_);
         lv_anim_delete(card_layer_, CardLayerSetY);
-        lv_obj_set_y(card_layer_, DragCardLayerY(current, target, offset, card_pager_.screen_height));
+        lv_obj_set_y(card_layer_, DragCardLayerY(
+            current,
+            target,
+            offset,
+            card_pager_.screen_height,
+            card_pager_.max_drag_px
+        ));
         lv_obj_set_style_opa(
             card_layer_,
             xiaoxin_card_pager_is_dragging(&card_pager_)
@@ -1327,7 +1370,7 @@ private:
         if (card_layer_ == nullptr) {
             return;
         }
-        RenderCardPage(visual_page, false);
+        EnsureCardPageRendered(visual_page, false);
         if (visual_page == XIAOXIN_CARD_PAGE_HOME) {
             return;
         }
@@ -1340,7 +1383,7 @@ private:
         lv_anim_init(&anim);
         lv_anim_set_var(&anim, card_layer_);
         lv_anim_set_values(&anim, from_y, to_y);
-        lv_anim_set_time(&anim, k_card_snap_anim_ms);
+        lv_anim_set_time(&anim, CardReleaseDurationMs(from_y, to_y, card_pager_.screen_height));
         lv_anim_set_path_cb(&anim, lv_anim_path_ease_out);
         lv_anim_set_exec_cb(&anim, CardLayerSetY);
         lv_anim_set_completed_cb(&anim, from_drag ? CardLayerDragAnimationCompleted : CardLayerAnimationCompleted);
@@ -1479,7 +1522,8 @@ private:
             release_current_page,
             release_target_page,
             release_offset,
-            card_pager_.screen_height
+            card_pager_.screen_height,
+            card_pager_.max_drag_px
         );
         if (card_pager_.pressed) {
             xiaoxin_card_pager_release(&card_pager_);
@@ -1553,6 +1597,9 @@ private:
                 touch_start_x_ = x;
                 touch_start_y_ = y;
                 touch_start_ms_ = now_ms;
+                if (card_layer_ != nullptr) {
+                    lv_anim_delete(card_layer_, CardLayerSetY);
+                }
                 xiaoxin_card_pager_press(&card_pager_, (int16_t)x, (int16_t)y);
             } else {
                 xiaoxin_card_pager_drag(&card_pager_, (int16_t)x, (int16_t)y);
