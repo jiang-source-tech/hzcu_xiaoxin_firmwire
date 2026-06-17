@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Current status, 2026-06-17:** This is the original implementation plan. The current Waveshare 1.46C implementation uses LVGL to play GIF resources from `main/assets/images` directly. See `docs/xiaoxin-lvgl-pet-hardware-plan.zh-CN.md` for the current-state design.
+
 **Goal:** 在 Waveshare ESP32-S3-Touch-LCD-1.46C 上，把“小芯”做成常驻圆屏的校园情感陪伴桌宠，同时保留当前小智固件的语音、OTA、WebSocket 和音频链路。
 
 **Architecture:** 本方案明确改为 **LVGL 适配方案**：小芯动画作为 LVGL 页面中的宠物层运行，不再采用 `paopao_pet` 的 `esp_lcd_panel_draw_bitmap` 直绘帧循环。固件继续沿用现有 `Display`、`SpiLcdDisplay`、`Protocol`、`Application` 抽象；板级文件只把默认显示从通用 LCD UI 切换为 `XiaoxinPetDisplay`，并把触摸、摇晃、本地桌宠状态和自建服务端事件打通。
@@ -15,7 +17,7 @@
 本次修正后的核心结论是：
 
 - 小芯桌宠动画必须适配当前固件已有的 LVGL 显示体系。
-- `D:\Learn\paopao_ui\firmware\paopao_pet` 只作为状态、动作、帧资产组织方式的参考，不把它的直绘 LCD 循环迁入当前工程。
+- `D:\Learn\paopao_ui\firmware\paopao_pet` 只作为状态、动作、资源组织方式的参考；当前工程不再使用它的独立 LCD 直绘循环。
 - 1.46C 圆屏上长期显示“小芯本体 + 短状态徽标”，不显示长聊天字幕。
 - 语音对话仍走硬件端小智主链路，服务端由项目组自建，统一处理 ASR、小芯人设平台、TTS 和事件编排。
 - 小程序带路能力不进入硬件 V1；硬件只保留接收服务端短提醒和触发本地互动事件的能力。
@@ -63,7 +65,7 @@ D:\Learn\hzcu-xiaoxin-firmwire
 - 小芯常驻圆屏 idle 动画。
 - 语音状态联动：待机、连接、聆听、思考、说话、完成、错误。
 - 触摸本地反馈：单击、长按、拖动。
-- 摇晃本地反馈：QMI8658 检测到有效晃动后播放惊喜或思考动画。
+- 摇晃本地反馈：QMI8658 只有检测到剧烈摇晃后才播放 `giddy` 动画，普通晃动不触发 `giddy`。
 - 关键本地互动上报自建 WebSocket 服务端。
 - 服务端下发 `tts`、`llm.emotion`、`alert` 时，硬件能切换小芯状态和短状态文案。
 - 首次绑定可通过短码或二维码临时页面完成，绑定后回到小芯待机。
@@ -114,7 +116,7 @@ flowchart TD
 - 将当前 `CustomLcdDisplay` 替换或收敛为 `XiaoxinPetDisplay`。
 - 保留圆屏 invalidation rounder 回调。
 - 初始化 CST9217 触摸并接入 LVGL input。
-- 初始化 QMI8658 或增加轮询任务，检测有效摇晃。
+- 初始化 QMI8658 或增加轮询任务，检测剧烈摇晃。
 - 把触摸和摇晃事件同时分发给本地桌宠显示和协议事件上报。
 
 ### `main\boards\waveshare\esp32-s3-touch-lcd-1.46\xiaoxin_pet_display.h/.cc`
@@ -146,8 +148,7 @@ enum class XiaoxinPetState {
     Speaking,
     Happy,
     Sleeping,
-    RunningLeft,
-    RunningRight,
+    Jumping,
     Failing,
 };
 ```
@@ -202,8 +203,7 @@ const XiaoxinPetAnimation* XiaoxinPetAnimationForState(XiaoxinPetState state);
 - `speaking`
 - `happy`
 - `sleeping`
-- `running-left`
-- `running-right`
+- `jumping`
 - `failing`
 
 ### `main\boards\waveshare\esp32-s3-touch-lcd-1.46\xiaoxin_pet_input.h/.cc`
@@ -251,7 +251,8 @@ void SendDeviceEvent(const std::string& event,
 职责：
 
 - 默认板级目标改为 Waveshare 1.46C。
-- 保留当前中文语言、音频处理、唤醒词、OTA URL 等配置。
+- 保留当前中文语言、音频处理、OTA URL 等配置。
+- 唤醒词固化为自定义 MultiNet 命令词“小芯”：`CONFIG_USE_CUSTOM_WAKE_WORD=y`、`CONFIG_CUSTOM_WAKE_WORD="xiao xin"`、`CONFIG_CUSTOM_WAKE_WORD_DISPLAY="小芯"`，并选择中文 `mn5q8_cn` 模型。
 
 ## 7. 状态映射
 
@@ -261,8 +262,8 @@ void SendDeviceEvent(const std::string& event,
 | Wi-Fi / WebSocket 连接中 | 连接未完成 | `waiting` | `连接中` |
 | 单击小芯 | 本地触摸 | `happy` | `我在呢` |
 | 长按小芯 | 睡眠切换 | `sleeping` 或 `idle` | `休息一下` / `醒啦` |
-| 左右拖动 | 拖动方向 | `running_left` / `running_right` | 空 |
-| 摇晃设备 | 有效加速度变化 | `thinking` 或 `happy` | `怎么啦` |
+| 左右拖动 | 拖动方向 | `jumping` | 空 |
+| 摇晃设备 | 剧烈加速度变化 | `giddy` | `怎么啦` |
 | 设备开始聆听 | `kDeviceStateListening` | `listening` | `聆听中` |
 | 用户语音识别完成 | 收到 `stt` | `thinking` | `想一想` |
 | TTS 开始 | `type=tts,state=start` | `speaking` | `小芯说` |
@@ -313,7 +314,7 @@ hello 里的 features 增加：
 
 - `event`: `pet_tap`、`pet_hold`、`pet_drag`、`pet_shake`
 - `intent`: `mood_checkin`、`sleep_toggle`、`local_play`
-- `state`: `idle`、`waiting`、`listening`、`thinking`、`speaking`、`happy`、`sleeping`、`running_left`、`running_right`、`failing`
+- `state`: `idle`、`waiting`、`listening`、`thinking`、`speaking`、`happy`、`sleeping`、`jumping`、`failing`
 - `ts`: `esp_timer_get_time() / 1000` 得到的毫秒时间
 
 发送策略：
@@ -363,13 +364,31 @@ CONFIG_USE_AUDIO_PROCESSOR=y
 CONFIG_OTA_URL="http://192.168.249.186:8003/xiaozhi/ota/"
 ```
 
+- [ ] 将唤醒词配置固化为“小芯”：
+
+```ini
+CONFIG_USE_CUSTOM_WAKE_WORD=y
+CONFIG_CUSTOM_WAKE_WORD="xiao xin"
+CONFIG_CUSTOM_WAKE_WORD_DISPLAY="小芯"
+CONFIG_CUSTOM_WAKE_WORD_THRESHOLD=20
+CONFIG_SEND_WAKE_WORD_DATA=y
+CONFIG_SR_MN_CN_MULTINET5_RECOGNITION_QUANT8=y
+```
+
+- [ ] 确认当前构建配置不再启用原“小智” WakeNet：
+
+```ini
+# CONFIG_USE_AFE_WAKE_WORD is not set
+# CONFIG_SR_WN_WN9_NIHAOXIAOZHI_TTS is not set
+```
+
 - [ ] 运行：
 
 ```powershell
 idf.py reconfigure
 ```
 
-Expected: 配置完成，`sdkconfig` 中仍为 `CONFIG_BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_46=y`。
+Expected: 配置完成，`sdkconfig` 中仍为 `CONFIG_BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_46=y`，并启用 `CONFIG_USE_CUSTOM_WAKE_WORD=y`、`CONFIG_CUSTOM_WAKE_WORD_DISPLAY="小芯"`、`CONFIG_SR_MN_CN_MULTINET5_RECOGNITION_QUANT8=y`。
 
 ### Task 2: 增加小芯状态机
 
@@ -428,9 +447,8 @@ XiaoxinPetState XiaoxinPetTransition(XiaoxinPetState current, XiaoxinPetEvent ev
         case XiaoxinPetEvent::Tap:
             return current == XiaoxinPetState::Sleeping ? XiaoxinPetState::Sleeping : XiaoxinPetState::Happy;
         case XiaoxinPetEvent::DragLeft:
-            return current == XiaoxinPetState::Sleeping ? XiaoxinPetState::Sleeping : XiaoxinPetState::RunningLeft;
         case XiaoxinPetEvent::DragRight:
-            return current == XiaoxinPetState::Sleeping ? XiaoxinPetState::Sleeping : XiaoxinPetState::RunningRight;
+            return current == XiaoxinPetState::Sleeping ? XiaoxinPetState::Sleeping : XiaoxinPetState::Jumping;
         case XiaoxinPetEvent::Shake:
             return current == XiaoxinPetState::Sleeping ? XiaoxinPetState::Sleeping : XiaoxinPetState::Thinking;
         case XiaoxinPetEvent::AppConnecting:
@@ -462,8 +480,7 @@ const char* XiaoxinPetStateName(XiaoxinPetState state) {
         case XiaoxinPetState::Speaking: return "speaking";
         case XiaoxinPetState::Happy: return "happy";
         case XiaoxinPetState::Sleeping: return "sleeping";
-        case XiaoxinPetState::RunningLeft: return "running_left";
-        case XiaoxinPetState::RunningRight: return "running_right";
+        case XiaoxinPetState::Jumping: return "jumping";
         case XiaoxinPetState::Failing: return "failing";
         default: return "idle";
     }
@@ -681,11 +698,11 @@ LV_EVENT_PRESSING + x delta < -24 -> DragLeft -> pet_drag / local_play
 LV_EVENT_PRESSING + x delta > 24 -> DragRight -> pet_drag / local_play
 ```
 
-- [ ] 摇晃检测建议参数：
+- [ ] 剧烈摇晃检测建议参数：
 
 ```text
 sample_interval_ms: 40
-accel_delta_threshold_g: 0.85
+accel_delta_threshold_g: 1.25
 cooldown_ms: 1200
 min_valid_samples: 2
 ```
@@ -699,7 +716,7 @@ pet_display->PlayPetEvent(XiaoxinPetEvent::Shake, "怎么啦");
 
 - [ ] 网络上报在本地反馈之后执行，WebSocket 不通时不能卡住动画。
 
-Expected: 弱网或未连接服务端时，触摸和摇晃仍有即时动画反馈。
+Expected: 弱网或未连接服务端时，触摸仍有即时动画反馈；只有剧烈摇晃触发 `giddy`。
 
 ### Task 7: 增加 `device_event` 协议
 
@@ -769,7 +786,7 @@ Expected:
 - 切换到聆听、思考、说话、完成、错误状态时动画正确。
 - 短状态文案不越出圆屏安全区。
 - 长聊天文本不覆盖小芯主体。
-- 单击、长按、拖动、摇晃都有本地反馈。
+- 单击、长按、拖动都有本地反馈；只有剧烈摇晃触发 `giddy`。
 - 服务端在线时能收到 `pet_tap`、`pet_hold`、`pet_drag`、`pet_shake`。
 - 服务端离线时本地互动不卡顿。
 
@@ -779,7 +796,7 @@ Expected:
 - 小芯显示层基于 LVGL 对象和 LVGL timer，不使用独立 LCD 直绘循环。
 - 小芯形象常驻主屏，默认 UI 不再以长字幕为中心。
 - `Display` 接口调用仍能驱动动画状态变化。
-- 触摸和摇晃在本地即时响应，并可选上报服务端。
+- 触摸和剧烈摇晃在本地即时响应，并可选上报服务端；`giddy` 不由服务端情绪或 idle 自主动作触发。
 - WebSocket hello 明确声明 `device_events` 和 `xiaoxin-lvgl-v1`。
 - 自建服务端可通过现有 `tts`、`llm.emotion`、`alert` 触发硬件表情和短状态。
 - 小程序带路逻辑未混入硬件 V1 固件。
@@ -791,7 +808,7 @@ Expected:
 | LVGL 帧动画占用 Flash 或 PSRAM 过高 | 首版控制帧尺寸、帧数和 fps，优先 RGB565，按状态拆分动画 |
 | 圆屏边缘裁切状态文字 | 固定 safe box，所有短状态 label 居中并限制宽度 |
 | 触摸与系统按钮行为冲突 | 屏幕触摸只做桌宠互动，BOOT/PWR 仍保留原硬件按钮职责 |
-| 摇晃误触发 | 使用阈值、连续样本和冷却时间 |
+| 摇晃误触发 | 使用高阈值、连续样本和冷却时间，避免普通晃动触发 `giddy` |
 | 服务端未就绪 | 本地动画和语音链路可独立验证，`device_event` 只作为非阻塞增强 |
 | 最终素材尚未切图 | 先接入同接口占位帧，正式帧替换时不改显示层 |
 
@@ -800,7 +817,7 @@ Expected:
 1. 先改 `sdkconfig.defaults`，确保目标板稳定。
 2. 先做 `xiaoxin_pet_state`，用串口日志确认状态迁移。
 3. 再做 `xiaoxin_pet_assets` 占位帧和 `XiaoxinPetDisplay`，确认 LVGL 层能显示和切状态。
-4. 接触摸，再接 QMI8658 摇晃。
+4. 接触摸，再接 QMI8658 剧烈摇晃。
 5. 最后接协议上报和 hello feature。
 6. 真机验证通过后，再替换为正式小芯帧资产。
 

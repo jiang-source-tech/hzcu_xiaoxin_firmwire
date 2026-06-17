@@ -38,6 +38,10 @@ paopao_pet_state_t paopao_pet_dispatch_event(
       ctx->last_interaction_ms = now_ms;
       enter_state(ctx, PAOPAO_PET_STATE_DONE, now_ms);
       break;
+    case PAOPAO_PET_EVENT_SHAKE:
+      ctx->last_interaction_ms = now_ms;
+      enter_state(ctx, PAOPAO_PET_STATE_GIDDY, now_ms);
+      break;
     case PAOPAO_PET_EVENT_SLEEP_REQUEST:
       ctx->last_interaction_ms = now_ms;
       enter_state(ctx, PAOPAO_PET_STATE_SLEEPING, now_ms);
@@ -59,7 +63,8 @@ paopao_pet_state_t paopao_pet_tick(paopao_pet_context_t *ctx, uint32_t now_ms) {
   const uint32_t quiet_age_ms = now_ms - ctx->last_interaction_ms;
   const bool transient_state =
     ctx->state == PAOPAO_PET_STATE_THINKING ||
-    ctx->state == PAOPAO_PET_STATE_DONE;
+    ctx->state == PAOPAO_PET_STATE_DONE ||
+    ctx->state == PAOPAO_PET_STATE_GIDDY;
 
   if (transient_state && state_age_ms >= k_reaction_timeout_ms) {
     return paopao_pet_dispatch_event(ctx, PAOPAO_PET_EVENT_STILL_TIMEOUT, now_ms);
@@ -86,12 +91,12 @@ const char *paopao_pet_state_name(paopao_pet_state_t state) {
       return "done";
     case PAOPAO_PET_STATE_SLEEPING:
       return "sleeping";
-    case PAOPAO_PET_STATE_RUNNING_LEFT:
-      return "running-left";
-    case PAOPAO_PET_STATE_RUNNING_RIGHT:
-      return "running-right";
+    case PAOPAO_PET_STATE_JUMPING:
+      return "jumping";
     case PAOPAO_PET_STATE_FAILING:
       return "failing";
+    case PAOPAO_PET_STATE_GIDDY:
+      return "giddy";
     case PAOPAO_PET_STATE_REVIEW:
       return "review";
   }

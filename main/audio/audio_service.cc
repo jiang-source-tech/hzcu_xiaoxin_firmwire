@@ -99,7 +99,7 @@ void AudioService::Initialize(AudioCodec* codec) {
 #endif
 
     audio_processor_->OnOutput([this](std::vector<int16_t>&& data) {
-        PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue, std::move(data));
+        PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue, std::move(data), false);
     });
 
     audio_processor_->OnVadStateChange([this](bool speaking) {
@@ -481,12 +481,25 @@ void AudioService::SetDecodeSampleRate(int sample_rate, int frame_duration) {
     }
 }
 
-void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t>&& pcm) {
+bool AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t>&& pcm, bool wait) {
     auto task = std::make_unique<AudioTask>();
     task->type = type;
     task->pcm = std::move(pcm);
     /* Push the task to the encode queue */
     std::unique_lock<std::mutex> lock(audio_queue_mutex_);
+
+    auto action = audio_backpressure_action(audio_encode_queue_.size(), MAX_ENCODE_TASKS_IN_QUEUE, wait);
+    if (action == kAudioBackpressureDrop) {
+        debug_statistics_.encode_drop_count++;
+        if (debug_statistics_.encode_drop_count == 1 || debug_statistics_.encode_drop_count % 50 == 0) {
+            ESP_LOGW(TAG, "Dropping realtime audio frame because encode queue is full (%u drops)",
+                     debug_statistics_.encode_drop_count);
+        }
+        return false;
+    }
+    if (action == kAudioBackpressureWait) {
+        audio_queue_cv_.wait(lock, [this]() { return audio_encode_queue_.size() < MAX_ENCODE_TASKS_IN_QUEUE; });
+    }
 
     /* If the task is to send queue, we need to set the timestamp */
     if (type == kAudioTaskTypeEncodeToSendQueue && !timestamp_queue_.empty()) {
@@ -498,9 +511,9 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
         timestamp_queue_.pop_front();
     }
 
-    audio_queue_cv_.wait(lock, [this]() { return audio_encode_queue_.size() < MAX_ENCODE_TASKS_IN_QUEUE; });
     audio_encode_queue_.push_back(std::move(task));
     audio_queue_cv_.notify_all();
+    return true;
 }
 
 bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait) {

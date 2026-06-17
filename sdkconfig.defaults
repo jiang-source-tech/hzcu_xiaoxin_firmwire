@@ -15,9 +15,13 @@ CONFIG_USE_AUDIO_PROCESSOR=y
 CONFIG_USE_DEVICE_AEC=n
 CONFIG_USE_SERVER_AEC=n
 
-# ── 唤醒词 (AFE, 需要 PSRAM) ─────────────────────────────────
-CONFIG_USE_AFE_WAKE_WORD=y
+# ── 唤醒词 (自定义 MultiNet, 需要 PSRAM) ─────────────────────
+CONFIG_USE_CUSTOM_WAKE_WORD=y
+CONFIG_CUSTOM_WAKE_WORD="xiao xin"
+CONFIG_CUSTOM_WAKE_WORD_DISPLAY="小芯"
+CONFIG_CUSTOM_WAKE_WORD_THRESHOLD=20
 CONFIG_SEND_WAKE_WORD_DATA=y
+CONFIG_SR_MN_CN_MULTINET5_RECOGNITION_QUANT8=y
 
 # ── PSRAM 配置 ────────────────────────────────────────────────
 CONFIG_SPIRAM=y
@@ -42,10 +46,9 @@ CONFIG_USE_DEFAULT_MESSAGE_STYLE=y
 # ── Assets ────────────────────────────────────────────────────
 CONFIG_FLASH_DEFAULT_ASSETS=y
 
-# ── OTA URL (指向我们自己的 HTTP 服务端) ──────────────────────
-# HTTP 端口 8003，路径 /xiaozhi/ota/，固件从此获取 WebSocket 服务器地址
-# 注意: IP 地址需与当前局域网一致，换网络时需要更新并重编译
-CONFIG_OTA_URL="http://192.168.249.186:8003/xiaozhi/ota/"
+# ── OTA URL (官方服务端) ─────────────────────────────────────
+# 固件从此检查更新并获取 WebSocket 服务器地址
+CONFIG_OTA_URL="https://api.tenclass.net/xiaozhi/ota/"
 
 # ── FreeRTOS ──────────────────────────────────────────────────
 CONFIG_FREERTOS_HZ=1000
@@ -131,5 +134,4 @@ CONFIG_LV_USE_WIN=n
 
 CONFIG_LV_BUILD_EXAMPLES=n
 CONFIG_LV_BUILD_DEMOS=n
-
 

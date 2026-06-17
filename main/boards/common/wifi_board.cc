@@ -25,6 +25,17 @@ static const char *TAG = "WifiBoard";
 
 // Connection timeout in seconds
 static constexpr int CONNECT_TIMEOUT_SEC = 60;
+static constexpr char DEFAULT_WIFI_SSID[] = "Jiang";
+static constexpr char DEFAULT_WIFI_PASSWORD[] = "lhj123456";
+
+static void SeedDefaultWifiCredentialsIfNeeded(SsidManager& ssid_manager) {
+    if (!ssid_manager.GetSsidList().empty()) {
+        return;
+    }
+
+    ESP_LOGI(TAG, "Seeding default WiFi credentials for SSID: %s", DEFAULT_WIFI_SSID);
+    ssid_manager.AddSsid(DEFAULT_WIFI_SSID, DEFAULT_WIFI_PASSWORD);
+}
 
 WifiBoard::WifiBoard() {
     // Create connection timeout timer
@@ -88,6 +99,7 @@ void WifiBoard::StartNetwork() {
 
 void WifiBoard::TryWifiConnect() {
     auto& ssid_manager = SsidManager::GetInstance();
+    SeedDefaultWifiCredentialsIfNeeded(ssid_manager);
     bool have_ssid = !ssid_manager.GetSsidList().empty();
 
     if (have_ssid) {

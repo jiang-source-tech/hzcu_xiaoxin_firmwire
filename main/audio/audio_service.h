@@ -19,6 +19,7 @@
 #include "esp_audio_types.h"
 
 #include "audio_codec.h"
+#include "audio_backpressure.h"
 #include "audio_processor.h"
 #include "processors/audio_debugger.h"
 #include "wake_word.h"
@@ -92,13 +93,14 @@ enum AudioTaskType {
 struct AudioTask {
     AudioTaskType type;
     std::vector<int16_t> pcm;
-    uint32_t timestamp;
+    uint32_t timestamp = 0;
 };
 
 struct DebugStatistics {
     uint32_t input_count = 0;
     uint32_t decode_count = 0;
     uint32_t encode_count = 0;
+    uint32_t encode_drop_count = 0;
     uint32_t playback_count = 0;
 };
 
@@ -187,7 +189,7 @@ private:
     void AudioInputTask();
     void AudioOutputTask();
     void OpusCodecTask();
-    void PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t>&& pcm);
+    bool PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t>&& pcm, bool wait = true);
     void SetDecodeSampleRate(int sample_rate, int frame_duration);
     void CheckAndUpdateAudioPowerState();
 };
