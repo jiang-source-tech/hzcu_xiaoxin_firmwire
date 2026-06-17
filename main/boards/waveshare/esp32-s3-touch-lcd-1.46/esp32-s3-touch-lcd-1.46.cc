@@ -10,6 +10,7 @@
 #include "assets/lang_config.h"
 
 #include <esp_check.h>
+#include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_rom_sys.h>
 #include "i2c_device.h"
@@ -27,6 +28,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
+#include <algorithm>
 #include <cstring>
 #include <cstdlib>
 
@@ -42,6 +44,8 @@ extern const uint8_t assets_images_idle_gif_start[] asm("_binary_idle_gif_start"
 extern const uint8_t assets_images_idle_gif_end[] asm("_binary_idle_gif_end");
 extern const uint8_t assets_images_working_gif_start[] asm("_binary_working_gif_start");
 extern const uint8_t assets_images_working_gif_end[] asm("_binary_working_gif_end");
+extern const uint8_t assets_images_speaking_gif_start[] asm("_binary_speaking_gif_start");
+extern const uint8_t assets_images_speaking_gif_end[] asm("_binary_speaking_gif_end");
 extern const uint8_t assets_images_thinking_gif_start[] asm("_binary_thinking_gif_start");
 extern const uint8_t assets_images_thinking_gif_end[] asm("_binary_thinking_gif_end");
 extern const uint8_t assets_images_waiting_gif_start[] asm("_binary_waiting_gif_start");
@@ -66,6 +70,9 @@ static constexpr uint32_t k_motion_poll_ms = 50;
 static constexpr uint32_t k_shake_cooldown_ms = 1800;
 static constexpr int32_t k_shake_delta_threshold = 12000;
 static constexpr uint8_t k_shake_required_samples = 3;
+static constexpr uint16_t k_white_rgb565 = 0xFFFF;
+static constexpr uint32_t k_pet_image_scale_base = LV_SCALE_NONE;
+static constexpr uint16_t k_pet_target_visual_longest = 162;
 static constexpr uint8_t k_qmi8658_addr_primary = 0x6B;
 static constexpr uint8_t k_qmi8658_addr_secondary = 0x6A;
 static constexpr uint8_t k_qmi8658_reg_who_am_i = 0x00;
@@ -263,6 +270,8 @@ static PaopaoGifBinary PaopaoGifAssetForState(paopao_pet_state_t state) {
             return {assets_images_idle_gif_start, assets_images_idle_gif_end};
         case PAOPAO_PET_STATE_WORKING:
             return {assets_images_working_gif_start, assets_images_working_gif_end};
+        case PAOPAO_PET_STATE_SPEAKING:
+            return {assets_images_speaking_gif_start, assets_images_speaking_gif_end};
         case PAOPAO_PET_STATE_THINKING:
             return {assets_images_thinking_gif_start, assets_images_thinking_gif_end};
         case PAOPAO_PET_STATE_WAITING:
@@ -283,6 +292,44 @@ static PaopaoGifBinary PaopaoGifAssetForState(paopao_pet_state_t state) {
             return {assets_images_idle_gif_start, assets_images_idle_gif_end};
     }
 };
+
+static uint16_t PaopaoGifVisualLongestForState(paopao_pet_state_t state) {
+    switch (state) {
+        case PAOPAO_PET_STATE_IDLE:
+            return 162;
+        case PAOPAO_PET_STATE_WORKING:
+            return 165;
+        case PAOPAO_PET_STATE_SPEAKING:
+            return 182;
+        case PAOPAO_PET_STATE_THINKING:
+            return 159;
+        case PAOPAO_PET_STATE_WAITING:
+            return 151;
+        case PAOPAO_PET_STATE_DONE:
+            return 150;
+        case PAOPAO_PET_STATE_SLEEPING:
+            return 163;
+        case PAOPAO_PET_STATE_JUMPING:
+            return 125;
+        case PAOPAO_PET_STATE_FAILING:
+            return 112;
+        case PAOPAO_PET_STATE_GIDDY:
+            return 238;
+        case PAOPAO_PET_STATE_REVIEW:
+            return 126;
+        default:
+            return k_pet_target_visual_longest;
+    }
+}
+
+static uint32_t PaopaoImageScaleForVisualSize(paopao_pet_state_t state) {
+    const uint16_t visual_longest = PaopaoGifVisualLongestForState(state);
+    if (visual_longest == 0) {
+        return k_pet_image_scale_base;
+    }
+
+    return (((uint32_t)k_pet_target_visual_longest * k_pet_image_scale_base) + visual_longest / 2) / visual_longest;
+}
 
 class PaopaoPetDisplay : public SpiLcdDisplay {
 public:
@@ -307,6 +354,10 @@ public:
 
         DisplayLockGuard lock(this);
 
+        lv_obj_t* screen = lv_screen_active();
+        lv_obj_set_style_bg_color(screen, lv_color_white(), 0);
+        lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
+
         if (emoji_label_ != nullptr) {
             lv_obj_add_flag(emoji_label_, LV_OBJ_FLAG_HIDDEN);
         }
@@ -314,9 +365,15 @@ public:
             lv_obj_add_flag(emoji_image_, LV_OBJ_FLAG_HIDDEN);
         }
 
-        lv_obj_t* pet_parent = emoji_box_ != nullptr ? emoji_box_ : lv_screen_active();
-        pet_image_ = lv_image_create(pet_parent);
-        lv_obj_align(pet_image_, LV_ALIGN_CENTER, 0, 0);
+        InitializePetFrameBuffer();
+        if (pet_frame_buffer_ != nullptr) {
+            pet_image_ = lv_image_create(screen);
+            lv_image_set_src(pet_image_, &pet_frame_dsc_);
+            lv_obj_align(pet_image_, LV_ALIGN_CENTER, 0, 0);
+            lv_obj_move_to_index(pet_image_, 1);
+        }
+        RaiseOverlayObjects();
+        lv_obj_invalidate(screen);
 
         const uint32_t now_ms = NowMs();
         paopao_pet_trigger_init(&trigger_, now_ms);
@@ -436,6 +493,8 @@ public:
 private:
     TaskHandle_t render_task_ = nullptr;
     lv_obj_t* pet_image_ = nullptr;
+    lv_img_dsc_t pet_frame_dsc_ = {};
+    uint16_t* pet_frame_buffer_ = nullptr;
     lv_img_dsc_t gif_source_dsc_ = {};
     std::unique_ptr<LvglGif> pet_gif_controller_ = nullptr;
     TouchReader* touch_ = nullptr;
@@ -488,6 +547,96 @@ private:
         PlayGifState(current_state_);
     }
 
+    void InitializePetFrameBuffer() {
+        if (pet_frame_buffer_ == nullptr) {
+            const size_t frame_bytes = DISPLAY_WIDTH * DISPLAY_HEIGHT * sizeof(uint16_t);
+            pet_frame_buffer_ = static_cast<uint16_t*>(
+                heap_caps_malloc(frame_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
+            );
+            if (pet_frame_buffer_ == nullptr) {
+                pet_frame_buffer_ = static_cast<uint16_t*>(heap_caps_malloc(frame_bytes, MALLOC_CAP_8BIT));
+            }
+            if (pet_frame_buffer_ == nullptr) {
+                ESP_LOGE(TAG, "Failed to allocate Paopao full-screen frame buffer");
+                return;
+            }
+        }
+
+        std::fill_n(pet_frame_buffer_, DISPLAY_WIDTH * DISPLAY_HEIGHT, k_white_rgb565);
+        pet_frame_dsc_ = {};
+        pet_frame_dsc_.header.magic = LV_IMAGE_HEADER_MAGIC;
+        pet_frame_dsc_.header.flags = LV_IMAGE_FLAGS_MODIFIABLE;
+        pet_frame_dsc_.header.cf = LV_COLOR_FORMAT_RGB565;
+        pet_frame_dsc_.header.w = DISPLAY_WIDTH;
+        pet_frame_dsc_.header.h = DISPLAY_HEIGHT;
+        pet_frame_dsc_.header.stride = DISPLAY_WIDTH * sizeof(uint16_t);
+        pet_frame_dsc_.data_size = DISPLAY_WIDTH * DISPLAY_HEIGHT * sizeof(uint16_t);
+        pet_frame_dsc_.data = reinterpret_cast<const uint8_t*>(pet_frame_buffer_);
+    }
+
+    void RaiseOverlayObjects() {
+        if (top_bar_ != nullptr) {
+            lv_obj_move_foreground(top_bar_);
+        }
+        if (status_bar_ != nullptr) {
+            lv_obj_move_foreground(status_bar_);
+        }
+        if (bottom_bar_ != nullptr) {
+            lv_obj_move_foreground(bottom_bar_);
+        }
+        if (low_battery_popup_ != nullptr) {
+            lv_obj_move_foreground(low_battery_popup_);
+        }
+    }
+
+    void CopyPetFrameToScreen(const lv_img_dsc_t* frame, uint32_t image_scale) {
+        if (pet_frame_buffer_ == nullptr || frame == nullptr || frame->data == nullptr) {
+            return;
+        }
+
+        std::fill_n(pet_frame_buffer_, DISPLAY_WIDTH * DISPLAY_HEIGHT, k_white_rgb565);
+
+        const uint16_t src_w = frame->header.w;
+        const uint16_t src_h = frame->header.h;
+        if (src_w == 0 || src_h == 0 || image_scale == 0) {
+            return;
+        }
+
+        uint32_t draw_w = ((uint32_t)src_w * image_scale + 128) / 256;
+        uint32_t draw_h = ((uint32_t)src_h * image_scale + 128) / 256;
+        if (draw_w == 0 || draw_h == 0) {
+            return;
+        }
+
+        const int32_t dst_start_x = ((int32_t)DISPLAY_WIDTH - (int32_t)draw_w) / 2;
+        const int32_t dst_start_y = ((int32_t)DISPLAY_HEIGHT - (int32_t)draw_h) / 2;
+        const uint16_t* src = reinterpret_cast<const uint16_t*>(frame->data);
+        const size_t src_stride_pixels = frame->header.stride / sizeof(uint16_t);
+
+        for (uint32_t dy = 0; dy < draw_h; ++dy) {
+            const int32_t screen_y = dst_start_y + (int32_t)dy;
+            if (screen_y < 0 || screen_y >= DISPLAY_HEIGHT) {
+                continue;
+            }
+            const uint32_t sy = (dy * 256) / image_scale;
+            if (sy >= src_h) {
+                continue;
+            }
+            for (uint32_t dx = 0; dx < draw_w; ++dx) {
+                const int32_t screen_x = dst_start_x + (int32_t)dx;
+                if (screen_x < 0 || screen_x >= DISPLAY_WIDTH) {
+                    continue;
+                }
+                const uint32_t sx = (dx * 256) / image_scale;
+                if (sx >= src_w) {
+                    continue;
+                }
+                pet_frame_buffer_[screen_y * DISPLAY_WIDTH + screen_x] =
+                    src[sy * src_stride_pixels + sx];
+            }
+        }
+    }
+
     void PlayGifState(paopao_pet_state_t state) {
         if (pet_image_ == nullptr) {
             return;
@@ -509,7 +658,7 @@ private:
         gif_source_dsc_.data_size = gif_size;
         gif_source_dsc_.data = asset.start;
 
-        pet_gif_controller_ = std::make_unique<LvglGif>(&gif_source_dsc_);
+        pet_gif_controller_ = std::make_unique<LvglGif>(&gif_source_dsc_, true, 0xFFFFFF, true);
         if (!pet_gif_controller_->IsLoaded()) {
             ESP_LOGE(
                 TAG,
@@ -521,16 +670,25 @@ private:
             return;
         }
 
-        pet_gif_controller_->SetFrameCallback([this]() {
-            lv_image_set_src(pet_image_, pet_gif_controller_->image_dsc());
+        const uint32_t image_scale = PaopaoImageScaleForVisualSize(state);
+        pet_gif_controller_->SetFrameCallback([this, image_scale]() {
+            CopyPetFrameToScreen(pet_gif_controller_->image_dsc(), image_scale);
+            lv_image_set_src(pet_image_, &pet_frame_dsc_);
+            lv_obj_invalidate(pet_image_);
         });
-        lv_image_set_src(pet_image_, pet_gif_controller_->image_dsc());
+        CopyPetFrameToScreen(pet_gif_controller_->image_dsc(), image_scale);
+        lv_image_set_src(pet_image_, &pet_frame_dsc_);
+        lv_image_set_scale(pet_image_, 256);
+        lv_obj_align(pet_image_, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_invalidate(pet_image_);
         pet_gif_controller_->Start();
         ESP_LOGI(
             TAG,
-            "Playing Paopao GIF state=%s size=%u",
+            "Playing Paopao GIF state=%s size=%u scale=%u visual=%u",
             paopao_pet_gif_asset_name(state),
-            (unsigned)gif_size
+            (unsigned)gif_size,
+            (unsigned)image_scale,
+            (unsigned)PaopaoGifVisualLongestForState(state)
         );
     }
 

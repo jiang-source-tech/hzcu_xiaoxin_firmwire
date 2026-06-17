@@ -4,17 +4,24 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static const char* k_gif_paths[] = {
-    "main/assets/images/idle.gif",
-    "main/assets/images/working.gif",
-    "main/assets/images/thinking.gif",
-    "main/assets/images/waiting.gif",
-    "main/assets/images/done.gif",
-    "main/assets/images/sleeping.gif",
-    "main/assets/images/jumping.gif",
-    "main/assets/images/failed.gif",
-    "main/assets/images/giddy.gif",
-    "main/assets/images/review.gif",
+typedef struct {
+    const char* path;
+    uint16_t width;
+    uint16_t height;
+} gif_probe_case_t;
+
+static const gif_probe_case_t k_gif_cases[] = {
+    {"main/assets/images/idle.gif", 256, 256},
+    {"main/assets/images/working.gif", 256, 256},
+    {"main/assets/images/speaking.gif", 192, 208},
+    {"main/assets/images/thinking.gif", 256, 256},
+    {"main/assets/images/waiting.gif", 256, 256},
+    {"main/assets/images/done.gif", 256, 256},
+    {"main/assets/images/sleeping.gif", 256, 256},
+    {"main/assets/images/jumping.gif", 256, 256},
+    {"main/assets/images/failed.gif", 256, 256},
+    {"main/assets/images/giddy.gif", 256, 256},
+    {"main/assets/images/review.gif", 256, 256},
 };
 
 static uint8_t* read_file(const char* path, size_t* size) {
@@ -52,7 +59,8 @@ static uint8_t* read_file(const char* path, size_t* size) {
     return data;
 }
 
-static int decode_gif_file(const char* path) {
+static int decode_gif_file(const gif_probe_case_t* probe_case) {
+    const char* path = probe_case->path;
     size_t size = 0;
     uint8_t* data = read_file(path, &size);
     if (data == NULL) {
@@ -67,7 +75,7 @@ static int decode_gif_file(const char* path) {
         return 1;
     }
 
-    if (gif->width != 256 || gif->height != 256) {
+    if (gif->width != probe_case->width || gif->height != probe_case->height) {
         fprintf(stderr, "unexpected GIF size for %s: %ux%u\n", path, gif->width, gif->height);
         gd_close_gif(gif);
         free(data);
@@ -95,12 +103,12 @@ static int decode_gif_file(const char* path) {
 }
 
 int main(void) {
-    for (size_t i = 0; i < sizeof(k_gif_paths) / sizeof(k_gif_paths[0]); i++) {
-        if (decode_gif_file(k_gif_paths[i]) != 0) {
+    for (size_t i = 0; i < sizeof(k_gif_cases) / sizeof(k_gif_cases[0]); i++) {
+        if (decode_gif_file(&k_gif_cases[i]) != 0) {
             return 1;
         }
     }
 
-    printf("paopao GIF asset decode passed: %u GIFs sampled\n", (unsigned)(sizeof(k_gif_paths) / sizeof(k_gif_paths[0])));
+    printf("paopao GIF asset decode passed: %u GIFs sampled\n", (unsigned)(sizeof(k_gif_cases) / sizeof(k_gif_cases[0])));
     return 0;
 }

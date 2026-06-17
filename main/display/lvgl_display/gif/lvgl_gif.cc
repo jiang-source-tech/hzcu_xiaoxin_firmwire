@@ -4,8 +4,19 @@
 
 #define TAG "LvglGif"
 
-LvglGif::LvglGif(const lv_img_dsc_t* img_dsc)
-    : gif_(nullptr), timer_(nullptr), last_call_(0), playing_(false), loaded_(false),
+LvglGif::LvglGif(
+        const lv_img_dsc_t* img_dsc,
+        bool force_opaque_background,
+        uint32_t background_rgb,
+        bool output_rgb565
+    )
+    : gif_(nullptr), img_dsc_(), rgb565_data_(nullptr),
+      force_opaque_background_(force_opaque_background),
+      output_rgb565_(output_rgb565),
+      background_r_((background_rgb >> 16) & 0xFF),
+      background_g_((background_rgb >> 8) & 0xFF),
+      background_b_(background_rgb & 0xFF),
+      timer_(nullptr), last_call_(0), playing_(false), loaded_(false),
       loop_delay_ms_(0), loop_waiting_(false), loop_wait_start_(0) {
     if (!img_dsc || !img_dsc->data) {
         ESP_LOGE(TAG, "Invalid image descriptor");
@@ -22,16 +33,32 @@ LvglGif::LvglGif(const lv_img_dsc_t* img_dsc)
     memset(&img_dsc_, 0, sizeof(img_dsc_));
     img_dsc_.header.magic = LV_IMAGE_HEADER_MAGIC;
     img_dsc_.header.flags = LV_IMAGE_FLAGS_MODIFIABLE;
-    img_dsc_.header.cf = LV_COLOR_FORMAT_ARGB8888;
     img_dsc_.header.w = gif_->width;
     img_dsc_.header.h = gif_->height;
-    img_dsc_.header.stride = gif_->width * 4;
-    img_dsc_.data = gif_->canvas;
-    img_dsc_.data_size = gif_->width * gif_->height * 4;
+    if (output_rgb565_) {
+        const size_t rgb565_size = gif_->width * gif_->height * 2;
+        rgb565_data_ = static_cast<uint8_t*>(lv_malloc(rgb565_size));
+        if (rgb565_data_ == nullptr) {
+            ESP_LOGE(TAG, "Failed to allocate RGB565 GIF buffer");
+            gd_close_gif(gif_);
+            gif_ = nullptr;
+            return;
+        }
+        img_dsc_.header.cf = LV_COLOR_FORMAT_RGB565;
+        img_dsc_.header.stride = gif_->width * 2;
+        img_dsc_.data = rgb565_data_;
+        img_dsc_.data_size = rgb565_size;
+    } else {
+        img_dsc_.header.cf = LV_COLOR_FORMAT_ARGB8888;
+        img_dsc_.header.stride = gif_->width * 4;
+        img_dsc_.data = gif_->canvas;
+        img_dsc_.data_size = gif_->width * gif_->height * 4;
+    }
 
     // Render first frame
     if (gif_->canvas) {
         gd_render_frame(gif_, gif_->canvas);
+        UpdateImageData();
     }
 
     loaded_ = true;
@@ -114,6 +141,7 @@ void LvglGif::Stop() {
         // Render first frame without advancing
         if (gif_->canvas) {
             gd_render_frame(gif_, gif_->canvas);
+            UpdateImageData();
         }
         ESP_LOGD(TAG, "GIF animation stopped and rewound");
     }
@@ -223,11 +251,56 @@ void LvglGif::NextFrame() {
     // Render current frame
     if (gif_->canvas) {
         gd_render_frame(gif_, gif_->canvas);
+        UpdateImageData();
         
         // Call frame callback if set
         if (frame_callback_) {
             frame_callback_();
         }
+    }
+}
+
+void LvglGif::ApplyOpaqueBackground() {
+    if (!force_opaque_background_ || !gif_ || gif_->canvas == nullptr) {
+        return;
+    }
+
+    const uint32_t pixel_count = (uint32_t)gif_->width * gif_->height;
+    uint8_t* pixel = gif_->canvas;
+    for (uint32_t i = 0; i < pixel_count; ++i, pixel += 4) {
+        const uint8_t alpha = pixel[3];
+        if (alpha == 0xFF) {
+            continue;
+        }
+
+        if (alpha == 0x00) {
+            pixel[0] = background_b_;
+            pixel[1] = background_g_;
+            pixel[2] = background_r_;
+        } else {
+            const uint16_t inv_alpha = 255 - alpha;
+            pixel[0] = (uint8_t)(((uint16_t)pixel[0] * alpha + (uint16_t)background_b_ * inv_alpha) / 255);
+            pixel[1] = (uint8_t)(((uint16_t)pixel[1] * alpha + (uint16_t)background_g_ * inv_alpha) / 255);
+            pixel[2] = (uint8_t)(((uint16_t)pixel[2] * alpha + (uint16_t)background_r_ * inv_alpha) / 255);
+        }
+        pixel[3] = 0xFF;
+    }
+}
+
+void LvglGif::UpdateImageData() {
+    ApplyOpaqueBackground();
+    if (!output_rgb565_ || !gif_ || gif_->canvas == nullptr || rgb565_data_ == nullptr) {
+        return;
+    }
+
+    const uint32_t pixel_count = (uint32_t)gif_->width * gif_->height;
+    const uint8_t* src = gif_->canvas;
+    uint16_t* dst = reinterpret_cast<uint16_t*>(rgb565_data_);
+    for (uint32_t i = 0; i < pixel_count; ++i, src += 4) {
+        const uint8_t b = src[0];
+        const uint8_t g = src[1];
+        const uint8_t r = src[2];
+        dst[i] = (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
     }
 }
 
@@ -242,6 +315,10 @@ void LvglGif::Cleanup() {
     if (gif_) {
         gd_close_gif(gif_);
         gif_ = nullptr;
+    }
+    if (rgb565_data_) {
+        lv_free(rgb565_data_);
+        rgb565_data_ = nullptr;
     }
 
     playing_ = false;

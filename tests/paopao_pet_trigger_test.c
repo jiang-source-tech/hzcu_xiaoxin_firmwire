@@ -3,14 +3,14 @@
 
 #include "../main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_trigger.h"
 
-static void local_reaction_restores_voice_base_state(void) {
+static void local_reaction_restores_speaking_base_state(void) {
     paopao_pet_trigger_context_t ctx;
     paopao_pet_trigger_init(&ctx, 1000);
 
-    assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_SPEAKING, 1100) == PAOPAO_PET_STATE_WORKING);
+    assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_SPEAKING, 1100) == PAOPAO_PET_STATE_SPEAKING);
     assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_LOCAL_TAP, 1200) == PAOPAO_PET_STATE_DONE);
     assert(paopao_pet_trigger_tick(&ctx, 2000) == PAOPAO_PET_STATE_DONE);
-    assert(paopao_pet_trigger_tick(&ctx, 2900) == PAOPAO_PET_STATE_WORKING);
+    assert(paopao_pet_trigger_tick(&ctx, 2900) == PAOPAO_PET_STATE_SPEAKING);
 }
 
 static void idle_eventually_sleeps_after_quiet_timeout(void) {
@@ -55,8 +55,8 @@ static void voice_state_wakes_sleeping_and_overrides_reaction(void) {
     paopao_pet_trigger_init(&ctx, 0);
 
     assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_LOCAL_HOLD, 100) == PAOPAO_PET_STATE_SLEEPING);
-    assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_SPEAKING, 200) == PAOPAO_PET_STATE_WORKING);
-    assert(ctx.base_state == PAOPAO_PET_STATE_WORKING);
+    assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_SPEAKING, 200) == PAOPAO_PET_STATE_SPEAKING);
+    assert(ctx.base_state == PAOPAO_PET_STATE_SPEAKING);
     assert(!ctx.reaction_active);
 
     assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_LOCAL_TAP, 300) == PAOPAO_PET_STATE_DONE);
@@ -79,8 +79,8 @@ static void neutral_service_suggestion_does_not_clear_voice_state(void) {
 
     assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_LISTENING, 100) == PAOPAO_PET_STATE_WAITING);
     assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_SERVICE_NEUTRAL, 200) == PAOPAO_PET_STATE_WAITING);
-    assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_SPEAKING, 300) == PAOPAO_PET_STATE_WORKING);
-    assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_SERVICE_NEUTRAL, 400) == PAOPAO_PET_STATE_WORKING);
+    assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_SPEAKING, 300) == PAOPAO_PET_STATE_SPEAKING);
+    assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_SERVICE_NEUTRAL, 400) == PAOPAO_PET_STATE_SPEAKING);
 }
 
 static void only_local_shake_triggers_giddy(void) {
@@ -110,8 +110,8 @@ static void background_connecting_does_not_replace_pet_state(void) {
     assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_LOCAL_TAP, 200) == PAOPAO_PET_STATE_DONE);
     assert(paopao_pet_trigger_tick(&ctx, 1900) == PAOPAO_PET_STATE_IDLE);
 
-    assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_SPEAKING, 2000) == PAOPAO_PET_STATE_WORKING);
-    assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_CONNECTING, 2100) == PAOPAO_PET_STATE_WORKING);
+    assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_SPEAKING, 2000) == PAOPAO_PET_STATE_SPEAKING);
+    assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_CONNECTING, 2100) == PAOPAO_PET_STATE_SPEAKING);
 }
 
 static void local_drag_uses_jumping_reaction(void) {
@@ -128,7 +128,7 @@ static void local_drag_uses_jumping_reaction(void) {
 }
 
 int main(void) {
-    local_reaction_restores_voice_base_state();
+    local_reaction_restores_speaking_base_state();
     idle_eventually_sleeps_after_quiet_timeout();
     local_hold_toggles_sleeping();
     local_tap_wakes_sleeping_with_reaction();

@@ -93,7 +93,7 @@ paopao_pet_state_t paopao_pet_trigger_dispatch(
       ctx->last_interaction_ms = now_ms;
       break;
     case PAOPAO_PET_TRIGGER_SPEAKING:
-      set_base_state(ctx, PAOPAO_PET_STATE_WORKING, now_ms, true);
+      set_base_state(ctx, PAOPAO_PET_STATE_SPEAKING, now_ms, true);
       ctx->last_interaction_ms = now_ms;
       break;
     case PAOPAO_PET_TRIGGER_TASK_DONE:

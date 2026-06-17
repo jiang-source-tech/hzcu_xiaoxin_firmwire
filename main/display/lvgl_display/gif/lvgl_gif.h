@@ -12,7 +12,12 @@
  */
 class LvglGif {
 public:
-    explicit LvglGif(const lv_img_dsc_t* img_dsc);
+    explicit LvglGif(
+        const lv_img_dsc_t* img_dsc,
+        bool force_opaque_background = false,
+        uint32_t background_rgb = 0xFFFFFF,
+        bool output_rgb565 = false
+    );
     virtual ~LvglGif();
 
     // LvglImage interface implementation
@@ -86,6 +91,14 @@ private:
     
     // LVGL image descriptor
     lv_img_dsc_t img_dsc_;
+    uint8_t* rgb565_data_;
+
+    // Optional opaque backing for displays that show artifacts around transparent GIF edges.
+    bool force_opaque_background_;
+    bool output_rgb565_;
+    uint8_t background_r_;
+    uint8_t background_g_;
+    uint8_t background_b_;
     
     // Animation timer
     lv_timer_t* timer_;
@@ -109,6 +122,9 @@ private:
      * Update to next frame
      */
     void NextFrame();
+
+    void ApplyOpaqueBackground();
+    void UpdateImageData();
     
     /**
      * Cleanup resources

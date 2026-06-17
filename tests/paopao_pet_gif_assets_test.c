@@ -16,6 +16,7 @@ int main(void) {
     int failures = 0;
     failures += expect_name(PAOPAO_PET_STATE_IDLE, "idle.gif");
     failures += expect_name(PAOPAO_PET_STATE_WORKING, "working.gif");
+    failures += expect_name(PAOPAO_PET_STATE_SPEAKING, "speaking.gif");
     failures += expect_name(PAOPAO_PET_STATE_THINKING, "thinking.gif");
     failures += expect_name(PAOPAO_PET_STATE_WAITING, "waiting.gif");
     failures += expect_name(PAOPAO_PET_STATE_DONE, "done.gif");

@@ -83,6 +83,8 @@ const char *paopao_pet_state_name(paopao_pet_state_t state) {
       return "idle";
     case PAOPAO_PET_STATE_WORKING:
       return "working";
+    case PAOPAO_PET_STATE_SPEAKING:
+      return "speaking";
     case PAOPAO_PET_STATE_THINKING:
       return "thinking";
     case PAOPAO_PET_STATE_WAITING:
