@@ -1,5 +1,95 @@
 ﻿# Update
 
+## 2026-06-17 15:35:54 +08:00
+
+### Waveshare ESP32-S3 Touch LCD 1.46 小芯分页卡片 UI 错位修复
+
+#### 背景
+
+实机反馈分页卡片 UI 中的文字位置错乱，并且进入分页页后仍能看到系统顶部状态栏“配网模式”和底部字幕/访问提示压在卡片层上方。问题本质不是视觉风格需要重做，而是分页层与系统栏层级、显隐状态和卡片内部布局约束存在 bug。
+
+#### 问题原因
+
+- `RenderCardPage()` 末尾先将 `card_layer_` 置前，随后又调用 `RaiseOverlayObjects()`，导致 `top_bar_`、`status_bar_`、`bottom_bar_` 再次被提升到分页层上方。
+- 分页页可见期间，系统状态更新或聊天文本更新仍可能重新显示顶部/底部栏，造成分页内容被遮挡。
+- 通知卡片和总览行内部使用横向 flex 布局，多个 label、tag 和箭头共同参与宽度分配；在 1.46 寸圆屏和中文文本场景下，标题/正文容易被挤压成窄列或发生错位。
+
+#### 修改内容
+
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`：
+  - 新增分页层可见状态判断，`card_layer_` 非隐藏时视为分页 UI 正在覆盖主界面。
+  - 新增系统栏隐藏状态缓存：分页层显示时隐藏 `top_bar_`、`status_bar_`、`bottom_bar_`；回到 Home 后按进入分页前的状态恢复。
+  - 修改 `RaiseOverlayObjects()`：分页层可见时保持 `card_layer_` 在系统栏之上，仅允许低电量弹窗继续置顶。
+  - 在 `SetStatus()`、`SetChatMessage()`、`ClearChatMessages()`、`ShowNotification()`、`UpdateStatusBar()` 和分页动画完成回调后统一重新应用层级/显隐规则，避免状态更新重新把系统栏带到分页页上。
+  - 通知卡片内部改为固定坐标布局，明确状态点、文本区域、分类 tag 和箭头的位置与宽度。
+  - 总览行内部改为固定坐标布局，明确图标、文本区域和箭头的位置与宽度，避免中文 label 被 flex 压缩。
+
+#### 涉及文件
+
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `docs/update.md`
+
+#### 验证结果
+
+- `xiaoxin_card_pager_test`：通过，分页状态机行为未受影响。
+- `git diff --check`：通过。
+- 当前 shell 中未找到 `idf.py`、`cmake`、`ninja`，因此尚未在本机执行完整 ESP-IDF 固件构建。
+
+## 2026-06-17 15:30:00 +08:00
+
+### Waveshare ESP32-S3 Touch LCD 1.46 小芯卡片分页跟手抽屉化
+
+#### 背景
+
+1.46 寸圆屏需要在原有“小芯桌宠主页”之外增加竖向卡片分页。早期版本虽然能通过上/下滑切换到卡片页，但体验更接近“检测到滑动后触发分页”，页面没有智能手表通知中心/控制中心那种跟随手指拖动的抽屉感。实机观察还发现，完全拉下并松手后偶尔会出现一帧淡色背景，再切到全黑卡片背景，原因是释放吸附时重新渲染并触发卡片淡入，导致卡片内容短暂透明、底层白色桌宠背景透出。
+
+#### 当前交互行为
+
+- Home 页下拉：通知页从屏幕上方跟随手指露出。
+- Home 页上拉：总览页从屏幕下方跟随手指露出。
+- 通知页/总览页反向拖动：当前卡片页跟随手指滑出，回到 Home。
+- 松手后才判断吸附或回弹：
+  - 拖动距离达到屏幕高度 20% 阈值时吸附到目标页。
+  - 未达到阈值时回弹到原页面或屏幕外隐藏位置。
+- 非 Home 卡片页会接管触摸交互，长按可回到 Home。
+
+#### UI 当前状态
+
+- 通知页使用暗色玻璃卡片样式，显示 3 条示例通知。
+- 每张通知卡片拆分为状态点、标题、正文、分类 tag 和右箭头，不再使用单个 `title\nbody` 文本标签堆叠。
+- 总览页使用分类色块、单字图标、标题正文两行和细分隔线，显示 4 条示例信息。
+- 卡片层为深色全屏背景；拖拽释放过程中保持不透明，避免透出底层白色桌宠背景。
+
+#### 修改内容
+
+- 新增 `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.h` 和 `xiaoxin_card_pager.c`：
+  - 管理 Home、通知页、总览页三态。
+  - 记录 press/drag/release、目标页、拖动偏移和吸附/回弹动画状态。
+  - 竖向拖动启动阈值为 `6px`，最大拖动距离为整屏高度，保证页面能跟随手指拉满一屏。
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`：
+  - 增加卡片分页层 `card_layer_`，并在桌宠层上方渲染卡片页。
+  - 新增通知玻璃卡片、总览行、指示条、页面标题等 LVGL 对象。
+  - 新增 `DragCardLayerY()`、`HiddenCardLayerY()` 和 `DragCardLayerOpacity()`，将拖动偏移映射为卡片层真实屏幕位置。
+  - 移除拖动过程中的 `offset / 4` 式轻微晃动，改为抽屉式跟手移动。
+  - 拖拽释放使用独立完成回调，不再触发卡片二次淡入动画。
+  - 释放吸附动画保持 `card_layer_` 不透明，修复“淡色背景一帧后再变黑”的闪烁。
+- 新增 `tests/xiaoxin_card_pager_test.c`：
+  - 覆盖下拉进入通知页、上拉进入总览页、反向拖回 Home、短拖回弹、横向拖动不触发分页、长拖可跟随整屏、卡片项排序和非 Home 页触摸接管。
+
+#### 涉及文件
+
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.h`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.c`
+- `tests/xiaoxin_card_pager_test.c`
+- `docs/update.md`
+
+#### 验证结果
+
+- `xiaoxin_card_pager_test`：通过，分页状态机和长距离跟手拖动逻辑正常。
+- `git diff --check`：通过。
+- 当前 shell 中未找到 `idf.py`，因此尚未在本机执行完整 ESP-IDF 固件构建。
+
 ## 2026-06-17 12:40:49 +08:00
 
 ### Speaking 修复版动画资源替换

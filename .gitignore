@@ -24,3 +24,6 @@ __pycache__/
 
 # Local git worktrees
 .worktrees/
+
+# Local Codex/Superpowers scratch previews
+.superpowers/
