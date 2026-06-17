@@ -13,7 +13,7 @@ typedef struct {
 static const gif_probe_case_t k_gif_cases[] = {
     {"main/assets/images/idle.gif", 256, 256},
     {"main/assets/images/working.gif", 256, 256},
-    {"main/assets/images/speaking.gif", 192, 208},
+    {"main/assets/images/speaking_fixed.gif", 192, 208},
     {"main/assets/images/thinking.gif", 256, 256},
     {"main/assets/images/waiting.gif", 256, 256},
     {"main/assets/images/done.gif", 256, 256},

@@ -1,4 +1,49 @@
-# Update
+﻿# Update
+
+## 2026-06-17 12:40:49 +08:00
+
+### Speaking 修复版动画资源替换
+
+#### 背景
+
+需要将 speaking 状态使用的动画资源替换为修复后的 speaking 动画，并同步修改资源文件名，确保嵌入符号、状态映射、测试期望和显示尺寸统一逻辑都指向修复版文件。
+
+#### 资源来源
+
+- 修复版来源文件：`D:\Learn\paopao_ui\firmware\paopao_pet\assets\speaking_pet\speaking.gif`
+- 项目内新文件名：`main/assets/images/speaking_fixed.gif`
+- 旧项目文件名：`main/assets/images/speaking.gif` 已移除，不再作为 speaking 状态资源。
+- SHA256 校验：修复版来源文件与替换前项目内 `speaking.gif` 内容一致，均为 `47ED5189DB7C0904AE60C989C6F7241487AAA984C21F414D0295C706B60301C8`。本次仍按修复版文件重新接入，并使用新文件名让状态映射明确指向修复版资源。
+
+#### 修改内容
+
+- `main/assets/images/speaking_fixed.gif`：新增修复版 speaking GIF。
+- `main/assets/images/speaking.gif`：删除旧文件名，避免继续引用旧资源名。
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`：
+  - 嵌入符号从 `_binary_speaking_gif_start/end` 改为 `_binary_speaking_fixed_gif_start/end`。
+  - `PAOPAO_PET_STATE_SPEAKING` 的二进制资源改为 `assets_images_speaking_fixed_gif_start/end`。
+  - speaking 的前景最长边仍为 `182px`，继续按统一视觉尺寸缩放到 `162px`。
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_gif_assets.c`：
+  - `PAOPAO_PET_STATE_SPEAKING` 返回值从 `speaking.gif` 改为 `speaking_fixed.gif`。
+- `tests/paopao_gif_probe_decode_test.c`：
+  - speaking 解码测试路径从 `main/assets/images/speaking.gif` 改为 `main/assets/images/speaking_fixed.gif`。
+- `tests/paopao_pet_gif_assets_test.c`：
+  - speaking 状态映射期望从 `speaking.gif` 改为 `speaking_fixed.gif`。
+- `docs/update.md`：记录本次资源替换、文件名变化、尺寸测量和验证结果。
+
+#### 尺寸测量
+
+| GIF | 画布 | 帧数 | 玩偶前景尺寸 | 前景最长边 | 显示缩放 | 缩放后前景最长边 |
+| --- | --- | ---: | --- | ---: | ---: | ---: |
+| `speaking_fixed.gif` | `192x208` | 6 | `143x182` | 182 | `228/256` | 162 |
+
+结论：修复版 speaking 动画接入后仍满足当前统一尺寸规则，显示出来的玩偶前景最长边与其他状态一致，为 `162px`。
+
+#### 验证结果
+
+- `paopao_gif_probe_decode_test`：通过，11 个 GIF 均可解码采样。
+- `paopao_pet_gif_assets_test`：通过，`PAOPAO_PET_STATE_SPEAKING` 映射到 `speaking_fixed.gif`。
+- `paopao_pet_trigger_test`：通过，speaking 状态触发和恢复逻辑正常。
 
 ## 2026-06-17 12:11:57 +08:00
 
@@ -38,7 +83,7 @@
 | --- | --- | --- | --- | ---: |
 | `idle.gif` | `IDLE` | `256x256` | `130x162` | 162 |
 | `working.gif` | `WORKING` | `256x256` | `165x154` | 165 |
-| `speaking.gif` | `SPEAKING` | `192x208` | `143x182` | 182 |
+| `speaking_fixed.gif` | `SPEAKING` | `192x208` | `143x182` | 182 |
 | `thinking.gif` | `THINKING` | `256x256` | `150x159` | 159 |
 | `waiting.gif` | `WAITING` | `256x256` | `124x151` | 151 |
 | `done.gif` | `DONE` | `256x256` | `134x150` | 150 |
@@ -60,14 +105,14 @@
 
 #### 修改内容
 
-- 在 `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc` 中保留固定 `256x256` 的 `pet_stage_` 作为桌宠显示区域。
+- 在 `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc` 中保留固定显示区域作为桌宠显示基准。
 - 新增 `k_pet_target_visual_longest = 162`，以 `idle.gif` 的玩偶前景最长边作为统一显示基准。
 - 新增 `PaopaoGifVisualLongestForState()`，记录每个已映射桌宠状态对应 GIF 的实测玩偶前景最长边。
-- 新增 `PaopaoImageScaleForVisualSize()`，按 `目标最长边 / 当前动画前景最长边` 计算 LVGL `lv_image_set_scale()` 缩放值。
+- 新增 `PaopaoImageScaleForVisualSize()`，按 `目标最长边 / 当前动画前景最长边` 计算 LVGL 缩放值。
 - 缩放值使用四舍五入计算，避免整数除法向下取整导致个别动画显示最长边落到 `161px`。
-- `PlayGifState()` 切换动画时统一调用 `lv_image_set_scale(pet_image_, image_scale)`，并保持 `pet_image_` 居中。
+- `PlayGifState()` 切换动画时统一应用缩放，并保持玩偶居中。
 - `giddy.gif` 从前景最长边 `238px` 缩放到约 `162px`，不再比 `idle.gif` 大。
-- `speaking.gif` 虽然画布是 `192x208`，也按前景最长边 `182px` 缩放到统一视觉尺寸。
+- `speaking_fixed.gif` 虽然画布是 `192x208`，也按前景最长边 `182px` 缩放到统一视觉尺寸。
 
 #### 统一后的显示结果
 
@@ -75,7 +120,7 @@
 | --- | --- | ---: | ---: |
 | `IDLE` | `idle.gif` | `256/256` | 162 |
 | `WORKING` | `working.gif` | `251/256` | 162 |
-| `SPEAKING` | `speaking.gif` | `228/256` | 162 |
+| `SPEAKING` | `speaking_fixed.gif` | `228/256` | 162 |
 | `THINKING` | `thinking.gif` | `261/256` | 162 |
 | `WAITING` | `waiting.gif` | `275/256` | 162 |
 | `DONE` | `done.gif` | `276/256` | 162 |
@@ -92,44 +137,9 @@
 
 #### 验证结果
 
-GIF 解码验证：
-
-```powershell
-gcc -std=c11 -Wall -Wextra -Werror -I tests/stubs -I main/display/lvgl_display/gif tests/paopao_gif_probe_decode_test.c main/display/lvgl_display/gif/gifdec.c -o build/paopao_gif_probe_decode_test.exe
-.\build\paopao_gif_probe_decode_test.exe
-```
-
-输出：
-
-```text
-paopao GIF asset decode passed: 11 GIFs sampled
-```
-
-状态到 GIF 映射验证：
-
-```powershell
-gcc -std=c11 -Wall -Wextra -Werror -I main/boards/waveshare/esp32-s3-touch-lcd-1.46 tests/paopao_pet_gif_assets_test.c main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_gif_assets.c -o build/paopao_pet_gif_assets_test.exe
-.\build\paopao_pet_gif_assets_test.exe
-```
-
-输出：
-
-```text
-paopao pet GIF asset mapping tests passed
-```
-
-触发状态机验证：
-
-```powershell
-gcc -std=c11 -Wall -Wextra -Werror -I main/boards/waveshare/esp32-s3-touch-lcd-1.46 tests/paopao_pet_trigger_test.c main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_trigger.c -o build/paopao_pet_trigger_test.exe
-.\build\paopao_pet_trigger_test.exe
-```
-
-输出：
-
-```text
-paopao_pet_trigger tests passed
-```
+- `paopao_gif_probe_decode_test`：通过，11 个 GIF 均可解码采样。
+- `paopao_pet_gif_assets_test`：通过。
+- `paopao_pet_trigger_test`：通过。
 
 ## 2026-06-17 10:14:18 +08:00
 
@@ -137,48 +147,20 @@ paopao_pet_trigger tests passed
 
 #### 背景
 
-当前 1.46 寸屏版本使用 LVGL 显示小芯 GIF 动画。恢复原有 LVGL 顶部状态栏和底部字幕后，设备屏幕左侧出现一列黑色短线。
-
-用户反馈：
-
-- 未加入 GIF 资源时，屏幕左侧没有黑色短线。
-- 加入 GIF 资源并播放后，左侧出现固定黑色短线。
-- 黑短线位置接近 GIF 动画显示区域的左边界，因此怀疑与 GIF 边界、透明像素或 LVGL 刷新区域有关。
+当前 1.46 寸屏版本使用 LVGL 显示小芯 GIF 动画。恢复原有 LVGL 顶部状态栏和底部字幕后，设备屏幕左侧出现一列黑色短线。用户反馈黑短线只在加入 GIF 资源并播放后出现，位置接近 GIF 动画显示区域的左边界。
 
 #### 排查记录
 
-1. 检查原始 `idle.gif` 帧。
-
-   结果：`idle.gif` 左侧没有对应黑色短线，初步排除素材本身存在这些像素。
-
-2. 尝试给 GIF 对象增加不透明白色背景层。
-
-   方案：创建 `pet_stage_`，将 GIF 放入一个 256x256 白底容器，并在换帧时 invalidate 容器。
-
-   结果：黑短线仍然存在，说明不是单纯的透明背景没有重绘。
-
-3. 尝试在 `LvglGif` 中将透明像素预合成到白底。
-
-   方案：GIF 解码后，把透明/半透明像素合成到白色背景，并将 alpha 设为 `0xFF`。
-
-   结果：黑短线仍然存在，说明问题不只是 ARGB8888 透明像素混合。
-
-4. 尝试将 GIF 输出改成 `RGB565`。
-
-   方案：`LvglGif` 增加 `output_rgb565` 模式，GIF 内部仍使用 canvas 解码，但每帧转换为 `RGB565` descriptor 交给 LVGL。
-
-   结果：黑短线仍然存在，说明问题更可能与“小尺寸动态 LVGL image 对象的边界刷新/裁剪”有关。
-
-5. 最终方案：全屏 RGB565 背景帧合成。
-
-   方案：不再把 256x256 GIF 小图对象直接交给 LVGL 显示，而是在板级显示类中维护一张 `DISPLAY_WIDTH x DISPLAY_HEIGHT` 的全屏 `RGB565` 缓冲。每帧先填充白底，再将 GIF 当前帧按当前视觉缩放居中拷贝到全屏缓冲，最后让 LVGL 显示这张全屏 image。
-
-   结果：用户实机确认黑色短线消失。
+1. 检查原始 `idle.gif` 帧，确认左侧没有对应黑色短线，排除素材本身问题。
+2. 尝试给 GIF 对象增加不透明白色背景层，黑短线仍存在。
+3. 尝试在 `LvglGif` 中将透明像素预合成到白底，黑短线仍存在。
+4. 尝试将 GIF 输出改成 `RGB565`，黑短线仍存在。
+5. 最终方案：使用全屏 RGB565 背景帧合成。每帧先填充白底，再将 GIF 当前帧按当前视觉缩放居中拷贝到全屏缓冲，最后让 LVGL 显示这张全屏 image。用户实机确认黑色短线消失。
 
 #### 修改内容
 
 - `PaopaoPetDisplay::SetupUI()` 改为先调用 `LcdDisplay::SetupUI()`，恢复顶部状态栏、通知栏、电量/网络图标和底部字幕栏。
-- `SetStatus()` 先调用 `LcdDisplay::SetStatus(status)`，再根据状态触发宠物动画。
+- `SetStatus()` 先调用 `LcdDisplay::SetStatus(status)`，再根据状态触发桌宠动画。
 - `SetChatMessage()` 保留动画触发，同时调用 `LcdDisplay::SetChatMessage(role, content)` 显示字幕。
 - `ShowNotification()`、`UpdateStatusBar()`、`ClearChatMessages()` 恢复调用基类实现。
 - `LvglGif` 构造函数新增 `force_opaque_background`、`background_rgb`、`output_rgb565` 参数。
@@ -205,6 +187,6 @@ paopao_pet_trigger tests passed
 #### 后续注意
 
 - 当前全屏缓冲约占用 `412 * 412 * 2 = 339488` 字节，约 331.5 KiB，优先分配到 PSRAM。
-- 如果后续切换为非白色背景，需要同步调整 `k_white_rgb565`、`LvglGif` 的 `background_rgb` 和屏幕背景色。
+- 如果后续切换为非白色背景，需要同步调整白底填充值、`LvglGif` 的 `background_rgb` 和屏幕背景色。
 - 如果未来 LVGL 或 LCD 驱动修复了小图动态刷新边界问题，可以重新评估是否退回直接显示 GIF 小图对象。
-- 后续继续调整 GIF 尺寸、缩放或显示层级时，应优先保留“全屏背景帧合成”这个规避策略，避免黑短线问题回归。
+- 后续继续调整 GIF 尺寸、缩放或显示层级时，应优先保留“全屏背景帧合成”策略，避免黑短线问题回归。

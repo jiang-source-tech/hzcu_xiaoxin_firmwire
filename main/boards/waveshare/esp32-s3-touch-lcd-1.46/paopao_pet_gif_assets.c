@@ -7,7 +7,7 @@ const char* paopao_pet_gif_asset_name(paopao_pet_state_t state) {
     case PAOPAO_PET_STATE_WORKING:
       return "working.gif";
     case PAOPAO_PET_STATE_SPEAKING:
-      return "speaking.gif";
+      return "speaking_fixed.gif";
     case PAOPAO_PET_STATE_THINKING:
       return "thinking.gif";
     case PAOPAO_PET_STATE_WAITING:

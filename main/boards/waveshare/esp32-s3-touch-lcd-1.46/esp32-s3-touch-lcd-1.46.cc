@@ -44,8 +44,8 @@ extern const uint8_t assets_images_idle_gif_start[] asm("_binary_idle_gif_start"
 extern const uint8_t assets_images_idle_gif_end[] asm("_binary_idle_gif_end");
 extern const uint8_t assets_images_working_gif_start[] asm("_binary_working_gif_start");
 extern const uint8_t assets_images_working_gif_end[] asm("_binary_working_gif_end");
-extern const uint8_t assets_images_speaking_gif_start[] asm("_binary_speaking_gif_start");
-extern const uint8_t assets_images_speaking_gif_end[] asm("_binary_speaking_gif_end");
+extern const uint8_t assets_images_speaking_fixed_gif_start[] asm("_binary_speaking_fixed_gif_start");
+extern const uint8_t assets_images_speaking_fixed_gif_end[] asm("_binary_speaking_fixed_gif_end");
 extern const uint8_t assets_images_thinking_gif_start[] asm("_binary_thinking_gif_start");
 extern const uint8_t assets_images_thinking_gif_end[] asm("_binary_thinking_gif_end");
 extern const uint8_t assets_images_waiting_gif_start[] asm("_binary_waiting_gif_start");
@@ -271,7 +271,7 @@ static PaopaoGifBinary PaopaoGifAssetForState(paopao_pet_state_t state) {
         case PAOPAO_PET_STATE_WORKING:
             return {assets_images_working_gif_start, assets_images_working_gif_end};
         case PAOPAO_PET_STATE_SPEAKING:
-            return {assets_images_speaking_gif_start, assets_images_speaking_gif_end};
+            return {assets_images_speaking_fixed_gif_start, assets_images_speaking_fixed_gif_end};
         case PAOPAO_PET_STATE_THINKING:
             return {assets_images_thinking_gif_start, assets_images_thinking_gif_end};
         case PAOPAO_PET_STATE_WAITING:
