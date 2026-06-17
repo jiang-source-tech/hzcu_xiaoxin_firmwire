@@ -39,6 +39,16 @@ set(SOURCES "audio/audio_codec.cc"
             "main.cc"
             )
 
+if(CONFIG_DISPLAY_MIRROR_ENABLE)
+    list(APPEND SOURCES
+        "display/display_mirror_protocol.c"
+        "display/display_mirror_panel.cc"
+    )
+    if(CONFIG_DISPLAY_MIRROR_TRANSPORT_USB_CDC)
+        list(APPEND SOURCES "display/display_mirror_transport_usb.cc")
+    endif()
+endif()
+
 set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "audio/demuxer" "protocols")
 
 # Add board common files

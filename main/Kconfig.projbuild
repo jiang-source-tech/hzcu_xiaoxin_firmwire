@@ -640,6 +640,39 @@ choice DISPLAY_ESP32S3_TOUCH_LCD_1_85C
         bool "version 2.0"
 endchoice
 
+menu "Display Mirror"
+
+config DISPLAY_MIRROR_ENABLE
+    bool "Enable pixel-exact TFT mirror"
+    default n
+    depends on BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_46
+    help
+        Streams the final RGB565 rectangles submitted to the TFT panel so a PC
+        viewer can reconstruct the exact framebuffer.
+
+config DISPLAY_MIRROR_TRANSPORT_USB_CDC
+    bool "Use USB CDC transport for TFT mirror"
+    default y
+    depends on DISPLAY_MIRROR_ENABLE
+    select TINYUSB_CDC_ENABLED
+
+config DISPLAY_MIRROR_USB_CDC_BAUD_HINT
+    int "TFT mirror USB CDC baud hint"
+    default 2000000
+    depends on DISPLAY_MIRROR_TRANSPORT_USB_CDC
+    help
+        Host-side serial tools display this value, but USB CDC throughput is
+        governed by USB transfers rather than a physical UART baud clock.
+
+config DISPLAY_MIRROR_FULL_FRAME_INTERVAL
+    int "Full-frame checkpoint interval"
+    default 60
+    depends on DISPLAY_MIRROR_ENABLE
+    help
+        Send one full framebuffer every N frame-end packets. Use 0 to disable
+        periodic full-frame checkpoints after the initial hello/full frame.
+
+endmenu
 
 choice DISPLAY_STYLE
     prompt "Select display style"

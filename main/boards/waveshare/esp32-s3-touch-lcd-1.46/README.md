@@ -2,3 +2,8 @@
 产品链接：
 https://www.waveshare.net/shop/ESP32-S3-Touch-LCD-1.46.htm
 https://www.waveshare.net/shop/ESP32-S3-Touch-LCD-1.46B.htm
+
+## TFT mirror
+
+Pixel-exact TFT mirror setup and PC viewer usage are documented in
+`docs/tft_mirror.md`.

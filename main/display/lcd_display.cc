@@ -3,6 +3,10 @@
 #include "settings.h"
 #include "lvgl_theme.h"
 #include "assets/lang_config.h"
+#if CONFIG_DISPLAY_MIRROR_ENABLE
+#include "display_mirror_panel.h"
+#include "display_mirror_protocol.h"
+#endif
 
 #include <vector>
 #include <algorithm>
@@ -66,6 +70,16 @@ LcdDisplay::LcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_
     : panel_io_(panel_io), panel_(panel) {
     width_ = width;
     height_ = height;
+
+#if CONFIG_DISPLAY_MIRROR_ENABLE
+    real_panel_ = panel_;
+    panel_ = display_mirror_wrap_panel(
+        real_panel_,
+        static_cast<uint16_t>(width_),
+        static_cast<uint16_t>(height_),
+        TFTM_FLAG_PANEL_BYTES_SWAPPED
+    );
+#endif
 
     // Initialize LCD themes
     InitializeLcdThemes();
@@ -334,11 +348,21 @@ LcdDisplay::~LcdDisplay() {
         lv_display_delete(display_);
     }
 
+#if CONFIG_DISPLAY_MIRROR_ENABLE
     if (panel_ != nullptr) {
         esp_lcd_panel_del(panel_);
+        panel_ = nullptr;
+        real_panel_ = nullptr;
     }
+#else
+    if (panel_ != nullptr) {
+        esp_lcd_panel_del(panel_);
+        panel_ = nullptr;
+    }
+#endif
     if (panel_io_ != nullptr) {
         esp_lcd_panel_io_del(panel_io_);
+        panel_io_ = nullptr;
     }
 }
 

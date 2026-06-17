@@ -18,6 +18,9 @@ class LcdDisplay : public LvglDisplay {
 protected:
     esp_lcd_panel_io_handle_t panel_io_ = nullptr;
     esp_lcd_panel_handle_t panel_ = nullptr;
+#if CONFIG_DISPLAY_MIRROR_ENABLE
+    esp_lcd_panel_handle_t real_panel_ = nullptr;
+#endif
     
     lv_draw_buf_t draw_buf_;
     lv_obj_t* top_bar_ = nullptr;
