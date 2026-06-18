@@ -1389,7 +1389,11 @@ private:
         lv_obj_remove_flag(card.container, LV_OBJ_FLAG_HIDDEN);
     }
 
-    void ApplyNotificationScrollVisual(int16_t scroll_y, bool prepare_entry_animation = false) {
+    void ApplyNotificationScrollVisual(
+        int16_t scroll_y,
+        bool prepare_entry_animation = false,
+        bool lightweight_drag = false
+    ) {
         const int64_t perf_start_us = k_ui_perf_trace_enabled ? esp_timer_get_time() : 0;
         const uint8_t total = xiaoxin_card_pager_notification_count(&card_pager_);
         const uint8_t active_index = NotificationIndexForScroll(scroll_y, total);
@@ -1411,31 +1415,37 @@ private:
                 ? static_cast<lv_opa_t>(LV_OPA_0)
                 : (lv_opa_t)std::max<int32_t>(LV_OPA_60, std::min<int32_t>(LV_OPA_COVER, opacity));
 
-            lv_anim_delete(card.container, nullptr);
+            if (!lightweight_drag) {
+                lv_anim_delete(card.container, nullptr);
+            }
             lv_obj_align(card.container, LV_ALIGN_TOP_MID, 0, k_glass_y_start + y_offset);
             lv_obj_set_style_opa(card.container, target_opa, 0);
-            lv_obj_set_style_bg_opa(card.container, near_center ? static_cast<lv_opa_t>(174) : static_cast<lv_opa_t>(82), 0);
-            lv_obj_set_style_border_opa(card.container, near_center ? static_cast<lv_opa_t>(44) : static_cast<lv_opa_t>(18), 0);
-            lv_obj_set_style_shadow_width(card.container, near_center ? 30 : 8, 0);
-            lv_obj_set_style_shadow_opa(card.container, near_center ? LV_OPA_70 : LV_OPA_20, 0);
-            lv_obj_set_style_shadow_offset_y(card.container, near_center ? 10 : 4, 0);
+            if (!lightweight_drag) {
+                lv_obj_set_style_bg_opa(card.container, near_center ? static_cast<lv_opa_t>(174) : static_cast<lv_opa_t>(82), 0);
+                lv_obj_set_style_border_opa(card.container, near_center ? static_cast<lv_opa_t>(44) : static_cast<lv_opa_t>(18), 0);
+                lv_obj_set_style_shadow_width(card.container, near_center ? 30 : 8, 0);
+                lv_obj_set_style_shadow_opa(card.container, near_center ? LV_OPA_70 : LV_OPA_20, 0);
+                lv_obj_set_style_shadow_offset_y(card.container, near_center ? 10 : 4, 0);
+            }
         }
 
         UpdateNotificationIndicatorDots(active_index, total, prepare_entry_animation);
-        for (uint8_t slot = 0; slot < k_card_glass_count; ++slot) {
-            if (slot != active_index && glass_cards_[slot].container != nullptr) {
-                lv_obj_move_foreground(glass_cards_[slot].container);
+        if (!lightweight_drag) {
+            for (uint8_t slot = 0; slot < k_card_glass_count; ++slot) {
+                if (slot != active_index && glass_cards_[slot].container != nullptr) {
+                    lv_obj_move_foreground(glass_cards_[slot].container);
+                }
             }
-        }
-        if (active_index < k_card_glass_count &&
-            glass_cards_[active_index].container != nullptr &&
-            !lv_obj_has_flag(glass_cards_[active_index].container, LV_OBJ_FLAG_HIDDEN)) {
-            lv_obj_move_foreground(glass_cards_[active_index].container);
-        }
-        for (uint8_t i = 0; i < k_notification_indicator_dot_count; ++i) {
-            lv_obj_t* dot = notification_indicator_dots_[i];
-            if (dot != nullptr && !lv_obj_has_flag(dot, LV_OBJ_FLAG_HIDDEN)) {
-                lv_obj_move_foreground(dot);
+            if (active_index < k_card_glass_count &&
+                glass_cards_[active_index].container != nullptr &&
+                !lv_obj_has_flag(glass_cards_[active_index].container, LV_OBJ_FLAG_HIDDEN)) {
+                lv_obj_move_foreground(glass_cards_[active_index].container);
+            }
+            for (uint8_t i = 0; i < k_notification_indicator_dot_count; ++i) {
+                lv_obj_t* dot = notification_indicator_dots_[i];
+                if (dot != nullptr && !lv_obj_has_flag(dot, LV_OBJ_FLAG_HIDDEN)) {
+                    lv_obj_move_foreground(dot);
+                }
             }
         }
         if (k_ui_perf_trace_enabled) {
@@ -2122,7 +2132,7 @@ private:
                             }
                         } else {
                             const int16_t raw_scroll = (int16_t)(notification_drag_start_scroll_y_ + dy);
-                            ApplyNotificationScrollVisual(NotificationScrollDisplayY(raw_scroll, total));
+                            ApplyNotificationScrollVisual(NotificationScrollDisplayY(raw_scroll, total), false, true);
                         }
                         return;
                     }
