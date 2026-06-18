@@ -84,6 +84,8 @@ static constexpr uint32_t k_motion_poll_ms = 50;
 static constexpr uint32_t k_shake_cooldown_ms = 1800;
 static constexpr int32_t k_shake_delta_threshold = 12000;
 static constexpr uint8_t k_shake_required_samples = 3;
+static constexpr bool k_ui_perf_trace_enabled = false;
+static constexpr uint32_t k_ui_perf_log_interval_ms = 1000;
 static constexpr uint16_t k_white_rgb565 = 0xFFFF;
 static constexpr uint32_t k_pet_image_scale_base = LV_SCALE_NONE;
 static constexpr uint16_t k_pet_target_visual_longest = 162;
@@ -697,6 +699,16 @@ private:
     uint32_t touch_last_active_ms_ = 0;
     uint32_t touch_last_error_log_ms_ = 0;
     uint32_t touch_last_point_log_ms_ = 0;
+    uint32_t ui_perf_last_log_ms_ = 0;
+    uint32_t ui_perf_drag_calls_ = 0;
+    uint32_t ui_perf_drag_total_us_ = 0;
+    uint32_t ui_perf_drag_max_us_ = 0;
+    uint32_t ui_perf_pet_copy_calls_ = 0;
+    uint32_t ui_perf_pet_copy_total_us_ = 0;
+    uint32_t ui_perf_pet_copy_max_us_ = 0;
+    uint32_t ui_perf_touch_loop_calls_ = 0;
+    uint32_t ui_perf_touch_loop_total_us_ = 0;
+    uint32_t ui_perf_touch_loop_max_us_ = 0;
     xiaoxin_card_page_t rendered_card_page_ = XIAOXIN_CARD_PAGE_HOME;
     bool card_page_rendered_ = false;
     bool pet_animation_paused_for_card_ = false;
@@ -717,6 +729,55 @@ private:
 
     static bool StatusEquals(const char* status, const char* expected) {
         return status != nullptr && expected != nullptr && std::strcmp(status, expected) == 0;
+    }
+
+    void AddUiPerfSample(uint32_t& calls, uint32_t& total_us, uint32_t& max_us, uint32_t elapsed_us) {
+        if (!k_ui_perf_trace_enabled) {
+            return;
+        }
+        calls++;
+        total_us += elapsed_us;
+        if (elapsed_us > max_us) {
+            max_us = elapsed_us;
+        }
+    }
+
+    void LogUiPerfSummary(uint32_t now_ms) {
+        if (!k_ui_perf_trace_enabled) {
+            return;
+        }
+        if (ui_perf_last_log_ms_ != 0 && now_ms - ui_perf_last_log_ms_ < k_ui_perf_log_interval_ms) {
+            return;
+        }
+        ui_perf_last_log_ms_ = now_ms;
+
+        const uint32_t drag_avg = ui_perf_drag_calls_ == 0 ? 0 : ui_perf_drag_total_us_ / ui_perf_drag_calls_;
+        const uint32_t pet_avg = ui_perf_pet_copy_calls_ == 0 ? 0 : ui_perf_pet_copy_total_us_ / ui_perf_pet_copy_calls_;
+        const uint32_t touch_avg = ui_perf_touch_loop_calls_ == 0 ? 0 : ui_perf_touch_loop_total_us_ / ui_perf_touch_loop_calls_;
+
+        ESP_LOGI(
+            TAG,
+            "[UI-PERF] drag avg=%uus max=%uus calls=%u pet_copy avg=%uus max=%uus calls=%u touch_loop avg=%uus max=%uus calls=%u",
+            (unsigned)drag_avg,
+            (unsigned)ui_perf_drag_max_us_,
+            (unsigned)ui_perf_drag_calls_,
+            (unsigned)pet_avg,
+            (unsigned)ui_perf_pet_copy_max_us_,
+            (unsigned)ui_perf_pet_copy_calls_,
+            (unsigned)touch_avg,
+            (unsigned)ui_perf_touch_loop_max_us_,
+            (unsigned)ui_perf_touch_loop_calls_
+        );
+
+        ui_perf_drag_calls_ = 0;
+        ui_perf_drag_total_us_ = 0;
+        ui_perf_drag_max_us_ = 0;
+        ui_perf_pet_copy_calls_ = 0;
+        ui_perf_pet_copy_total_us_ = 0;
+        ui_perf_pet_copy_max_us_ = 0;
+        ui_perf_touch_loop_calls_ = 0;
+        ui_perf_touch_loop_total_us_ = 0;
+        ui_perf_touch_loop_max_us_ = 0;
     }
 
     static bool IsBusyStatus(const char* status) {
@@ -1329,6 +1390,7 @@ private:
     }
 
     void ApplyNotificationScrollVisual(int16_t scroll_y, bool prepare_entry_animation = false) {
+        const int64_t perf_start_us = k_ui_perf_trace_enabled ? esp_timer_get_time() : 0;
         const uint8_t total = xiaoxin_card_pager_notification_count(&card_pager_);
         const uint8_t active_index = NotificationIndexForScroll(scroll_y, total);
 
@@ -1375,6 +1437,14 @@ private:
             if (dot != nullptr && !lv_obj_has_flag(dot, LV_OBJ_FLAG_HIDDEN)) {
                 lv_obj_move_foreground(dot);
             }
+        }
+        if (k_ui_perf_trace_enabled) {
+            AddUiPerfSample(
+                ui_perf_drag_calls_,
+                ui_perf_drag_total_us_,
+                ui_perf_drag_max_us_,
+                (uint32_t)(esp_timer_get_time() - perf_start_us)
+            );
         }
     }
 
@@ -1805,6 +1875,8 @@ private:
             return;
         }
 
+        const int64_t perf_start_us = k_ui_perf_trace_enabled ? esp_timer_get_time() : 0;
+
         std::fill_n(pet_frame_buffer_, DISPLAY_WIDTH * DISPLAY_HEIGHT, k_white_rgb565);
 
         const uint16_t src_w = frame->header.w;
@@ -1845,6 +1917,14 @@ private:
                 pet_frame_buffer_[screen_y * DISPLAY_WIDTH + screen_x] =
                     src[sy * src_stride_pixels + sx];
             }
+        }
+        if (k_ui_perf_trace_enabled) {
+            AddUiPerfSample(
+                ui_perf_pet_copy_calls_,
+                ui_perf_pet_copy_total_us_,
+                ui_perf_pet_copy_max_us_,
+                (uint32_t)(esp_timer_get_time() - perf_start_us)
+            );
         }
     }
 
@@ -2063,12 +2143,22 @@ private:
 
     void RunRenderLoop() {
         while (true) {
+            const int64_t perf_start_us = k_ui_perf_trace_enabled ? esp_timer_get_time() : 0;
             {
                 DisplayLockGuard lock(this);
                 const uint32_t now_ms = NowMs();
                 PollTouch(now_ms);
                 paopao_pet_trigger_tick(&trigger_, now_ms);
                 ApplyPetStateIfChanged();
+                LogUiPerfSummary(now_ms);
+            }
+            if (k_ui_perf_trace_enabled) {
+                AddUiPerfSample(
+                    ui_perf_touch_loop_calls_,
+                    ui_perf_touch_loop_total_us_,
+                    ui_perf_touch_loop_max_us_,
+                    (uint32_t)(esp_timer_get_time() - perf_start_us)
+                );
             }
             vTaskDelay(pdMS_TO_TICKS(k_touch_poll_ms));
         }
