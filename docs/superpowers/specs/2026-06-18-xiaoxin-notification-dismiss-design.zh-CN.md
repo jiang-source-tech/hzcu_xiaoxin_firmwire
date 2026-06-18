@@ -1,8 +1,8 @@
 # 小芯通知卡片左滑清理设计规格
 
-> 状态：待评审  
-> 日期：2026-06-18  
-> 设备：Waveshare ESP32-S3 Touch LCD 1.46  
+> 状态：待评审
+> 日期：2026-06-18
+> 设备：Waveshare ESP32-S3 Touch LCD 1.46
 > 所属分支：`codex/xiaoxin-card-pager-smoothness`
 
 ## 1. 目标
