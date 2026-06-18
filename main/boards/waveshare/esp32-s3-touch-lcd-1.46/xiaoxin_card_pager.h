@@ -39,6 +39,8 @@ typedef struct {
   int16_t last_x;
   int16_t last_y;
   int16_t offset_y;
+  uint8_t notification_index;
+  uint8_t notification_count;
   bool pressed;
   bool dragging;
 } xiaoxin_card_pager_t;
@@ -55,6 +57,11 @@ int16_t xiaoxin_card_pager_offset_y(const xiaoxin_card_pager_t* pager);
 bool xiaoxin_card_pager_is_dragging(const xiaoxin_card_pager_t* pager);
 bool xiaoxin_card_pager_allows_pet_interaction(const xiaoxin_card_pager_t* pager);
 xiaoxin_card_page_t xiaoxin_card_pager_visual_page(const xiaoxin_card_pager_t* pager);
+uint8_t xiaoxin_card_pager_notification_index(const xiaoxin_card_pager_t* pager);
+uint8_t xiaoxin_card_pager_notification_count(const xiaoxin_card_pager_t* pager);
+bool xiaoxin_card_pager_notification_next(xiaoxin_card_pager_t* pager);
+bool xiaoxin_card_pager_notification_prev(xiaoxin_card_pager_t* pager);
+const xiaoxin_card_item_t* xiaoxin_card_pager_current_notification(const xiaoxin_card_pager_t* pager);
 
 const char* xiaoxin_card_page_name(xiaoxin_card_page_t page);
 void xiaoxin_card_pager_items(
