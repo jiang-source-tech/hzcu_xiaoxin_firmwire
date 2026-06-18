@@ -242,11 +242,11 @@ Notifications 内部通知卡组已到底：继续向上滑 = 收回通知页，
 - `xiaoxin_card_pager_test`：通过。
 - `xiaoxin_battery_level_test`：通过。
 - 当前 shell 未找到 `idf.py`，完整固件构建待 ESP-IDF 环境可用后执行。
-## 2026-06-18 Smoothness optimization note
+## 2026-06-18 平滑度优化说明
 
-This round of card pager work treated visible stutter as a rendering-budget problem rather than a state-machine problem. The main improvement was to keep the notification drag path lightweight: while the finger is down, the UI now favors continuous position and opacity updates and avoids repeatedly reapplying the heavier card styling. Once the release animation starts, the richer settled card presentation returns. The home pet animation is also paused as soon as the card layer becomes visible, so full-screen pet frame copying does not compete with pager dragging.
+这次卡片分页器的优化把可见卡顿视为“渲染预算”问题，而不是单纯的状态机问题。主要改进是让通知拖动路径保持轻量：在手指按住期间，界面优先持续更新位置和透明度，避免反复重做更重的卡片样式。等释放动画开始后，再恢复较完整的静止态卡片表现。Home 页宠物动画也会在卡片层变为可见时立刻暂停，这样整屏宠物帧复制就不会和分页器拖动争抢资源。
 
-Verification:
-- `xiaoxin_card_pager_test`: passed
-- `idf.py build`: not run here because `idf.py` is unavailable in this environment
-- Device check: not run here because the required hardware is unavailable in this environment
+验证：
+- `xiaoxin_card_pager_test`：已通过
+- `idf.py build`：本环境中未运行，因为这里不可用 `idf.py`
+- 设备检查：未运行，因为本环境没有所需硬件

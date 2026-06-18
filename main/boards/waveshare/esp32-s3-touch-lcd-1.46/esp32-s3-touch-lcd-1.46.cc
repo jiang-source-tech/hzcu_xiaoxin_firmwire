@@ -718,6 +718,7 @@ private:
     bool bottom_bar_was_hidden_for_card_ = false;
     int16_t notification_scroll_y_ = 0;
     int16_t notification_drag_start_scroll_y_ = 0;
+    bool notification_drag_visual_owns_cards_ = false;
 
     static uint32_t NowMs() {
         return (uint32_t)(esp_timer_get_time() / 1000ULL);
@@ -1398,6 +1399,21 @@ private:
         const uint8_t total = xiaoxin_card_pager_notification_count(&card_pager_);
         const uint8_t active_index = NotificationIndexForScroll(scroll_y, total);
 
+        if (lightweight_drag) {
+            if (!notification_drag_visual_owns_cards_) {
+                for (uint8_t slot = 0; slot < k_card_glass_count; ++slot) {
+                    GlassCard& card = glass_cards_[slot];
+                    if (card.container == nullptr || lv_obj_has_flag(card.container, LV_OBJ_FLAG_HIDDEN)) {
+                        continue;
+                    }
+                    lv_anim_delete(card.container, nullptr);
+                }
+                notification_drag_visual_owns_cards_ = true;
+            }
+        } else {
+            notification_drag_visual_owns_cards_ = false;
+        }
+
         for (uint8_t slot = 0; slot < k_card_glass_count; ++slot) {
             GlassCard& card = glass_cards_[slot];
             if (card.container == nullptr || lv_obj_has_flag(card.container, LV_OBJ_FLAG_HIDDEN)) {
@@ -1415,9 +1431,6 @@ private:
                 ? static_cast<lv_opa_t>(LV_OPA_0)
                 : (lv_opa_t)std::max<int32_t>(LV_OPA_60, std::min<int32_t>(LV_OPA_COVER, opacity));
 
-            if (!lightweight_drag) {
-                lv_anim_delete(card.container, nullptr);
-            }
             lv_obj_align(card.container, LV_ALIGN_TOP_MID, 0, k_glass_y_start + y_offset);
             lv_obj_set_style_opa(card.container, target_opa, 0);
             if (!lightweight_drag) {
@@ -1692,6 +1705,7 @@ private:
             return;
         }
 
+        notification_drag_visual_owns_cards_ = false;
         rendered_card_page_ = page;
         card_page_rendered_ = true;
 
@@ -1843,6 +1857,7 @@ private:
         if (card_layer_ == nullptr) {
             return;
         }
+        notification_drag_visual_owns_cards_ = false;
         if (visual_page != XIAOXIN_CARD_PAGE_NOTIFICATIONS || from_drag) {
             EnsureCardPageRendered(visual_page, false);
         }
@@ -1872,6 +1887,7 @@ private:
     }
 
     void SetCardPagerPage(xiaoxin_card_page_t page) {
+        notification_drag_visual_owns_cards_ = false;
         card_pager_.current_page = page;
         card_pager_.target_page = page;
         card_pager_.animation = XIAOXIN_CARD_ANIMATION_SNAP;
