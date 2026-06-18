@@ -149,6 +149,57 @@ static void notification_pagination_tracks_current_item(void) {
     assert(xiaoxin_card_pager_notification_index(&pager) == 3);
 }
 
+static void notification_dismiss_removes_visible_item(void) {
+    xiaoxin_card_pager_t pager;
+    xiaoxin_card_pager_init(&pager, 412);
+
+    assert(xiaoxin_card_pager_notification_count(&pager) == 4);
+    const xiaoxin_card_item_t* before = xiaoxin_card_pager_notification_at(&pager, 2);
+    assert(before != NULL);
+
+    assert(xiaoxin_card_pager_notification_dismiss(&pager, 1));
+    assert(xiaoxin_card_pager_notification_count(&pager) == 3);
+    const xiaoxin_card_item_t* after = xiaoxin_card_pager_notification_at(&pager, 1);
+    assert(after == before);
+}
+
+static void notification_dismiss_current_item_clamps_index(void) {
+    xiaoxin_card_pager_t pager;
+    xiaoxin_card_pager_init(&pager, 412);
+
+    assert(xiaoxin_card_pager_notification_next(&pager));
+    assert(xiaoxin_card_pager_notification_next(&pager));
+    assert(xiaoxin_card_pager_notification_next(&pager));
+    assert(xiaoxin_card_pager_notification_index(&pager) == 3);
+
+    assert(xiaoxin_card_pager_notification_dismiss(&pager, 3));
+    assert(xiaoxin_card_pager_notification_count(&pager) == 3);
+    assert(xiaoxin_card_pager_notification_index(&pager) == 2);
+    assert(xiaoxin_card_pager_current_notification(&pager) != NULL);
+}
+
+static void notification_clear_all_empties_notifications(void) {
+    xiaoxin_card_pager_t pager;
+    xiaoxin_card_pager_init(&pager, 412);
+
+    xiaoxin_card_pager_notification_clear_all(&pager);
+
+    assert(xiaoxin_card_pager_notification_empty(&pager));
+    assert(xiaoxin_card_pager_notification_count(&pager) == 0);
+    assert(xiaoxin_card_pager_notification_index(&pager) == 0);
+    assert(xiaoxin_card_pager_current_notification(&pager) == NULL);
+    assert(!xiaoxin_card_pager_notification_next(&pager));
+    assert(!xiaoxin_card_pager_notification_prev(&pager));
+}
+
+static void notification_dismiss_invalid_index_returns_false(void) {
+    xiaoxin_card_pager_t pager;
+    xiaoxin_card_pager_init(&pager, 412);
+
+    assert(!xiaoxin_card_pager_notification_dismiss(&pager, 4));
+    assert(xiaoxin_card_pager_notification_count(&pager) == 4);
+}
+
 static void non_home_pages_capture_pet_interaction(void) {
     xiaoxin_card_pager_t pager;
     xiaoxin_card_pager_init(&pager, 412);
@@ -172,6 +223,10 @@ int main(void) {
     visual_page_stays_stable_during_continuous_drag();
     card_items_are_priority_sorted();
     notification_pagination_tracks_current_item();
+    notification_dismiss_removes_visible_item();
+    notification_dismiss_current_item_clamps_index();
+    notification_clear_all_empties_notifications();
+    notification_dismiss_invalid_index_returns_false();
     non_home_pages_capture_pet_interaction();
     puts("xiaoxin_card_pager tests passed");
     return 0;

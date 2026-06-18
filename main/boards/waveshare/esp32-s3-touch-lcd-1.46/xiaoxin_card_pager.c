@@ -22,6 +22,55 @@ static uint8_t notification_item_count(void) {
   return (uint8_t)(sizeof(k_notification_items) / sizeof(k_notification_items[0]));
 }
 
+static bool notification_raw_dismissed(const xiaoxin_card_pager_t* pager, uint8_t raw_index) {
+  return pager != NULL && (pager->notification_dismissed_mask & (uint8_t)(1u << raw_index)) != 0;
+}
+
+static uint8_t notification_visible_count_for(const xiaoxin_card_pager_t* pager) {
+  uint8_t count = 0;
+  const uint8_t total = notification_item_count();
+  for (uint8_t raw = 0; raw < total; ++raw) {
+    if (!notification_raw_dismissed(pager, raw)) {
+      count++;
+    }
+  }
+  return count;
+}
+
+static int8_t notification_raw_index_for_visible(const xiaoxin_card_pager_t* pager, uint8_t visible_index) {
+  uint8_t visible = 0;
+  const uint8_t total = notification_item_count();
+  for (uint8_t raw = 0; raw < total; ++raw) {
+    if (notification_raw_dismissed(pager, raw)) {
+      continue;
+    }
+    if (visible == visible_index) {
+      return (int8_t)raw;
+    }
+    visible++;
+  }
+  return -1;
+}
+
+static void clamp_notification_index(xiaoxin_card_pager_t* pager) {
+  if (pager == NULL) {
+    return;
+  }
+  const uint8_t visible = notification_visible_count_for(pager);
+  if (visible == 0) {
+    pager->notification_index = 0;
+  } else if (pager->notification_index >= visible) {
+    pager->notification_index = (uint8_t)(visible - 1);
+  }
+}
+
+static void sync_notification_count(xiaoxin_card_pager_t* pager) {
+  if (pager == NULL) {
+    return;
+  }
+  pager->notification_count = notification_visible_count_for(pager);
+}
+
 static int16_t abs_i16(int16_t value) {
   return (int16_t)(value < 0 ? -value : value);
 }
@@ -70,7 +119,8 @@ void xiaoxin_card_pager_init(xiaoxin_card_pager_t* pager, int16_t screen_height)
   pager->last_y = 0;
   pager->offset_y = 0;
   pager->notification_index = 0;
-  pager->notification_count = notification_item_count();
+  pager->notification_dismissed_mask = 0;
+  sync_notification_count(pager);
   pager->pressed = false;
   pager->dragging = false;
 }
@@ -178,15 +228,58 @@ uint8_t xiaoxin_card_pager_notification_index(const xiaoxin_card_pager_t* pager)
 }
 
 uint8_t xiaoxin_card_pager_notification_count(const xiaoxin_card_pager_t* pager) {
-  return pager != NULL ? pager->notification_count : notification_item_count();
+  return pager != NULL ? notification_visible_count_for(pager) : notification_item_count();
+}
+
+const xiaoxin_card_item_t* xiaoxin_card_pager_notification_at(
+  const xiaoxin_card_pager_t* pager,
+  uint8_t visible_index
+) {
+  const int8_t raw = notification_raw_index_for_visible(pager, visible_index);
+  if (raw < 0 || raw >= (int8_t)notification_item_count()) {
+    return NULL;
+  }
+  return &k_notification_items[raw];
+}
+
+bool xiaoxin_card_pager_notification_dismiss(xiaoxin_card_pager_t* pager, uint8_t visible_index) {
+  if (pager == NULL) {
+    return false;
+  }
+  const int8_t raw = notification_raw_index_for_visible(pager, visible_index);
+  if (raw < 0) {
+    return false;
+  }
+  pager->notification_dismissed_mask |= (uint8_t)(1u << (uint8_t)raw);
+  clamp_notification_index(pager);
+  sync_notification_count(pager);
+  return true;
+}
+
+void xiaoxin_card_pager_notification_clear_all(xiaoxin_card_pager_t* pager) {
+  if (pager == NULL) {
+    return;
+  }
+  const uint8_t total = notification_item_count();
+  uint8_t mask = 0;
+  for (uint8_t raw = 0; raw < total; ++raw) {
+    mask |= (uint8_t)(1u << raw);
+  }
+  pager->notification_dismissed_mask = mask;
+  pager->notification_index = 0;
+  sync_notification_count(pager);
+}
+
+bool xiaoxin_card_pager_notification_empty(const xiaoxin_card_pager_t* pager) {
+  return xiaoxin_card_pager_notification_count(pager) == 0;
 }
 
 bool xiaoxin_card_pager_notification_next(xiaoxin_card_pager_t* pager) {
-  if (pager == NULL || pager->notification_count == 0) {
+  if (pager == NULL || xiaoxin_card_pager_notification_empty(pager)) {
     return false;
   }
 
-  if ((uint8_t)(pager->notification_index + 1) >= pager->notification_count) {
+  if ((uint8_t)(pager->notification_index + 1) >= xiaoxin_card_pager_notification_count(pager)) {
     return false;
   }
 
@@ -195,7 +288,7 @@ bool xiaoxin_card_pager_notification_next(xiaoxin_card_pager_t* pager) {
 }
 
 bool xiaoxin_card_pager_notification_prev(xiaoxin_card_pager_t* pager) {
-  if (pager == NULL || pager->notification_count == 0 || pager->notification_index == 0) {
+  if (pager == NULL || xiaoxin_card_pager_notification_empty(pager) || pager->notification_index == 0) {
     return false;
   }
 
@@ -204,19 +297,21 @@ bool xiaoxin_card_pager_notification_prev(xiaoxin_card_pager_t* pager) {
 }
 
 const xiaoxin_card_item_t* xiaoxin_card_pager_current_notification(const xiaoxin_card_pager_t* pager) {
-  if (pager == NULL || pager->notification_count == 0) {
+  if (pager == NULL || xiaoxin_card_pager_notification_empty(pager)) {
     return NULL;
   }
 
   uint8_t index = pager->notification_index;
-  if (index >= pager->notification_count) {
-    index = (uint8_t)(pager->notification_count - 1);
+  const uint8_t visible_count = xiaoxin_card_pager_notification_count(pager);
+  if (index >= visible_count) {
+    index = (uint8_t)(visible_count - 1);
   }
-  if (index >= notification_item_count()) {
+  const int8_t raw = notification_raw_index_for_visible(pager, index);
+  if (raw < 0 || raw >= (int8_t)notification_item_count()) {
     return NULL;
   }
 
-  return &k_notification_items[index];
+  return &k_notification_items[raw];
 }
 
 const char* xiaoxin_card_page_name(xiaoxin_card_page_t page) {
