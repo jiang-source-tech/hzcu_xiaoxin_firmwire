@@ -176,6 +176,10 @@ static constexpr uint32_t k_notification_switch_anim_ms = 160;
 static constexpr int16_t k_glass_y_start = 96;
 static constexpr int16_t k_glass_stack_pitch = 15;
 static constexpr int16_t k_notification_slide_pitch = 116;
+static constexpr int16_t k_notification_clear_button_w = 104;
+static constexpr int16_t k_notification_clear_button_h = 32;
+static constexpr int16_t k_notification_clear_button_y = 46;
+static constexpr int16_t k_notification_empty_y = 188;
 static constexpr int16_t k_overview_y_start = 64;
 static constexpr int16_t k_overview_row_pitch = 51;
 static constexpr uint8_t k_qmi8658_addr_primary = 0x6B;
@@ -384,6 +388,7 @@ struct GlassCard {
     lv_obj_t* battery_segments[4] = {};
     lv_obj_t* pager = nullptr;
     lv_obj_t* pager_total = nullptr;
+    uint8_t visible_index = 0xff;
 };
 
 struct OverviewRow {
@@ -678,6 +683,9 @@ private:
     lv_obj_t* card_title_label_ = nullptr;
     lv_obj_t* pull_indicator_ = nullptr;
     lv_obj_t* home_indicator_ = nullptr;
+    lv_obj_t* notification_clear_button_ = nullptr;
+    lv_obj_t* notification_clear_label_ = nullptr;
+    lv_obj_t* notification_empty_label_ = nullptr;
     lv_obj_t* notification_indicator_dots_[k_notification_indicator_dot_count] = {};
     GlassCard glass_cards_[k_card_glass_count];
     OverviewRow overview_rows_[k_overview_row_count];
@@ -1017,6 +1025,31 @@ private:
         lv_obj_set_style_text_align(card_title_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_color(card_title_label_, lv_color_hex(k_title_accent), 0);
         lv_label_set_text(card_title_label_, "");
+
+        notification_clear_button_ = lv_obj_create(card_layer_);
+        lv_obj_remove_style_all(notification_clear_button_);
+        lv_obj_set_size(notification_clear_button_, k_notification_clear_button_w, k_notification_clear_button_h);
+        lv_obj_set_style_radius(notification_clear_button_, 16, 0);
+        lv_obj_set_style_bg_color(notification_clear_button_, lv_color_hex(k_tag_bg), 0);
+        lv_obj_set_style_bg_opa(notification_clear_button_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(notification_clear_button_, lv_color_hex(k_title_accent), 0);
+        lv_obj_set_style_border_opa(notification_clear_button_, LV_OPA_70, 0);
+        lv_obj_set_style_border_width(notification_clear_button_, 1, 0);
+        lv_obj_align(notification_clear_button_, LV_ALIGN_TOP_MID, 0, k_notification_clear_button_y);
+        lv_obj_add_flag(notification_clear_button_, LV_OBJ_FLAG_HIDDEN);
+
+        notification_clear_label_ = lv_label_create(notification_clear_button_);
+        lv_obj_set_style_text_color(notification_clear_label_, lv_color_hex(k_text_primary), 0);
+        lv_label_set_text(notification_clear_label_, "全部清理");
+        lv_obj_center(notification_clear_label_);
+
+        notification_empty_label_ = lv_label_create(card_layer_);
+        lv_obj_set_width(notification_empty_label_, 220);
+        lv_obj_set_style_text_align(notification_empty_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_color(notification_empty_label_, lv_color_hex(k_text_dimmed), 0);
+        lv_label_set_text(notification_empty_label_, "暂无通知");
+        lv_obj_align(notification_empty_label_, LV_ALIGN_TOP_MID, 0, k_notification_empty_y);
+        lv_obj_add_flag(notification_empty_label_, LV_OBJ_FLAG_HIDDEN);
 
         for (uint8_t i = 0; i < k_card_glass_count; ++i) {
             GlassCard& card = glass_cards_[i];
@@ -1471,7 +1504,7 @@ private:
         }
     }
 
-    void RenderNotificationCards(const xiaoxin_card_item_t* items, uint8_t count, bool prepare_entry_animation) {
+    void RenderNotificationCards(const xiaoxin_card_item_t* /*items*/, uint8_t count, bool prepare_entry_animation) {
         notification_scroll_y_ = ClampNotificationScrollY(notification_scroll_y_, count);
         for (uint8_t slot = 0; slot < k_card_glass_count; ++slot) {
             GlassCard& card = glass_cards_[slot];
@@ -1479,12 +1512,24 @@ private:
                 continue;
             }
 
-            if (items == nullptr || slot >= count) {
+            const xiaoxin_card_item_t* item = xiaoxin_card_pager_notification_at(&card_pager_, slot);
+            if (item == nullptr || slot >= count) {
+                card.visible_index = 0xff;
                 lv_obj_add_flag(card.container, LV_OBJ_FLAG_HIDDEN);
                 continue;
             }
 
-            PopulateNotificationCard(card, &items[slot]);
+            card.visible_index = slot;
+            PopulateNotificationCard(card, item);
+        }
+
+        const bool empty = xiaoxin_card_pager_notification_empty(&card_pager_);
+        if (empty) {
+            AddFlagIfCreated(notification_clear_button_, LV_OBJ_FLAG_HIDDEN);
+            RemoveFlagIfCreated(notification_empty_label_, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            RemoveFlagIfCreated(notification_clear_button_, LV_OBJ_FLAG_HIDDEN);
+            AddFlagIfCreated(notification_empty_label_, LV_OBJ_FLAG_HIDDEN);
         }
 
         ApplyNotificationScrollVisual(notification_scroll_y_, prepare_entry_animation);
@@ -1725,6 +1770,8 @@ private:
         AddFlagIfCreated(card_title_label_, LV_OBJ_FLAG_HIDDEN);
         AddFlagIfCreated(pull_indicator_, LV_OBJ_FLAG_HIDDEN);
         AddFlagIfCreated(home_indicator_, LV_OBJ_FLAG_HIDDEN);
+        AddFlagIfCreated(notification_clear_button_, LV_OBJ_FLAG_HIDDEN);
+        AddFlagIfCreated(notification_empty_label_, LV_OBJ_FLAG_HIDDEN);
 
         if (page == XIAOXIN_CARD_PAGE_HOME) {
             lv_obj_add_flag(card_layer_, LV_OBJ_FLAG_HIDDEN);
@@ -1751,7 +1798,11 @@ private:
                 lv_obj_align(home_indicator_, LV_ALIGN_BOTTOM_MID, 0, -8);
             }
 
-            RenderNotificationCards(items, count, prepare_entry_animation);
+            RenderNotificationCards(
+                nullptr,
+                xiaoxin_card_pager_notification_count(&card_pager_),
+                prepare_entry_animation
+            );
         } else if (page == XIAOXIN_CARD_PAGE_OVERVIEW) {
             if (card_title_label_ != nullptr) {
                 lv_obj_align(card_title_label_, LV_ALIGN_TOP_MID, 0, 34);
