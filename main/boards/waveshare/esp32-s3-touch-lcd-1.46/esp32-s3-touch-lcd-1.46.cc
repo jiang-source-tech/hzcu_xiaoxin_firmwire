@@ -767,9 +767,20 @@ private:
     }
 
     int8_t NotificationCardSlotAtPoint(uint16_t x, uint16_t y) const {
-        for (uint8_t slot = 0; slot < k_card_glass_count; ++slot) {
+        const uint8_t total = xiaoxin_card_pager_notification_count(&card_pager_);
+        const uint8_t active_slot = NotificationIndexForScroll(notification_scroll_y_, total);
+
+        if (active_slot < k_card_glass_count &&
+            PointInObj(glass_cards_[active_slot].container, x, y)) {
+            return (int8_t)active_slot;
+        }
+
+        for (int8_t slot = (int8_t)k_card_glass_count - 1; slot >= 0; --slot) {
+            if ((uint8_t)slot == active_slot) {
+                continue;
+            }
             if (PointInObj(glass_cards_[slot].container, x, y)) {
-                return (int8_t)slot;
+                return slot;
             }
         }
         return -1;
@@ -2420,6 +2431,7 @@ private:
                         notification_scroll_y_ <= NotificationMinScrollY(total) + 1;
 
                     if (!notification_dismiss_animating_ &&
+                        notification_gesture_mode_ == NotificationGestureMode::None &&
                         notification_pressed_slot_ >= 0 &&
                         notification_pressed_visible_index_ != 0xff &&
                         dx < 0 &&
