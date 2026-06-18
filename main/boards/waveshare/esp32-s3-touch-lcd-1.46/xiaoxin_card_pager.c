@@ -306,12 +306,7 @@ const xiaoxin_card_item_t* xiaoxin_card_pager_current_notification(const xiaoxin
   if (index >= visible_count) {
     index = (uint8_t)(visible_count - 1);
   }
-  const int8_t raw = notification_raw_index_for_visible(pager, index);
-  if (raw < 0 || raw >= (int8_t)notification_item_count()) {
-    return NULL;
-  }
-
-  return &k_notification_items[raw];
+  return xiaoxin_card_pager_notification_at(pager, index);
 }
 
 const char* xiaoxin_card_page_name(xiaoxin_card_page_t page) {
