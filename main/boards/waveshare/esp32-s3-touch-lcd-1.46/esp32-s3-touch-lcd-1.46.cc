@@ -74,7 +74,7 @@ extern const uint8_t assets_images_review_gif_end[] asm("_binary_review_gif_end"
 static constexpr uint32_t k_touch_hold_ms = 1200;
 static constexpr int16_t k_touch_drag_min_px = 42;
 static constexpr uint32_t k_touch_motion_suppress_ms = 600;
-static constexpr uint32_t k_touch_poll_ms = 10;
+static constexpr uint32_t k_touch_poll_ms = 16;
 static constexpr uint32_t k_pet_render_task_stack_bytes = 12 * 1024;
 static constexpr uint32_t k_power_off_release_poll_ms = 20;
 static constexpr adc_channel_t k_battery_adc_channel = ADC_CHANNEL_7;
@@ -717,7 +717,6 @@ private:
     uint32_t touch_start_ms_ = 0;
     uint32_t touch_last_active_ms_ = 0;
     uint32_t touch_last_error_log_ms_ = 0;
-    uint32_t touch_last_point_log_ms_ = 0;
     uint32_t ui_perf_last_log_ms_ = 0;
     uint32_t ui_perf_drag_calls_ = 0;
     uint32_t ui_perf_drag_total_us_ = 0;
@@ -1113,10 +1112,6 @@ private:
             lv_obj_set_style_border_color(card.container, lv_color_hex(k_card_border_color), 0);
             lv_obj_set_style_border_opa(card.container, k_glass_border_opa[i], 0);
             lv_obj_set_style_border_width(card.container, 1, 0);
-            lv_obj_set_style_shadow_color(card.container, lv_color_hex(k_card_shadow_color), 0);
-            lv_obj_set_style_shadow_width(card.container, i == 0 ? 30 : 8, 0);
-            lv_obj_set_style_shadow_opa(card.container, i == 0 ? LV_OPA_70 : LV_OPA_20, 0);
-            lv_obj_set_style_shadow_offset_y(card.container, i == 0 ? 10 : 4, 0);
             lv_obj_set_style_pad_top(card.container, k_glass_pad_v, 0);
             lv_obj_set_style_pad_bottom(card.container, k_glass_pad_v, 0);
             lv_obj_set_style_pad_left(card.container, k_glass_pad_h, 0);
@@ -1514,10 +1509,6 @@ private:
             }
 
             const int16_t y_offset = (int16_t)((int16_t)slot * k_notification_slide_pitch + scroll_y);
-            const int16_t distance_from_center = std::min<int16_t>(
-                (int16_t)std::abs(y_offset),
-                (int16_t)(k_notification_slide_pitch * 2)
-            );
             const bool near_center = slot == active_index;
             const lv_opa_t target_opa = prepare_entry_animation
                 ? static_cast<lv_opa_t>(LV_OPA_0)
@@ -1528,13 +1519,12 @@ private:
             if (!lightweight_drag) {
                 lv_obj_set_style_bg_opa(card.container, near_center ? static_cast<lv_opa_t>(174) : static_cast<lv_opa_t>(82), 0);
                 lv_obj_set_style_border_opa(card.container, near_center ? static_cast<lv_opa_t>(44) : static_cast<lv_opa_t>(18), 0);
-                lv_obj_set_style_shadow_width(card.container, near_center ? 30 : 8, 0);
-                lv_obj_set_style_shadow_opa(card.container, near_center ? LV_OPA_70 : LV_OPA_20, 0);
-                lv_obj_set_style_shadow_offset_y(card.container, near_center ? 10 : 4, 0);
             }
         }
 
-        UpdateNotificationIndicatorDots(active_index, total, prepare_entry_animation);
+        if (!lightweight_drag) {
+            UpdateNotificationIndicatorDots(active_index, total, prepare_entry_animation);
+        }
         if (!lightweight_drag) {
             for (uint8_t slot = 0; slot < k_card_glass_count; ++slot) {
                 if (slot != active_index && glass_cards_[slot].container != nullptr) {
@@ -1597,7 +1587,7 @@ private:
     static void NotificationScrollSetY(void* obj, int32_t scroll_y) {
         auto* self = static_cast<PaopaoPetDisplay*>(obj);
         if (self != nullptr) {
-            self->ApplyNotificationScrollVisual((int16_t)scroll_y);
+            self->ApplyNotificationScrollVisual((int16_t)scroll_y, false, true);
         }
     }
 
@@ -2396,8 +2386,7 @@ private:
         }
 
         if (pressed) {
-            if (!touch_pressed_ || now_ms - touch_last_point_log_ms_ >= 1000) {
-                touch_last_point_log_ms_ = now_ms;
+            if (!touch_pressed_) {
                 ESP_LOGI(TAG, "Touch point x=%u y=%u", x, y);
             }
             touch_last_x_ = x;
