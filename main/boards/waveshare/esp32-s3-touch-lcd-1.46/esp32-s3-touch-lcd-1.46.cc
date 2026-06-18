@@ -1629,9 +1629,7 @@ private:
             self->notification_scroll_y_,
             xiaoxin_card_pager_notification_count(&self->card_pager_)
         );
-        self->EnsureCardPageRendered(XIAOXIN_CARD_PAGE_NOTIFICATIONS, false);
-        self->ApplyNotificationScrollVisual(self->notification_scroll_y_);
-        self->RaiseOverlayObjects();
+        self->RenderNotificationPageAfterDataChange();
     }
 
     static void NotificationDismissReboundCompleted(lv_anim_t* anim) {
@@ -2065,6 +2063,11 @@ private:
         RenderCardPage(page, prepare_entry_animation);
     }
 
+    void RenderNotificationPageAfterDataChange() {
+        card_page_rendered_ = false;
+        RenderCardPage(XIAOXIN_CARD_PAGE_NOTIFICATIONS, false);
+    }
+
     void ApplyCardPagerVisual() {
         if (card_layer_ == nullptr) {
             return;
@@ -2301,9 +2304,7 @@ private:
                 abs_dx < 8 && abs_dy < 8) {
                 xiaoxin_card_pager_notification_clear_all(&card_pager_);
                 notification_scroll_y_ = 0;
-                EnsureCardPageRendered(XIAOXIN_CARD_PAGE_NOTIFICATIONS, false);
-                ApplyNotificationScrollVisual(notification_scroll_y_);
-                RaiseOverlayObjects();
+                RenderNotificationPageAfterDataChange();
                 notification_gesture_mode_ = NotificationGestureMode::None;
                 notification_pressed_slot_ = -1;
                 notification_pressed_visible_index_ = 0xff;
