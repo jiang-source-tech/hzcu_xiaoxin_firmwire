@@ -1831,6 +1831,7 @@ private:
                 : static_cast<lv_opa_t>(LV_OPA_COVER),
             0
         );
+        ApplyPetAnimationForCardPager();
     }
 
     void AnimateCardPagerRelease(
@@ -1878,6 +1879,7 @@ private:
         card_pager_.pressed = false;
         card_pager_.dragging = false;
         ApplyCardPagerVisual();
+        ApplyPetAnimationForCardPager();
     }
 
     void CopyPetFrameToScreen(const lv_img_dsc_t* frame, uint32_t image_scale) {
