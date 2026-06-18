@@ -3,6 +3,7 @@
 #include "display/display.h"
 #include "display/lcd_display.h"
 #include "display/lvgl_display/gif/lvgl_gif.h"
+#include "display/lvgl_display/lvgl_theme.h"
 #include "system_reset.h"
 #include "application.h"
 #include "button.h"
@@ -13,6 +14,9 @@
 #include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_rom_sys.h>
+#include <esp_adc/adc_cali.h>
+#include <esp_adc/adc_cali_scheme.h>
+#include <esp_adc/adc_oneshot.h>
 #include "i2c_device.h"
 #include <driver/i2c_master.h>
 #include <driver/ledc.h>
@@ -22,6 +26,7 @@
 #include <esp_lcd_touch.h>
 #include <esp_lcd_touch_cst9217.h>
 #include <esp_lcd_touch_spd2010.h>
+#include <esp_sleep.h>
 #include <esp_timer.h>
 #include "esp_io_expander_tca9554.h"
 #include <iot_button.h>
@@ -31,13 +36,14 @@
 #include <algorithm>
 #include <cstring>
 #include <cstdlib>
-#include <cstdio>
 
 extern "C" {
 #include "paopao_pet_gif_assets.h"
 #include "paopao_pet_state.h"
 #include "paopao_pet_trigger.h"
+#include "xiaoxin_battery_level.h"
 #include "xiaoxin_card_pager.h"
+#include "xiaoxin_power_control.h"
 }
 
 #define TAG "waveshare_lcd_1_46"
@@ -68,6 +74,12 @@ extern const uint8_t assets_images_review_gif_end[] asm("_binary_review_gif_end"
 static constexpr uint32_t k_touch_hold_ms = 1200;
 static constexpr int16_t k_touch_drag_min_px = 42;
 static constexpr uint32_t k_touch_motion_suppress_ms = 600;
+static constexpr uint32_t k_touch_poll_ms = 10;
+static constexpr uint32_t k_pet_render_task_stack_bytes = 12 * 1024;
+static constexpr uint32_t k_power_off_release_poll_ms = 20;
+static constexpr adc_channel_t k_battery_adc_channel = ADC_CHANNEL_7;
+static constexpr uint8_t k_battery_adc_samples = 10;
+static constexpr int k_battery_voltage_divider = 3;
 static constexpr uint32_t k_motion_poll_ms = 50;
 static constexpr uint32_t k_shake_cooldown_ms = 1800;
 static constexpr int32_t k_shake_delta_threshold = 12000;
@@ -77,46 +89,75 @@ static constexpr uint32_t k_pet_image_scale_base = LV_SCALE_NONE;
 static constexpr uint16_t k_pet_target_visual_longest = 162;
 static constexpr uint16_t k_card_snap_min_anim_ms = 150;
 static constexpr uint16_t k_card_snap_max_anim_ms = 240;
-static constexpr uint8_t k_card_glass_count = 3;
+static constexpr uint8_t k_card_glass_count = 4;
+static constexpr uint8_t k_notification_indicator_dot_count = 4;
 static constexpr uint8_t k_overview_row_count = 4;
 static constexpr uint8_t k_overview_sep_count = 3;
-static constexpr uint32_t k_card_bg_color = 0x122033;
-static constexpr uint32_t k_card_border_color = 0x63b3ff;
-static constexpr uint32_t k_card_shadow_color = 0x05080d;
+static constexpr uint32_t k_card_bg_color = 0x17181d;
+static constexpr uint32_t k_card_border_color = 0x5a5f6b;
+static constexpr uint32_t k_card_shadow_color = 0x000000;
 static constexpr lv_opa_t k_glass_bg_opa[k_card_glass_count] = {
-    static_cast<lv_opa_t>(118),
-    static_cast<lv_opa_t>(78),
+    static_cast<lv_opa_t>(174),
+    static_cast<lv_opa_t>(124),
+    static_cast<lv_opa_t>(82),
     static_cast<lv_opa_t>(52)
 };
 static constexpr lv_opa_t k_glass_border_opa[k_card_glass_count] = {
-    static_cast<lv_opa_t>(86),
     static_cast<lv_opa_t>(44),
-    static_cast<lv_opa_t>(28)
+    static_cast<lv_opa_t>(20),
+    static_cast<lv_opa_t>(12),
+    static_cast<lv_opa_t>(8)
 };
-static constexpr int16_t k_glass_radius = 14;
-static constexpr int16_t k_glass_width = 218;
-static constexpr int16_t k_glass_height = 58;
-static constexpr int16_t k_glass_pad_v = 8;
-static constexpr int16_t k_glass_pad_h = 12;
-static constexpr int16_t k_glass_text_x = 30;
-static constexpr int16_t k_glass_text_w = 118;
-static constexpr int16_t k_glass_tag_x = 158;
-static constexpr int16_t k_glass_tag_w = 34;
-static constexpr int16_t k_glass_arrow_x = 198;
+static constexpr int16_t k_glass_radius = 34;
+static constexpr int16_t k_glass_width = 268;
+static constexpr int16_t k_glass_height = 150;
+static constexpr int16_t k_glass_pad_v = 18;
+static constexpr int16_t k_glass_pad_h = 22;
+static constexpr int16_t k_glass_text_x = 24;
+static constexpr int16_t k_glass_text_y = 82;
+static constexpr int16_t k_glass_text_w = 218;
+static constexpr int16_t k_glass_tag_x = 154;
+static constexpr int16_t k_glass_tag_w = 38;
+static constexpr int16_t k_glass_arrow_x = 200;
+static constexpr int16_t k_battery_meter_x = 154;
+static constexpr int16_t k_battery_meter_y = 8;
+static constexpr int16_t k_battery_meter_w = 48;
+static constexpr int16_t k_battery_meter_h = 18;
+static constexpr int16_t k_battery_segment_w = 8;
+static constexpr int16_t k_battery_segment_h = 10;
+static constexpr int16_t k_battery_segment_gap = 2;
+static constexpr int16_t k_system_battery_w = 34;
+static constexpr int16_t k_system_battery_h = 16;
+static constexpr int16_t k_system_battery_tip_w = 3;
+static constexpr int16_t k_system_overlay_w = 76;
+static constexpr int16_t k_system_overlay_h = 24;
+static constexpr int16_t k_system_overlay_right = 76;
+static constexpr int16_t k_system_overlay_top = 50;
+static constexpr int16_t k_system_wifi_w = 24;
+static constexpr int16_t k_system_battery_x = 32;
+static constexpr int16_t k_notification_icon_size = 46;
+static constexpr int16_t k_notification_indicator_dot_size = 5;
 static constexpr int16_t k_dot_size = 8;
 static constexpr uint32_t k_dot_color_urgent = 0xff5e5b;
 static constexpr uint32_t k_dot_color_warning = 0xffb84d;
 static constexpr uint32_t k_dot_color_info = 0x4fc3f7;
-static constexpr int16_t k_ov_icon_size = 28;
-static constexpr int16_t k_ov_icon_radius = 8;
-static constexpr int16_t k_overview_text_x = 46;
-static constexpr int16_t k_overview_text_w = 134;
-static constexpr int16_t k_overview_arrow_x = 198;
+static constexpr uint32_t k_battery_meter_border = 0x2f77ff;
+static constexpr uint32_t k_battery_meter_fill = 0x49a6ff;
+static constexpr uint32_t k_battery_meter_low = 0xff5e5b;
+static constexpr uint32_t k_battery_meter_empty = 0x17304d;
+static constexpr int16_t k_ov_icon_size = 30;
+static constexpr int16_t k_ov_icon_radius = 10;
+static constexpr int16_t k_overview_row_w = 252;
+static constexpr int16_t k_overview_row_h = 48;
+static constexpr int16_t k_overview_icon_x = 13;
+static constexpr int16_t k_overview_text_x = 56;
+static constexpr int16_t k_overview_text_w = 154;
+static constexpr int16_t k_overview_arrow_x = 224;
+static constexpr int16_t k_overview_sep_w = 190;
 static constexpr uint32_t k_ov_icon_bg_course = 0x4fc3f7;
 static constexpr uint32_t k_ov_icon_bg_nav = 0xa0d468;
 static constexpr uint32_t k_ov_icon_bg_weather = 0xffb84d;
 static constexpr uint32_t k_ov_icon_bg_todo = 0xac92ec;
-static constexpr uint32_t k_dark_bg = 0x060a10;
 static constexpr uint32_t k_title_accent = 0x77c7ff;
 static constexpr uint32_t k_text_primary = 0xe8eaed;
 static constexpr uint32_t k_text_secondary = 0x7d9cc6;
@@ -127,13 +168,15 @@ static constexpr uint32_t k_indicator_top = 0x2a4a6b;
 static constexpr uint32_t k_indicator_home = 0x1e3350;
 static constexpr uint32_t k_separator_color = 0x30597f;
 static constexpr lv_opa_t k_separator_opa = static_cast<lv_opa_t>(46);
-static constexpr lv_opa_t k_ov_icon_bg_opa = static_cast<lv_opa_t>(58);
+static constexpr lv_opa_t k_ov_icon_bg_opa = static_cast<lv_opa_t>(132);
 static constexpr uint32_t k_entry_fade_ms = 120;
 static constexpr uint32_t k_entry_stagger_ms = 50;
-static constexpr int16_t k_glass_y_start = 86;
-static constexpr int16_t k_glass_row_pitch = 68;
-static constexpr int16_t k_overview_y_start = 56;
-static constexpr int16_t k_overview_row_pitch = 54;
+static constexpr uint32_t k_notification_switch_anim_ms = 160;
+static constexpr int16_t k_glass_y_start = 96;
+static constexpr int16_t k_glass_stack_pitch = 15;
+static constexpr int16_t k_notification_slide_pitch = 116;
+static constexpr int16_t k_overview_y_start = 64;
+static constexpr int16_t k_overview_row_pitch = 51;
 static constexpr uint8_t k_qmi8658_addr_primary = 0x6B;
 static constexpr uint8_t k_qmi8658_addr_secondary = 0x6A;
 static constexpr uint8_t k_qmi8658_reg_who_am_i = 0x00;
@@ -329,10 +372,17 @@ struct GlassCard {
     lv_obj_t* container = nullptr;
     lv_obj_t* dot = nullptr;
     lv_obj_t* text_box = nullptr;
+    lv_obj_t* icon_bg = nullptr;
+    lv_obj_t* icon = nullptr;
+    lv_obj_t* time = nullptr;
     lv_obj_t* title = nullptr;
     lv_obj_t* body = nullptr;
     lv_obj_t* tag = nullptr;
     lv_obj_t* arrow = nullptr;
+    lv_obj_t* battery_meter = nullptr;
+    lv_obj_t* battery_segments[4] = {};
+    lv_obj_t* pager = nullptr;
+    lv_obj_t* pager_total = nullptr;
 };
 
 struct OverviewRow {
@@ -464,7 +514,15 @@ public:
         PlayGifState(current_state_);
 
         if (render_task_ == nullptr) {
-            xTaskCreatePinnedToCore(RenderTask, "paopao_pet", 4096, this, 3, &render_task_, 1);
+            xTaskCreatePinnedToCore(
+                RenderTask,
+                "paopao_pet",
+                k_pet_render_task_stack_bytes,
+                this,
+                3,
+                &render_task_,
+                1
+            );
         }
     }
 
@@ -573,6 +631,7 @@ public:
         LcdDisplay::UpdateStatusBar(update_all);
         {
             DisplayLockGuard lock(this);
+            ApplyBatteryOverlayLevel(NotificationBatteryLevelPercent());
             RaiseOverlayObjects();
         }
     }
@@ -610,14 +669,21 @@ private:
     TaskHandle_t render_task_ = nullptr;
     lv_obj_t* pet_image_ = nullptr;
     lv_obj_t* card_layer_ = nullptr;
+    lv_obj_t* system_overlay_ = nullptr;
+    lv_obj_t* battery_overlay_ = nullptr;
+    lv_obj_t* battery_overlay_box_ = nullptr;
+    lv_obj_t* battery_overlay_fill_ = nullptr;
+    lv_obj_t* battery_overlay_cap_ = nullptr;
     lv_obj_t* card_title_label_ = nullptr;
     lv_obj_t* pull_indicator_ = nullptr;
     lv_obj_t* home_indicator_ = nullptr;
+    lv_obj_t* notification_indicator_dots_[k_notification_indicator_dot_count] = {};
     GlassCard glass_cards_[k_card_glass_count];
     OverviewRow overview_rows_[k_overview_row_count];
     lv_obj_t* overview_separators_[k_overview_sep_count] = {};
     xiaoxin_card_page_t rendered_card_page_ = XIAOXIN_CARD_PAGE_HOME;
     bool rendered_card_prepare_entry_ = false;
+    bool card_page_rendered_ = false;
     lv_img_dsc_t pet_frame_dsc_ = {};
     uint16_t* pet_frame_buffer_ = nullptr;
     lv_img_dsc_t gif_source_dsc_ = {};
@@ -635,10 +701,13 @@ private:
     uint32_t touch_last_active_ms_ = 0;
     uint32_t touch_last_error_log_ms_ = 0;
     uint32_t touch_last_point_log_ms_ = 0;
+    bool pet_animation_paused_for_card_ = false;
     bool system_bars_hidden_for_card_ = false;
     bool top_bar_was_hidden_for_card_ = false;
     bool status_bar_was_hidden_for_card_ = false;
     bool bottom_bar_was_hidden_for_card_ = false;
+    int16_t notification_scroll_y_ = 0;
+    int16_t notification_drag_start_scroll_y_ = 0;
 
     static uint32_t NowMs() {
         return (uint32_t)(esp_timer_get_time() / 1000ULL);
@@ -671,6 +740,9 @@ private:
 
     void ApplyPetStateIfChanged() {
         if (current_state_ == trigger_.displayed_state) {
+            return;
+        }
+        if (IsCardLayerVisible()) {
             return;
         }
         current_state_ = trigger_.displayed_state;
@@ -723,18 +795,29 @@ private:
         return card_layer_ != nullptr && !lv_obj_has_flag(card_layer_, LV_OBJ_FLAG_HIDDEN);
     }
 
+    void ApplyPetAnimationForCardPager() {
+        if (pet_gif_controller_ == nullptr) {
+            pet_animation_paused_for_card_ = false;
+            return;
+        }
+
+        if (IsCardLayerVisible()) {
+            if (pet_gif_controller_->IsPlaying()) {
+                pet_gif_controller_->Pause();
+            }
+            pet_animation_paused_for_card_ = true;
+            return;
+        }
+
+        if (pet_animation_paused_for_card_) {
+            pet_gif_controller_->Resume();
+            pet_animation_paused_for_card_ = false;
+        }
+    }
+
     void ApplySystemBarsForCardPager() {
         const bool card_visible = IsCardLayerVisible();
         if (card_visible) {
-            if (!system_bars_hidden_for_card_) {
-                top_bar_was_hidden_for_card_ = IsHidden(top_bar_);
-                status_bar_was_hidden_for_card_ = IsHidden(status_bar_);
-                bottom_bar_was_hidden_for_card_ = IsHidden(bottom_bar_);
-                system_bars_hidden_for_card_ = true;
-            }
-            AddFlagIfCreated(top_bar_, LV_OBJ_FLAG_HIDDEN);
-            AddFlagIfCreated(status_bar_, LV_OBJ_FLAG_HIDDEN);
-            AddFlagIfCreated(bottom_bar_, LV_OBJ_FLAG_HIDDEN);
             return;
         }
 
@@ -752,6 +835,9 @@ private:
         ApplySystemBarsForCardPager();
         if (IsCardLayerVisible()) {
             lv_obj_move_foreground(card_layer_);
+            if (system_overlay_ != nullptr) {
+                lv_obj_move_foreground(system_overlay_);
+            }
             if (low_battery_popup_ != nullptr) {
                 lv_obj_move_foreground(low_battery_popup_);
             }
@@ -770,16 +856,82 @@ private:
         if (low_battery_popup_ != nullptr) {
             lv_obj_move_foreground(low_battery_popup_);
         }
+        if (system_overlay_ != nullptr) {
+            lv_obj_move_foreground(system_overlay_);
+        }
     }
 
     void InitializeCardPagerLayer() {
         lv_obj_t* screen = lv_screen_active();
 
+        if (network_label_ != nullptr) {
+            lv_obj_add_flag(network_label_, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (battery_label_ != nullptr) {
+            lv_obj_add_flag(battery_label_, LV_OBJ_FLAG_HIDDEN);
+        }
+
+        auto lvgl_theme = static_cast<LvglTheme*>(current_theme_);
+        const lv_font_t* icon_font = lvgl_theme != nullptr ? lvgl_theme->icon_font()->font() : nullptr;
+
+        system_overlay_ = lv_obj_create(screen);
+        lv_obj_remove_style_all(system_overlay_);
+        lv_obj_set_size(system_overlay_, k_system_overlay_w, k_system_overlay_h);
+        lv_obj_set_style_bg_opa(system_overlay_, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_pad_all(system_overlay_, 0, 0);
+        lv_obj_set_style_layout(system_overlay_, LV_LAYOUT_NONE, 0);
+        lv_obj_clear_flag(system_overlay_, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_align(system_overlay_, LV_ALIGN_TOP_RIGHT, -k_system_overlay_right, k_system_overlay_top);
+
+        network_label_ = lv_label_create(system_overlay_);
+        lv_obj_set_width(network_label_, k_system_wifi_w);
+        lv_obj_set_style_text_align(network_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_color(network_label_, lv_color_hex(k_battery_meter_fill), 0);
+        if (icon_font != nullptr) {
+            lv_obj_set_style_text_font(network_label_, icon_font, 0);
+        }
+        lv_label_set_text(network_label_, network_icon_ != nullptr ? network_icon_ : "");
+        lv_obj_align(network_label_, LV_ALIGN_LEFT_MID, 0, 0);
+
+        battery_overlay_ = lv_obj_create(system_overlay_);
+        lv_obj_remove_style_all(battery_overlay_);
+        lv_obj_set_size(battery_overlay_, k_system_battery_w + k_system_battery_tip_w + 6, k_system_battery_h + 4);
+        lv_obj_set_style_bg_opa(battery_overlay_, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_pad_all(battery_overlay_, 0, 0);
+        lv_obj_clear_flag(battery_overlay_, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_align(battery_overlay_, LV_ALIGN_LEFT_MID, k_system_battery_x, 0);
+
+        battery_overlay_box_ = lv_obj_create(battery_overlay_);
+        lv_obj_remove_style_all(battery_overlay_box_);
+        lv_obj_set_size(battery_overlay_box_, k_system_battery_w, k_system_battery_h);
+        lv_obj_set_style_radius(battery_overlay_box_, 4, 0);
+        lv_obj_set_style_bg_opa(battery_overlay_box_, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(battery_overlay_box_, 1, 0);
+        lv_obj_set_style_border_color(battery_overlay_box_, lv_color_hex(k_battery_meter_fill), 0);
+        lv_obj_set_style_border_opa(battery_overlay_box_, LV_OPA_80, 0);
+        lv_obj_align(battery_overlay_box_, LV_ALIGN_LEFT_MID, 0, 0);
+
+        battery_overlay_fill_ = lv_obj_create(battery_overlay_box_);
+        lv_obj_remove_style_all(battery_overlay_fill_);
+        lv_obj_set_height(battery_overlay_fill_, k_system_battery_h - 4);
+        lv_obj_set_style_radius(battery_overlay_fill_, 2, 0);
+        lv_obj_set_style_bg_color(battery_overlay_fill_, lv_color_hex(k_battery_meter_fill), 0);
+        lv_obj_set_style_bg_opa(battery_overlay_fill_, LV_OPA_COVER, 0);
+        lv_obj_align(battery_overlay_fill_, LV_ALIGN_LEFT_MID, 2, 0);
+
+        battery_overlay_cap_ = lv_obj_create(battery_overlay_);
+        lv_obj_remove_style_all(battery_overlay_cap_);
+        lv_obj_set_size(battery_overlay_cap_, k_system_battery_tip_w, 8);
+        lv_obj_set_style_radius(battery_overlay_cap_, 1, 0);
+        lv_obj_set_style_bg_color(battery_overlay_cap_, lv_color_hex(k_battery_meter_fill), 0);
+        lv_obj_set_style_bg_opa(battery_overlay_cap_, LV_OPA_COVER, 0);
+        lv_obj_align(battery_overlay_cap_, LV_ALIGN_RIGHT_MID, -1, 0);
+        ApplyBatteryOverlayLevel(NotificationBatteryLevelPercent());
+
         card_layer_ = lv_obj_create(screen);
         lv_obj_remove_style_all(card_layer_);
         lv_obj_set_size(card_layer_, LV_PCT(100), LV_PCT(100));
-        lv_obj_set_style_bg_color(card_layer_, lv_color_hex(k_dark_bg), 0);
-        lv_obj_set_style_bg_opa(card_layer_, LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_opa(card_layer_, LV_OPA_TRANSP, 0);
         lv_obj_set_style_pad_all(card_layer_, 0, 0);
         lv_obj_set_scrollbar_mode(card_layer_, LV_SCROLLBAR_MODE_OFF);
         lv_obj_align(card_layer_, LV_ALIGN_CENTER, 0, 0);
@@ -817,34 +969,54 @@ private:
             lv_obj_set_style_bg_opa(card.container, k_glass_bg_opa[i], 0);
             lv_obj_set_style_border_color(card.container, lv_color_hex(k_card_border_color), 0);
             lv_obj_set_style_border_opa(card.container, k_glass_border_opa[i], 0);
-            lv_obj_set_style_border_width(card.container, i == 0 ? 2 : 1, 0);
+            lv_obj_set_style_border_width(card.container, 1, 0);
             lv_obj_set_style_shadow_color(card.container, lv_color_hex(k_card_shadow_color), 0);
-            lv_obj_set_style_shadow_width(card.container, i == 0 ? 18 : 10, 0);
-            lv_obj_set_style_shadow_opa(card.container, i == 0 ? LV_OPA_50 : LV_OPA_20, 0);
-            lv_obj_set_style_shadow_offset_y(card.container, 6, 0);
+            lv_obj_set_style_shadow_width(card.container, i == 0 ? 30 : 8, 0);
+            lv_obj_set_style_shadow_opa(card.container, i == 0 ? LV_OPA_70 : LV_OPA_20, 0);
+            lv_obj_set_style_shadow_offset_y(card.container, i == 0 ? 10 : 4, 0);
             lv_obj_set_style_pad_top(card.container, k_glass_pad_v, 0);
             lv_obj_set_style_pad_bottom(card.container, k_glass_pad_v, 0);
             lv_obj_set_style_pad_left(card.container, k_glass_pad_h, 0);
             lv_obj_set_style_pad_right(card.container, k_glass_pad_h, 0);
             lv_obj_set_style_layout(card.container, LV_LAYOUT_NONE, 0);
-            lv_obj_align(card.container, LV_ALIGN_TOP_MID, 0, k_glass_y_start + (int32_t)i * k_glass_row_pitch);
+            lv_obj_align(card.container, LV_ALIGN_TOP_MID, 0, k_glass_y_start + (int32_t)i * k_glass_stack_pitch);
             lv_obj_add_flag(card.container, LV_OBJ_FLAG_HIDDEN);
 
-            card.dot = lv_obj_create(card.container);
-            lv_obj_remove_style_all(card.dot);
-            lv_obj_set_size(card.dot, k_dot_size, k_dot_size);
-            lv_obj_set_style_radius(card.dot, LV_RADIUS_CIRCLE, 0);
-            lv_obj_set_style_bg_color(card.dot, lv_color_hex(k_dot_color_info), 0);
-            lv_obj_set_style_bg_opa(card.dot, LV_OPA_COVER, 0);
-            lv_obj_align(card.dot, LV_ALIGN_LEFT_MID, k_glass_pad_h, 0);
+            card.icon_bg = lv_obj_create(card.container);
+            lv_obj_remove_style_all(card.icon_bg);
+            lv_obj_set_size(card.icon_bg, k_notification_icon_size, k_notification_icon_size);
+            lv_obj_set_style_radius(card.icon_bg, 15, 0);
+            lv_obj_set_style_bg_color(card.icon_bg, lv_color_hex(0x2a2a30), 0);
+            lv_obj_set_style_bg_opa(card.icon_bg, LV_OPA_COVER, 0);
+            lv_obj_set_style_border_color(card.icon_bg, lv_color_hex(0xff8b93), 0);
+            lv_obj_set_style_border_opa(card.icon_bg, LV_OPA_50, 0);
+            lv_obj_set_style_border_width(card.icon_bg, 1, 0);
+            lv_obj_set_style_shadow_color(card.icon_bg, lv_color_hex(0xff5e5b), 0);
+            lv_obj_set_style_shadow_width(card.icon_bg, 14, 0);
+            lv_obj_set_style_shadow_opa(card.icon_bg, static_cast<lv_opa_t>(90), 0);
+            lv_obj_align(card.icon_bg, LV_ALIGN_TOP_LEFT, 26, 22);
+
+            card.icon = lv_label_create(card.icon_bg);
+            lv_obj_set_style_text_color(card.icon, lv_color_hex(k_text_primary), 0);
+            lv_obj_set_style_text_align(card.icon, LV_TEXT_ALIGN_CENTER, 0);
+            lv_label_set_text(card.icon, "!");
+            lv_obj_center(card.icon);
+
+            card.time = lv_label_create(card.container);
+            lv_obj_set_width(card.time, 54);
+            lv_obj_set_style_text_align(card.time, LV_TEXT_ALIGN_RIGHT, 0);
+            lv_obj_set_style_text_color(card.time, lv_color_hex(k_text_dimmed), 0);
+            lv_label_set_long_mode(card.time, LV_LABEL_LONG_MODE_DOTS);
+            lv_label_set_text(card.time, "\xE7\x8E\xB0\xE5\x9C\xA8");
+            lv_obj_align(card.time, LV_ALIGN_TOP_RIGHT, -28, 29);
 
             card.text_box = lv_obj_create(card.container);
             lv_obj_remove_style_all(card.text_box);
-            lv_obj_set_size(card.text_box, k_glass_text_w, k_glass_height - k_glass_pad_v * 2);
+            lv_obj_set_size(card.text_box, k_glass_text_w, 52);
             lv_obj_set_flex_flow(card.text_box, LV_FLEX_FLOW_COLUMN);
             lv_obj_set_flex_align(card.text_box, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-            lv_obj_set_style_pad_row(card.text_box, 2, 0);
-            lv_obj_set_pos(card.text_box, k_glass_text_x, k_glass_pad_v);
+            lv_obj_set_style_pad_row(card.text_box, 4, 0);
+            lv_obj_set_pos(card.text_box, k_glass_text_x, k_glass_text_y);
 
             card.title = lv_label_create(card.text_box);
             lv_obj_set_width(card.title, k_glass_text_w);
@@ -854,29 +1026,32 @@ private:
 
             card.body = lv_label_create(card.text_box);
             lv_obj_set_width(card.body, k_glass_text_w);
-            lv_obj_set_style_text_color(card.body, lv_color_hex(k_text_secondary), 0);
+            lv_obj_set_style_text_color(card.body, lv_color_hex(0xd8d8de), 0);
             lv_label_set_long_mode(card.body, LV_LABEL_LONG_MODE_DOTS);
             lv_label_set_text(card.body, "");
 
-            card.tag = lv_label_create(card.container);
-            lv_obj_set_width(card.tag, k_glass_tag_w);
-            lv_obj_set_style_radius(card.tag, 7, 0);
-            lv_obj_set_style_bg_color(card.tag, lv_color_hex(k_tag_bg), 0);
-            lv_obj_set_style_bg_opa(card.tag, LV_OPA_60, 0);
-            lv_obj_set_style_pad_left(card.tag, 5, 0);
-            lv_obj_set_style_pad_right(card.tag, 5, 0);
-            lv_obj_set_style_pad_top(card.tag, 2, 0);
-            lv_obj_set_style_pad_bottom(card.tag, 2, 0);
-            lv_obj_set_style_text_align(card.tag, LV_TEXT_ALIGN_CENTER, 0);
-            lv_obj_set_style_text_color(card.tag, lv_color_hex(k_tag_text), 0);
-            lv_label_set_long_mode(card.tag, LV_LABEL_LONG_MODE_DOTS);
-            lv_label_set_text(card.tag, "");
-            lv_obj_align(card.tag, LV_ALIGN_LEFT_MID, k_glass_tag_x, 0);
+            if (i == 0) {
+                for (uint8_t dot = 0; dot < k_notification_indicator_dot_count; ++dot) {
+                    notification_indicator_dots_[dot] = lv_obj_create(card_layer_);
+                    lv_obj_remove_style_all(notification_indicator_dots_[dot]);
+                    lv_obj_set_size(
+                        notification_indicator_dots_[dot],
+                        k_notification_indicator_dot_size,
+                        k_notification_indicator_dot_size
+                    );
+                    lv_obj_set_style_radius(notification_indicator_dots_[dot], LV_RADIUS_CIRCLE, 0);
+                    lv_obj_set_style_bg_color(notification_indicator_dots_[dot], lv_color_hex(k_text_dimmed), 0);
+                    lv_obj_set_style_bg_opa(notification_indicator_dots_[dot], LV_OPA_40, 0);
+                    lv_obj_align(
+                        notification_indicator_dots_[dot],
+                        LV_ALIGN_BOTTOM_MID,
+                        ((int16_t)dot - 1) * 12,
+                        -35
+                    );
+                    lv_obj_add_flag(notification_indicator_dots_[dot], LV_OBJ_FLAG_HIDDEN);
+                }
+            }
 
-            card.arrow = lv_label_create(card.container);
-            lv_obj_set_style_text_color(card.arrow, lv_color_hex(k_title_accent), 0);
-            lv_label_set_text(card.arrow, LV_SYMBOL_RIGHT);
-            lv_obj_align(card.arrow, LV_ALIGN_LEFT_MID, k_glass_arrow_x, 0);
         }
 
         for (uint8_t i = 0; i < k_overview_row_count; ++i) {
@@ -884,13 +1059,23 @@ private:
 
             row.container = lv_obj_create(card_layer_);
             lv_obj_remove_style_all(row.container);
-            lv_obj_set_size(row.container, k_glass_width, 46);
-            lv_obj_set_style_bg_opa(row.container, LV_OPA_TRANSP, 0);
+            lv_obj_set_size(row.container, k_overview_row_w, k_overview_row_h);
+            lv_obj_set_style_radius(row.container, 18, 0);
+            lv_obj_set_style_bg_color(row.container, lv_color_hex(k_card_bg_color), 0);
+            lv_obj_set_style_bg_opa(row.container, static_cast<lv_opa_t>(196), 0);
+            lv_obj_set_style_border_color(row.container, lv_color_hex(k_card_border_color), 0);
+            lv_obj_set_style_border_opa(row.container, LV_OPA_30, 0);
+            lv_obj_set_style_border_width(row.container, 1, 0);
+            lv_obj_set_style_shadow_color(row.container, lv_color_hex(k_card_shadow_color), 0);
+            lv_obj_set_style_shadow_width(row.container, 10, 0);
+            lv_obj_set_style_shadow_opa(row.container, LV_OPA_20, 0);
+            lv_obj_set_style_shadow_offset_y(row.container, 3, 0);
             lv_obj_set_style_pad_top(row.container, 6, 0);
             lv_obj_set_style_pad_bottom(row.container, 6, 0);
             lv_obj_set_style_pad_left(row.container, 8, 0);
             lv_obj_set_style_pad_right(row.container, 8, 0);
             lv_obj_set_style_layout(row.container, LV_LAYOUT_NONE, 0);
+            lv_obj_clear_flag(row.container, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_align(row.container, LV_ALIGN_TOP_MID, 0, k_overview_y_start + (int32_t)i * k_overview_row_pitch);
             lv_obj_add_flag(row.container, LV_OBJ_FLAG_HIDDEN);
 
@@ -900,7 +1085,7 @@ private:
             lv_obj_set_style_radius(row.icon_bg, k_ov_icon_radius, 0);
             lv_obj_set_style_bg_color(row.icon_bg, lv_color_hex(k_ov_icon_bg_weather), 0);
             lv_obj_set_style_bg_opa(row.icon_bg, k_ov_icon_bg_opa, 0);
-            lv_obj_align(row.icon_bg, LV_ALIGN_LEFT_MID, 8, 0);
+            lv_obj_align(row.icon_bg, LV_ALIGN_LEFT_MID, k_overview_icon_x, 0);
 
             row.icon = lv_label_create(row.icon_bg);
             lv_obj_set_style_text_align(row.icon, LV_TEXT_ALIGN_CENTER, 0);
@@ -911,9 +1096,8 @@ private:
             row.text_box = lv_obj_create(row.container);
             lv_obj_remove_style_all(row.text_box);
             lv_obj_set_size(row.text_box, k_overview_text_w, 34);
-            lv_obj_set_flex_flow(row.text_box, LV_FLEX_FLOW_COLUMN);
-            lv_obj_set_flex_align(row.text_box, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-            lv_obj_set_style_pad_row(row.text_box, 1, 0);
+            lv_obj_set_style_layout(row.text_box, LV_LAYOUT_NONE, 0);
+            lv_obj_clear_flag(row.text_box, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_align(row.text_box, LV_ALIGN_LEFT_MID, k_overview_text_x, 0);
 
             row.title = lv_label_create(row.text_box);
@@ -921,12 +1105,14 @@ private:
             lv_obj_set_style_text_color(row.title, lv_color_hex(k_text_primary), 0);
             lv_label_set_long_mode(row.title, LV_LABEL_LONG_MODE_DOTS);
             lv_label_set_text(row.title, "");
+            lv_obj_set_pos(row.title, 0, 0);
 
             row.body = lv_label_create(row.text_box);
             lv_obj_set_width(row.body, k_overview_text_w);
-            lv_obj_set_style_text_color(row.body, lv_color_hex(k_text_dimmed), 0);
+            lv_obj_set_style_text_color(row.body, lv_color_hex(k_text_secondary), 0);
             lv_label_set_long_mode(row.body, LV_LABEL_LONG_MODE_DOTS);
             lv_label_set_text(row.body, "");
+            lv_obj_set_pos(row.body, 0, 18);
 
             row.arrow = lv_label_create(row.container);
             lv_obj_set_style_text_color(row.arrow, lv_color_hex(k_title_accent), 0);
@@ -936,7 +1122,7 @@ private:
             if (i < k_overview_sep_count) {
                 overview_separators_[i] = lv_obj_create(card_layer_);
                 lv_obj_remove_style_all(overview_separators_[i]);
-                lv_obj_set_size(overview_separators_[i], 190, 1);
+                lv_obj_set_size(overview_separators_[i], k_overview_sep_w, 1);
                 lv_obj_set_style_bg_color(overview_separators_[i], lv_color_hex(k_separator_color), 0);
                 lv_obj_set_style_bg_opa(overview_separators_[i], LV_OPA_COVER, 0);
                 lv_obj_align(
@@ -1044,6 +1230,47 @@ private:
         }
     }
 
+    void UpdateNotificationIndicatorDots(uint8_t index, uint8_t total, bool prepare_entry_animation) {
+        const uint8_t visible = std::min<uint8_t>(total, k_notification_indicator_dot_count);
+        if (visible <= 1) {
+            for (uint8_t i = 0; i < k_notification_indicator_dot_count; ++i) {
+                AddFlagIfCreated(notification_indicator_dots_[i], LV_OBJ_FLAG_HIDDEN);
+            }
+            return;
+        }
+
+        const uint8_t active = std::min<uint8_t>(index, (uint8_t)(visible - 1));
+        const int16_t gap = 12;
+        const int16_t center_offset = (int16_t)((visible - 1) * gap / 2);
+        for (uint8_t i = 0; i < k_notification_indicator_dot_count; ++i) {
+            lv_obj_t* dot = notification_indicator_dots_[i];
+            if (dot == nullptr) {
+                continue;
+            }
+            if (i >= visible) {
+                lv_obj_add_flag(dot, LV_OBJ_FLAG_HIDDEN);
+                continue;
+            }
+
+            const bool selected = i == active;
+            lv_obj_set_style_bg_color(dot, lv_color_hex(selected ? k_title_accent : k_text_dimmed), 0);
+            lv_obj_set_style_bg_opa(dot, selected ? LV_OPA_COVER : LV_OPA_60, 0);
+            lv_obj_set_style_shadow_color(dot, lv_color_hex(k_title_accent), 0);
+            lv_obj_set_style_shadow_width(dot, selected ? 8 : 0, 0);
+            lv_obj_set_style_shadow_opa(dot, selected ? LV_OPA_30 : LV_OPA_TRANSP, 0);
+            lv_obj_set_style_opa(
+                dot,
+                prepare_entry_animation
+                    ? static_cast<lv_opa_t>(LV_OPA_0)
+                    : static_cast<lv_opa_t>(LV_OPA_COVER),
+                0
+            );
+            lv_obj_align(dot, LV_ALIGN_BOTTOM_MID, (int16_t)(i * gap) - center_offset, -35);
+            lv_obj_remove_flag(dot, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_move_foreground(dot);
+        }
+    }
+
     static uint32_t DotColorForPriority(uint32_t priority) {
         if (priority <= 1) {
             return k_dot_color_urgent;
@@ -1052,6 +1279,216 @@ private:
             return k_dot_color_warning;
         }
         return k_dot_color_info;
+    }
+
+    static int16_t NotificationMinScrollY(uint8_t total) {
+        if (total <= 1) {
+            return 0;
+        }
+        return (int16_t)-((int16_t)(total - 1) * k_notification_slide_pitch);
+    }
+
+    static int16_t ClampNotificationScrollY(int16_t scroll_y, uint8_t total) {
+        const int16_t min_scroll = NotificationMinScrollY(total);
+        return std::max<int16_t>(min_scroll, std::min<int16_t>(0, scroll_y));
+    }
+
+    static int16_t NotificationScrollDisplayY(int16_t raw_scroll_y, uint8_t total) {
+        const int16_t min_scroll = NotificationMinScrollY(total);
+        if (raw_scroll_y > 0) {
+            return (int16_t)(raw_scroll_y / 3);
+        }
+        if (raw_scroll_y < min_scroll) {
+            return (int16_t)(min_scroll + (raw_scroll_y - min_scroll) / 3);
+        }
+        return raw_scroll_y;
+    }
+
+    static uint8_t NotificationIndexForScroll(int16_t scroll_y, uint8_t total) {
+        if (total == 0) {
+            return 0;
+        }
+        const int16_t clamped = ClampNotificationScrollY(scroll_y, total);
+        const int16_t distance = (int16_t)-clamped;
+        uint8_t index = (uint8_t)((distance + k_notification_slide_pitch / 2) / k_notification_slide_pitch);
+        return std::min<uint8_t>(index, (uint8_t)(total - 1));
+    }
+
+    void PopulateNotificationCard(GlassCard& card, const xiaoxin_card_item_t* item) {
+        if (card.container == nullptr || item == nullptr) {
+            return;
+        }
+
+        lv_obj_set_size(card.container, k_glass_width, k_glass_height);
+        lv_obj_set_style_radius(card.container, k_glass_radius, 0);
+        lv_obj_set_style_border_color(card.container, lv_color_hex(k_card_border_color), 0);
+        lv_obj_set_style_border_width(card.container, 1, 0);
+        lv_obj_set_style_pad_top(card.container, k_glass_pad_v, 0);
+        lv_obj_set_style_pad_bottom(card.container, k_glass_pad_v, 0);
+        lv_obj_set_style_pad_left(card.container, k_glass_pad_h, 0);
+        lv_obj_set_style_pad_right(card.container, k_glass_pad_h, 0);
+
+        if (card.icon_bg != nullptr) {
+            lv_obj_set_style_bg_color(card.icon_bg, lv_color_hex(DotColorForPriority(item->priority)), 0);
+        }
+        if (card.icon != nullptr) {
+            lv_label_set_text(card.icon, "!");
+        }
+        if (card.time != nullptr) {
+            lv_label_set_text(card.time, "\xE7\x8E\xB0\xE5\x9C\xA8");
+        }
+        if (card.title != nullptr) {
+            lv_label_set_text(card.title, item->title);
+        }
+        if (card.body != nullptr) {
+            lv_label_set_text(card.body, item->body);
+        }
+
+        lv_obj_remove_flag(card.container, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    void ApplyNotificationScrollVisual(int16_t scroll_y, bool prepare_entry_animation = false) {
+        const uint8_t total = xiaoxin_card_pager_notification_count(&card_pager_);
+        const uint8_t active_index = NotificationIndexForScroll(scroll_y, total);
+
+        for (uint8_t slot = 0; slot < k_card_glass_count; ++slot) {
+            GlassCard& card = glass_cards_[slot];
+            if (card.container == nullptr || lv_obj_has_flag(card.container, LV_OBJ_FLAG_HIDDEN)) {
+                continue;
+            }
+
+            const int16_t y_offset = (int16_t)((int16_t)slot * k_notification_slide_pitch + scroll_y);
+            const int16_t distance_from_center = std::min<int16_t>(
+                (int16_t)std::abs(y_offset),
+                (int16_t)(k_notification_slide_pitch * 2)
+            );
+            const bool near_center = slot == active_index;
+            const int32_t opacity = LV_OPA_COVER - ((int32_t)distance_from_center * 90) / k_notification_slide_pitch;
+            const lv_opa_t target_opa = prepare_entry_animation
+                ? static_cast<lv_opa_t>(LV_OPA_0)
+                : (lv_opa_t)std::max<int32_t>(LV_OPA_60, std::min<int32_t>(LV_OPA_COVER, opacity));
+
+            lv_anim_delete(card.container, nullptr);
+            lv_obj_align(card.container, LV_ALIGN_TOP_MID, 0, k_glass_y_start + y_offset);
+            lv_obj_set_style_opa(card.container, target_opa, 0);
+            lv_obj_set_style_bg_opa(card.container, near_center ? static_cast<lv_opa_t>(174) : static_cast<lv_opa_t>(82), 0);
+            lv_obj_set_style_border_opa(card.container, near_center ? static_cast<lv_opa_t>(44) : static_cast<lv_opa_t>(18), 0);
+            lv_obj_set_style_shadow_width(card.container, near_center ? 30 : 8, 0);
+            lv_obj_set_style_shadow_opa(card.container, near_center ? LV_OPA_70 : LV_OPA_20, 0);
+            lv_obj_set_style_shadow_offset_y(card.container, near_center ? 10 : 4, 0);
+        }
+
+        UpdateNotificationIndicatorDots(active_index, total, prepare_entry_animation);
+        for (uint8_t slot = 0; slot < k_card_glass_count; ++slot) {
+            if (slot != active_index && glass_cards_[slot].container != nullptr) {
+                lv_obj_move_foreground(glass_cards_[slot].container);
+            }
+        }
+        if (active_index < k_card_glass_count &&
+            glass_cards_[active_index].container != nullptr &&
+            !lv_obj_has_flag(glass_cards_[active_index].container, LV_OBJ_FLAG_HIDDEN)) {
+            lv_obj_move_foreground(glass_cards_[active_index].container);
+        }
+        for (uint8_t i = 0; i < k_notification_indicator_dot_count; ++i) {
+            lv_obj_t* dot = notification_indicator_dots_[i];
+            if (dot != nullptr && !lv_obj_has_flag(dot, LV_OBJ_FLAG_HIDDEN)) {
+                lv_obj_move_foreground(dot);
+            }
+        }
+    }
+
+    void RenderNotificationCards(const xiaoxin_card_item_t* items, uint8_t count, bool prepare_entry_animation) {
+        notification_scroll_y_ = ClampNotificationScrollY(notification_scroll_y_, count);
+        for (uint8_t slot = 0; slot < k_card_glass_count; ++slot) {
+            GlassCard& card = glass_cards_[slot];
+            if (card.container == nullptr) {
+                continue;
+            }
+
+            if (items == nullptr || slot >= count) {
+                lv_obj_add_flag(card.container, LV_OBJ_FLAG_HIDDEN);
+                continue;
+            }
+
+            PopulateNotificationCard(card, &items[slot]);
+        }
+
+        ApplyNotificationScrollVisual(notification_scroll_y_, prepare_entry_animation);
+    }
+
+    static void NotificationScrollSetY(void* obj, int32_t scroll_y) {
+        auto* self = static_cast<PaopaoPetDisplay*>(obj);
+        if (self != nullptr) {
+            self->ApplyNotificationScrollVisual((int16_t)scroll_y);
+        }
+    }
+
+    static void NotificationScrollAnimationCompleted(lv_anim_t* anim) {
+        auto* self = static_cast<PaopaoPetDisplay*>(lv_anim_get_user_data(anim));
+        if (self == nullptr) {
+            return;
+        }
+        self->ApplyNotificationScrollVisual(self->notification_scroll_y_);
+        self->RaiseOverlayObjects();
+    }
+
+    void AnimateNotificationScroll(int16_t start_scroll_y, int16_t target_scroll_y) {
+        notification_scroll_y_ = target_scroll_y;
+        lv_anim_delete(this, NotificationScrollSetY);
+        ApplyNotificationScrollVisual(start_scroll_y);
+
+        lv_anim_t anim;
+        lv_anim_init(&anim);
+        lv_anim_set_var(&anim, this);
+        lv_anim_set_values(&anim, start_scroll_y, target_scroll_y);
+        lv_anim_set_time(&anim, k_notification_switch_anim_ms);
+        lv_anim_set_path_cb(&anim, lv_anim_path_ease_out);
+        lv_anim_set_exec_cb(&anim, NotificationScrollSetY);
+        lv_anim_set_completed_cb(&anim, NotificationScrollAnimationCompleted);
+        lv_anim_set_user_data(&anim, this);
+        lv_anim_start(&anim);
+    }
+
+    int NotificationBatteryLevelPercent() {
+        int level = 25;
+        bool charging = false;
+        bool discharging = true;
+        if (Board::GetInstance().GetBatteryLevel(level, charging, discharging)) {
+            return std::min(100, std::max(0, level));
+        }
+
+        // The current notification list is static. Until this board wires real
+        // battery sampling into GetBatteryLevel(), keep the low-battery card
+        // visually honest instead of showing a misleading full meter.
+        return 25;
+    }
+
+    void ApplyBatteryOverlayLevel(int level) {
+        if (battery_overlay_fill_ == nullptr || battery_overlay_box_ == nullptr) {
+            return;
+        }
+
+        const int clamped = std::max(0, std::min(100, level));
+        const int inner_w = k_system_battery_w - 4;
+        const int fill_w = std::max(3, (inner_w * clamped) / 100);
+        lv_obj_set_width(battery_overlay_fill_, fill_w);
+        lv_obj_set_style_bg_color(
+            battery_overlay_fill_,
+            lv_color_hex(clamped <= 20 ? k_battery_meter_low : k_battery_meter_fill),
+            0
+        );
+        lv_obj_set_style_border_color(
+            battery_overlay_box_,
+            lv_color_hex(clamped <= 20 ? k_battery_meter_low : k_battery_meter_fill),
+            0
+        );
+        if (battery_overlay_cap_ != nullptr) {
+            lv_obj_set_style_bg_color(
+                battery_overlay_cap_,
+                lv_color_hex(clamped <= 20 ? k_battery_meter_low : k_battery_meter_fill),
+                0
+            );
+        }
     }
 
     static uint32_t OverviewIconBgColorForTag(const char* tag) {
@@ -1090,6 +1527,16 @@ private:
             return "办";
         }
         return "息";
+    }
+
+    static const char* OverviewCompactBodyText(uint8_t row, const char* fallback) {
+        static const char* k_compact_body[k_overview_row_count] = {
+            "\xE9\xAB\x98\xE6\x95\xB0 10:10",
+            "\xE5\xB8\xB8\xE7\x94\xA8\xE5\x9C\xB0\xE7\x82\xB9",
+            "\xE5\xA4\x9A\xE4\xBA\x91 26C",
+            "2 \xE9\xA1\xB9\xE5\xBE\x85\xE5\x8A\x9E"
+        };
+        return row < k_overview_row_count ? k_compact_body[row] : fallback;
     }
 
     void ApplyCardEntryAnimation(xiaoxin_card_page_t page) {
@@ -1162,6 +1609,7 @@ private:
         } else if (xiaoxin_card_pager_animation(&self->card_pager_) == XIAOXIN_CARD_ANIMATION_SNAP) {
             self->ApplyCardEntryAnimation(xiaoxin_card_pager_current_page(&self->card_pager_));
         }
+        self->ApplyPetAnimationForCardPager();
         self->RaiseOverlayObjects();
     }
 
@@ -1174,6 +1622,7 @@ private:
         if (xiaoxin_card_pager_current_page(&self->card_pager_) == XIAOXIN_CARD_PAGE_HOME) {
             lv_obj_add_flag(self->card_layer_, LV_OBJ_FLAG_HIDDEN);
         }
+        self->ApplyPetAnimationForCardPager();
         self->RaiseOverlayObjects();
     }
 
@@ -1182,8 +1631,15 @@ private:
             return;
         }
 
+        rendered_card_page_ = page;
+        card_page_rendered_ = true;
+
         for (uint8_t i = 0; i < k_card_glass_count; ++i) {
             AddFlagIfCreated(glass_cards_[i].container, LV_OBJ_FLAG_HIDDEN);
+            AddFlagIfCreated(glass_cards_[i].pager, LV_OBJ_FLAG_HIDDEN);
+        }
+        for (uint8_t i = 0; i < k_notification_indicator_dot_count; ++i) {
+            AddFlagIfCreated(notification_indicator_dots_[i], LV_OBJ_FLAG_HIDDEN);
         }
         for (uint8_t i = 0; i < k_overview_row_count; ++i) {
             AddFlagIfCreated(overview_rows_[i].container, LV_OBJ_FLAG_HIDDEN);
@@ -1191,6 +1647,7 @@ private:
         for (uint8_t i = 0; i < k_overview_sep_count; ++i) {
             AddFlagIfCreated(overview_separators_[i], LV_OBJ_FLAG_HIDDEN);
         }
+        AddFlagIfCreated(card_title_label_, LV_OBJ_FLAG_HIDDEN);
         AddFlagIfCreated(pull_indicator_, LV_OBJ_FLAG_HIDDEN);
         AddFlagIfCreated(home_indicator_, LV_OBJ_FLAG_HIDDEN);
 
@@ -1198,6 +1655,7 @@ private:
             lv_obj_add_flag(card_layer_, LV_OBJ_FLAG_HIDDEN);
             rendered_card_page_ = XIAOXIN_CARD_PAGE_HOME;
             rendered_card_prepare_entry_ = false;
+            ApplyPetAnimationForCardPager();
             RaiseOverlayObjects();
             return;
         }
@@ -1207,11 +1665,12 @@ private:
         xiaoxin_card_pager_items(page, &items, &count);
 
         lv_obj_remove_flag(card_layer_, LV_OBJ_FLAG_HIDDEN);
+        ApplyPetAnimationForCardPager();
+        ApplyBatteryOverlayLevel(NotificationBatteryLevelPercent());
 
         if (page == XIAOXIN_CARD_PAGE_NOTIFICATIONS) {
             if (card_title_label_ != nullptr) {
-                lv_obj_align(card_title_label_, LV_ALIGN_TOP_MID, 0, 48);
-                lv_label_set_text(card_title_label_, "通知");
+                lv_label_set_text(card_title_label_, "");
             }
             RemoveFlagIfCreated(pull_indicator_, LV_OBJ_FLAG_HIDDEN);
             RemoveFlagIfCreated(home_indicator_, LV_OBJ_FLAG_HIDDEN);
@@ -1219,50 +1678,12 @@ private:
                 lv_obj_align(home_indicator_, LV_ALIGN_BOTTOM_MID, 0, -8);
             }
 
-            const uint8_t visible = std::min<uint8_t>(count, k_card_glass_count);
-            for (uint8_t i = 0; i < visible && items != nullptr; ++i) {
-                GlassCard& card = glass_cards_[i];
-                if (card.container == nullptr) {
-                    continue;
-                }
-                if (card.dot != nullptr) {
-                    lv_obj_set_style_bg_color(card.dot, lv_color_hex(DotColorForPriority(items[i].priority)), 0);
-                    if (items[i].priority <= 1) {
-                        lv_obj_set_style_shadow_color(card.dot, lv_color_hex(k_dot_color_urgent), 0);
-                        lv_obj_set_style_shadow_width(card.dot, 8, 0);
-                        lv_obj_set_style_shadow_opa(card.dot, LV_OPA_40, 0);
-                    } else {
-                        lv_obj_set_style_shadow_width(card.dot, 0, 0);
-                        lv_obj_set_style_shadow_opa(card.dot, LV_OPA_TRANSP, 0);
-                    }
-                }
-
-                if (card.title != nullptr) {
-                    lv_obj_set_style_text_color(
-                        card.title,
-                        lv_color_hex(i == 2 ? k_text_dimmed : k_text_primary),
-                        0
-                    );
-                    lv_label_set_text(card.title, items[i].title);
-                }
-                if (card.body != nullptr) {
-                    lv_label_set_text(card.body, items[i].body);
-                }
-                if (card.tag != nullptr) {
-                    lv_label_set_text(card.tag, items[i].tag);
-                }
-
-                const uint32_t arrow_colors[k_card_glass_count] = {k_title_accent, 0x3d7ab8, 0x2d5a8a};
-                if (card.arrow != nullptr) {
-                    lv_obj_set_style_text_color(card.arrow, lv_color_hex(arrow_colors[i]), 0);
-                }
-                lv_obj_set_style_opa(card.container, prepare_entry_animation ? LV_OPA_0 : LV_OPA_COVER, 0);
-                lv_obj_remove_flag(card.container, LV_OBJ_FLAG_HIDDEN);
-            }
+            RenderNotificationCards(items, count, prepare_entry_animation);
         } else if (page == XIAOXIN_CARD_PAGE_OVERVIEW) {
             if (card_title_label_ != nullptr) {
-                lv_obj_align(card_title_label_, LV_ALIGN_BOTTOM_MID, 0, -28);
-                lv_label_set_text(card_title_label_, "总览");
+                lv_obj_align(card_title_label_, LV_ALIGN_TOP_MID, 0, 34);
+                lv_label_set_text(card_title_label_, "\xE6\x80\xBB\xE8\xA7\x88");
+                lv_obj_remove_flag(card_title_label_, LV_OBJ_FLAG_HIDDEN);
             }
             RemoveFlagIfCreated(home_indicator_, LV_OBJ_FLAG_HIDDEN);
             if (home_indicator_ != nullptr) {
@@ -1286,24 +1707,26 @@ private:
                     lv_label_set_text(row.title, items[i].title);
                 }
                 if (row.body != nullptr) {
-                    lv_label_set_text(row.body, items[i].body);
+                    lv_label_set_text(row.body, OverviewCompactBodyText(i, items[i].body));
                 }
 
                 const uint32_t arrow_colors[k_overview_row_count] = {k_title_accent, 0x3d7ab8, 0x3d7ab8, 0x2d5a8a};
                 if (row.arrow != nullptr) {
                     lv_obj_set_style_text_color(row.arrow, lv_color_hex(arrow_colors[i]), 0);
                 }
-                lv_obj_set_style_opa(row.container, prepare_entry_animation ? LV_OPA_0 : LV_OPA_COVER, 0);
+                lv_obj_set_style_opa(
+                    row.container,
+                    prepare_entry_animation
+                        ? static_cast<lv_opa_t>(LV_OPA_0)
+                        : static_cast<lv_opa_t>(LV_OPA_COVER),
+                    0
+                );
                 lv_obj_remove_flag(row.container, LV_OBJ_FLAG_HIDDEN);
 
-                if (i < k_overview_sep_count && overview_separators_[i] != nullptr) {
-                    lv_obj_set_style_opa(
-                        overview_separators_[i],
-                        prepare_entry_animation ? LV_OPA_0 : k_separator_opa,
-                        0
-                    );
-                    lv_obj_remove_flag(overview_separators_[i], LV_OBJ_FLAG_HIDDEN);
-                }
+                AddFlagIfCreated(
+                    i < k_overview_sep_count ? overview_separators_[i] : nullptr,
+                    LV_OBJ_FLAG_HIDDEN
+                );
             }
         }
 
@@ -1313,16 +1736,23 @@ private:
     }
 
     void EnsureCardPageRendered(xiaoxin_card_page_t page, bool prepare_entry_animation = false) {
-        if (card_layer_ == nullptr) {
+        const bool visible_page_is_hidden =
+            page != XIAOXIN_CARD_PAGE_HOME &&
+            card_layer_ != nullptr &&
+            lv_obj_has_flag(card_layer_, LV_OBJ_FLAG_HIDDEN);
+        const bool home_page_is_visible =
+            page == XIAOXIN_CARD_PAGE_HOME &&
+            card_layer_ != nullptr &&
+            !lv_obj_has_flag(card_layer_, LV_OBJ_FLAG_HIDDEN);
+        if (card_page_rendered_ &&
+            rendered_card_page_ == page &&
+            rendered_card_prepare_entry_ == prepare_entry_animation &&
+            !home_page_is_visible &&
+            !visible_page_is_hidden) {
             return;
         }
 
-        if (page == XIAOXIN_CARD_PAGE_HOME ||
-            lv_obj_has_flag(card_layer_, LV_OBJ_FLAG_HIDDEN) ||
-            rendered_card_page_ != page ||
-            rendered_card_prepare_entry_ != prepare_entry_animation) {
-            RenderCardPage(page, prepare_entry_animation);
-        }
+        RenderCardPage(page, prepare_entry_animation);
     }
 
     void ApplyCardPagerVisual() {
@@ -1331,11 +1761,7 @@ private:
         }
 
         const xiaoxin_card_page_t current = xiaoxin_card_pager_current_page(&card_pager_);
-        xiaoxin_card_page_t visual_page = current;
-        if (xiaoxin_card_pager_is_dragging(&card_pager_)) {
-            const xiaoxin_card_page_t target = xiaoxin_card_pager_target_page(&card_pager_);
-            visual_page = target == XIAOXIN_CARD_PAGE_HOME ? current : target;
-        }
+        const xiaoxin_card_page_t visual_page = xiaoxin_card_pager_visual_page(&card_pager_);
 
         EnsureCardPageRendered(visual_page, false);
         if (visual_page == XIAOXIN_CARD_PAGE_HOME) {
@@ -1356,7 +1782,7 @@ private:
             card_layer_,
             xiaoxin_card_pager_is_dragging(&card_pager_)
                 ? DragCardLayerOpacity(current, offset, card_pager_.threshold_px)
-                : LV_OPA_COVER,
+                : static_cast<lv_opa_t>(LV_OPA_COVER),
             0
         );
     }
@@ -1370,7 +1796,9 @@ private:
         if (card_layer_ == nullptr) {
             return;
         }
-        EnsureCardPageRendered(visual_page, false);
+        if (visual_page != XIAOXIN_CARD_PAGE_NOTIFICATIONS || from_drag) {
+            EnsureCardPageRendered(visual_page, false);
+        }
         if (visual_page == XIAOXIN_CARD_PAGE_HOME) {
             return;
         }
@@ -1383,7 +1811,12 @@ private:
         lv_anim_init(&anim);
         lv_anim_set_var(&anim, card_layer_);
         lv_anim_set_values(&anim, from_y, to_y);
-        lv_anim_set_time(&anim, CardReleaseDurationMs(from_y, to_y, card_pager_.screen_height));
+        lv_anim_set_time(
+            &anim,
+            (!from_drag && visual_page == XIAOXIN_CARD_PAGE_NOTIFICATIONS)
+                ? k_notification_switch_anim_ms
+                : CardReleaseDurationMs(from_y, to_y, card_pager_.screen_height)
+        );
         lv_anim_set_path_cb(&anim, lv_anim_path_ease_out);
         lv_anim_set_exec_cb(&anim, CardLayerSetY);
         lv_anim_set_completed_cb(&anim, from_drag ? CardLayerDragAnimationCompleted : CardLayerAnimationCompleted);
@@ -1494,6 +1927,7 @@ private:
         lv_obj_align(pet_image_, LV_ALIGN_CENTER, 0, 0);
         lv_obj_invalidate(pet_image_);
         pet_gif_controller_->Start();
+        ApplyPetAnimationForCardPager();
         ESP_LOGI(
             TAG,
             "Playing Paopao GIF state=%s size=%u scale=%u visual=%u",
@@ -1528,6 +1962,33 @@ private:
         if (card_pager_.pressed) {
             xiaoxin_card_pager_release(&card_pager_);
         }
+
+        if (release_current_page == XIAOXIN_CARD_PAGE_NOTIFICATIONS && !was_card_dragging) {
+            const int16_t dx = (int16_t)touch_last_x_ - (int16_t)touch_start_x_;
+            const int16_t dy = (int16_t)touch_last_y_ - (int16_t)touch_start_y_;
+            const int16_t abs_dx = (int16_t)std::abs(dx);
+            const int16_t abs_dy = (int16_t)std::abs(dy);
+            const uint8_t total = xiaoxin_card_pager_notification_count(&card_pager_);
+
+            if (abs_dy >= k_touch_drag_min_px && abs_dy > abs_dx) {
+                const int16_t raw_scroll = (int16_t)(notification_drag_start_scroll_y_ + dy);
+                const int16_t display_scroll = NotificationScrollDisplayY(raw_scroll, total);
+                const int16_t target_scroll = ClampNotificationScrollY(raw_scroll, total);
+                card_pager_.notification_index = NotificationIndexForScroll(target_scroll, total);
+                AnimateNotificationScroll(display_scroll, target_scroll);
+                return;
+            }
+            if (abs_dy > 4 && abs_dy > abs_dx) {
+                const int16_t raw_scroll = (int16_t)(notification_drag_start_scroll_y_ + dy);
+                const int16_t display_scroll = NotificationScrollDisplayY(raw_scroll, total);
+                const int16_t target_scroll = ClampNotificationScrollY(raw_scroll, total);
+                card_pager_.notification_index = NotificationIndexForScroll(target_scroll, total);
+                AnimateNotificationScroll(display_scroll, target_scroll);
+                return;
+            }
+            return;
+        }
+
         if (was_card_dragging) {
             const int16_t target_y =
                 xiaoxin_card_pager_current_page(&card_pager_) == XIAOXIN_CARD_PAGE_HOME
@@ -1541,9 +2002,8 @@ private:
         }
 
         const int16_t dx = (int16_t)touch_last_x_ - (int16_t)touch_start_x_;
-        const int16_t dy = (int16_t)touch_last_y_ - (int16_t)touch_start_y_;
         const int16_t abs_dx = (int16_t)std::abs(dx);
-        const int16_t abs_dy = (int16_t)std::abs(dy);
+        const int16_t abs_dy = (int16_t)std::abs((int16_t)touch_last_y_ - (int16_t)touch_start_y_);
         if (!xiaoxin_card_pager_allows_pet_interaction(&card_pager_)) {
             if (now_ms - touch_start_ms_ >= k_touch_hold_ms) {
                 SetCardPagerPage(XIAOXIN_CARD_PAGE_HOME);
@@ -1600,8 +2060,32 @@ private:
                 if (card_layer_ != nullptr) {
                     lv_anim_delete(card_layer_, CardLayerSetY);
                 }
+                notification_drag_start_scroll_y_ = notification_scroll_y_;
                 xiaoxin_card_pager_press(&card_pager_, (int16_t)x, (int16_t)y);
             } else {
+                if (xiaoxin_card_pager_current_page(&card_pager_) == XIAOXIN_CARD_PAGE_NOTIFICATIONS) {
+                    const int16_t dx = (int16_t)x - (int16_t)touch_start_x_;
+                    const int16_t dy = (int16_t)y - (int16_t)touch_start_y_;
+                    const int16_t abs_dx = (int16_t)std::abs(dx);
+                    const int16_t abs_dy = (int16_t)std::abs(dy);
+                    const uint8_t total = xiaoxin_card_pager_notification_count(&card_pager_);
+                    const bool at_notification_bottom =
+                        notification_scroll_y_ <= NotificationMinScrollY(total) + 1;
+
+                    if (abs_dy > abs_dx) {
+                        if (dy < 0 && at_notification_bottom) {
+                            xiaoxin_card_pager_drag(&card_pager_, (int16_t)x, (int16_t)y);
+                            if (xiaoxin_card_pager_is_dragging(&card_pager_)) {
+                                ApplyCardPagerVisual();
+                            }
+                        } else {
+                            const int16_t raw_scroll = (int16_t)(notification_drag_start_scroll_y_ + dy);
+                            ApplyNotificationScrollVisual(NotificationScrollDisplayY(raw_scroll, total));
+                        }
+                        return;
+                    }
+                }
+
                 xiaoxin_card_pager_drag(&card_pager_, (int16_t)x, (int16_t)y);
                 if (xiaoxin_card_pager_is_dragging(&card_pager_)) {
                     ApplyCardPagerVisual();
@@ -1624,7 +2108,7 @@ private:
                 paopao_pet_trigger_tick(&trigger_, now_ms);
                 ApplyPetStateIfChanged();
             }
-            vTaskDelay(pdMS_TO_TICKS(20));
+            vTaskDelay(pdMS_TO_TICKS(k_touch_poll_ms));
         }
     }
 
@@ -1721,6 +2205,12 @@ private:
     Spd2010DirectTouchReader spd2010_touch_reader_;
     Qmi8658Motion motion_;
     TaskHandle_t motion_task_ = nullptr;
+    TaskHandle_t power_off_task_ = nullptr;
+    xiaoxin_power_control_t power_control_ = {};
+    adc_oneshot_unit_handle_t battery_adc_handle_ = nullptr;
+    adc_cali_handle_t battery_adc_cali_handle_ = nullptr;
+    bool battery_adc_initialized_ = false;
+    bool battery_adc_available_ = false;
     button_handle_t boot_btn, pwr_btn;
     button_driver_t* boot_btn_driver_ = nullptr;
     button_driver_t* pwr_btn_driver_ = nullptr;
@@ -1901,6 +2391,70 @@ private:
         );
     }
 
+    void InitializeBatteryAdc() {
+        if (battery_adc_initialized_) {
+            return;
+        }
+        battery_adc_initialized_ = true;
+
+        adc_oneshot_unit_init_cfg_t init_config = {
+            .unit_id = ADC_UNIT_1,
+        };
+        esp_err_t err = adc_oneshot_new_unit(&init_config, &battery_adc_handle_);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Battery ADC unit init failed: %s", esp_err_to_name(err));
+            return;
+        }
+
+        adc_oneshot_chan_cfg_t channel_config = {
+            .atten = ADC_ATTEN_DB_12,
+            .bitwidth = ADC_BITWIDTH_12,
+        };
+        err = adc_oneshot_config_channel(battery_adc_handle_, k_battery_adc_channel, &channel_config);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Battery ADC channel init failed: %s", esp_err_to_name(err));
+            return;
+        }
+
+        adc_cali_curve_fitting_config_t cali_config = {
+            .unit_id = ADC_UNIT_1,
+            .atten = ADC_ATTEN_DB_12,
+            .bitwidth = ADC_BITWIDTH_12,
+        };
+        err = adc_cali_create_scheme_curve_fitting(&cali_config, &battery_adc_cali_handle_);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Battery ADC calibration init failed: %s", esp_err_to_name(err));
+            return;
+        }
+
+        battery_adc_available_ = true;
+        ESP_LOGI(TAG, "Battery ADC initialized on GPIO8 / ADC1 channel 7");
+    }
+
+    int ReadBatteryVoltageMv() {
+        InitializeBatteryAdc();
+        if (!battery_adc_available_) {
+            return 0;
+        }
+
+        int voltage_sum = 0;
+        uint8_t sample_count = 0;
+        for (uint8_t i = 0; i < k_battery_adc_samples; ++i) {
+            int raw_value = 0;
+            int pin_voltage_mv = 0;
+            if (adc_oneshot_read(battery_adc_handle_, k_battery_adc_channel, &raw_value) != ESP_OK) {
+                continue;
+            }
+            if (adc_cali_raw_to_voltage(battery_adc_cali_handle_, raw_value, &pin_voltage_mv) != ESP_OK) {
+                continue;
+            }
+            voltage_sum += pin_voltage_mv * k_battery_voltage_divider;
+            sample_count++;
+        }
+
+        return sample_count > 0 ? voltage_sum / sample_count : 0;
+    }
+
     void RunMotionLoop() {
         int16_t last_x = 0;
         int16_t last_y = 0;
@@ -1954,16 +2508,61 @@ private:
     static void MotionTask(void* arg) {
         static_cast<CustomBoard*>(arg)->RunMotionLoop();
     }
+
+    void WaitForPowerButtonReleaseAndSleep() {
+        ESP_LOGI(TAG, "Waiting for PWR release before soft power-off sleep");
+        while (!gpio_get_level(PWR_BUTTON_GPIO)) {
+            vTaskDelay(pdMS_TO_TICKS(k_power_off_release_poll_ms));
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(120));
+        ESP_LOGI(TAG, "Entering deep sleep; PWR button will wake the board when USB is still powering it");
+        esp_err_t err = esp_sleep_enable_ext0_wakeup(PWR_BUTTON_GPIO, 0);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "PWR deep-sleep wake setup failed: %s", esp_err_to_name(err));
+            power_off_task_ = nullptr;
+            vTaskDelete(nullptr);
+            return;
+        }
+        esp_deep_sleep_start();
+    }
+
+    void RequestPowerOff() {
+        if (xiaoxin_power_control_shutdown_requested(&power_control_)) {
+            return;
+        }
+
+        xiaoxin_power_control_handle_long_press(&power_control_);
+        GetBacklight()->SetBrightness(0);
+        gpio_set_level(PWR_Control_PIN, xiaoxin_power_control_power_hold(&power_control_));
+        ESP_LOGI(TAG, "PWR long press: power hold released");
+
+        if (power_off_task_ == nullptr) {
+            xTaskCreatePinnedToCore(
+                PowerOffTask,
+                "pwr_off",
+                3072,
+                this,
+                4,
+                &power_off_task_,
+                1
+            );
+        }
+    }
+
+    static void PowerOffTask(void* arg) {
+        static_cast<CustomBoard*>(arg)->WaitForPowerButtonReleaseAndSleep();
+    }
  
     void InitializeButtonsCustom() {
+        xiaoxin_power_control_init(&power_control_);
         gpio_reset_pin(BOOT_BUTTON_GPIO);                                     
         gpio_set_direction(BOOT_BUTTON_GPIO, GPIO_MODE_INPUT);   
         gpio_reset_pin(PWR_BUTTON_GPIO);                                     
         gpio_set_direction(PWR_BUTTON_GPIO, GPIO_MODE_INPUT);   
         gpio_reset_pin(PWR_Control_PIN);                                     
         gpio_set_direction(PWR_Control_PIN, GPIO_MODE_OUTPUT);     
-        // gpio_set_level(PWR_Control_PIN, false);
-        gpio_set_level(PWR_Control_PIN, true);
+        gpio_set_level(PWR_Control_PIN, xiaoxin_power_control_power_hold(&power_control_));
     }
 
     void InitializeButtons() {
@@ -2012,14 +2611,7 @@ private:
         }, this);
         iot_button_register_cb(pwr_btn, BUTTON_LONG_PRESS_START, nullptr, [](void* button_handle, void* usr_data) {
             auto self = static_cast<CustomBoard*>(usr_data);
-            if(self->GetBacklight()->brightness() > 0) {
-                self->GetBacklight()->SetBrightness(0);
-                gpio_set_level(PWR_Control_PIN, false);
-            }
-            else {
-                self->GetBacklight()->RestoreBrightness();
-                gpio_set_level(PWR_Control_PIN, true);
-            }
+            self->RequestPowerOff();
         }, this);
     }
 
@@ -2040,6 +2632,19 @@ public:
             AUDIO_I2S_SPK_GPIO_BCLK, AUDIO_I2S_SPK_GPIO_LRCK, AUDIO_I2S_SPK_GPIO_DOUT, I2S_STD_SLOT_LEFT, AUDIO_I2S_MIC_GPIO_SCK, AUDIO_I2S_MIC_GPIO_WS, AUDIO_I2S_MIC_GPIO_DIN, I2S_STD_SLOT_RIGHT); // I2S_STD_SLOT_LEFT / I2S_STD_SLOT_RIGHT / I2S_STD_SLOT_BOTH
 
         return &audio_codec;
+    }
+
+    virtual bool GetBatteryLevel(int& level, bool& charging, bool& discharging) override {
+        const int voltage_mv = ReadBatteryVoltageMv();
+        if (voltage_mv <= 0) {
+            return false;
+        }
+
+        level = xiaoxin_battery_percent_from_mv(voltage_mv);
+        charging = false;
+        discharging = true;
+        ESP_LOGI(TAG, "Battery voltage=%dmV level=%d%%", voltage_mv, level);
+        return true;
     }
 
     virtual Display* GetDisplay() override {

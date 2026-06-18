@@ -18,6 +18,10 @@ static const xiaoxin_card_item_t k_overview_items[] = {
   {"今日待办", "还有 2 项", "待办", 4, 0},
 };
 
+static uint8_t notification_item_count(void) {
+  return (uint8_t)(sizeof(k_notification_items) / sizeof(k_notification_items[0]));
+}
+
 static int16_t abs_i16(int16_t value) {
   return (int16_t)(value < 0 ? -value : value);
 }
@@ -65,6 +69,8 @@ void xiaoxin_card_pager_init(xiaoxin_card_pager_t* pager, int16_t screen_height)
   pager->last_x = 0;
   pager->last_y = 0;
   pager->offset_y = 0;
+  pager->notification_index = 0;
+  pager->notification_count = notification_item_count();
   pager->pressed = false;
   pager->dragging = false;
 }
@@ -153,6 +159,66 @@ bool xiaoxin_card_pager_allows_pet_interaction(const xiaoxin_card_pager_t* pager
   return pager == NULL || pager->current_page == XIAOXIN_CARD_PAGE_HOME;
 }
 
+xiaoxin_card_page_t xiaoxin_card_pager_visual_page(const xiaoxin_card_pager_t* pager) {
+  if (pager == NULL) {
+    return XIAOXIN_CARD_PAGE_HOME;
+  }
+
+  if (!pager->dragging) {
+    return pager->current_page;
+  }
+
+  return pager->target_page == XIAOXIN_CARD_PAGE_HOME
+    ? pager->current_page
+    : pager->target_page;
+}
+
+uint8_t xiaoxin_card_pager_notification_index(const xiaoxin_card_pager_t* pager) {
+  return pager != NULL ? pager->notification_index : 0;
+}
+
+uint8_t xiaoxin_card_pager_notification_count(const xiaoxin_card_pager_t* pager) {
+  return pager != NULL ? pager->notification_count : notification_item_count();
+}
+
+bool xiaoxin_card_pager_notification_next(xiaoxin_card_pager_t* pager) {
+  if (pager == NULL || pager->notification_count == 0) {
+    return false;
+  }
+
+  if ((uint8_t)(pager->notification_index + 1) >= pager->notification_count) {
+    return false;
+  }
+
+  pager->notification_index++;
+  return true;
+}
+
+bool xiaoxin_card_pager_notification_prev(xiaoxin_card_pager_t* pager) {
+  if (pager == NULL || pager->notification_count == 0 || pager->notification_index == 0) {
+    return false;
+  }
+
+  pager->notification_index--;
+  return true;
+}
+
+const xiaoxin_card_item_t* xiaoxin_card_pager_current_notification(const xiaoxin_card_pager_t* pager) {
+  if (pager == NULL || pager->notification_count == 0) {
+    return NULL;
+  }
+
+  uint8_t index = pager->notification_index;
+  if (index >= pager->notification_count) {
+    index = (uint8_t)(pager->notification_count - 1);
+  }
+  if (index >= notification_item_count()) {
+    return NULL;
+  }
+
+  return &k_notification_items[index];
+}
+
 const char* xiaoxin_card_page_name(xiaoxin_card_page_t page) {
   switch (page) {
     case XIAOXIN_CARD_PAGE_HOME:
@@ -178,7 +244,7 @@ void xiaoxin_card_pager_items(
   switch (page) {
     case XIAOXIN_CARD_PAGE_NOTIFICATIONS:
       *items = k_notification_items;
-      *count = (uint8_t)(sizeof(k_notification_items) / sizeof(k_notification_items[0]));
+      *count = notification_item_count();
       break;
     case XIAOXIN_CARD_PAGE_OVERVIEW:
       *items = k_overview_items;

@@ -1,5 +1,107 @@
 ﻿# Update
 
+## 2026-06-18 00:00:00 +08:00
+
+### Waveshare ESP32-S3 Touch LCD 1.46 全局 WiFi / 电量安全区浮层
+
+#### 背景
+
+实机反馈原本设计右上角有电量显示，但通知卡片不拖动时看不到。排查后确认当前实现已经不再需要通知卡片内部四格电量，电量应作为全局浮层显示；问题在于全局电量位置过于贴近圆屏右上角，容易落入圆形屏幕不可见区域。同时，分页页会隐藏原始顶部状态栏，导致原 `network_label_` WiFi 图标在卡片页不可见。
+
+#### 修改内容
+
+- 保留全局电量显示，不恢复通知卡片内部电量。
+- 新增圆屏安全区系统浮层 `system_overlay_`：
+  - 尺寸 `76 x 24`。
+  - 位置为 `LV_ALIGN_TOP_RIGHT, -76, 50`，让 WiFi 和电量避开圆屏右上裁切区。
+  - 浮层挂在 `lv_screen_active()`，不是 `card_layer_` 子对象。
+- 将 WiFi 标志迁移到安全区浮层：
+  - 复用原 `network_label_` 更新链路，继续由 `LvglDisplay::UpdateStatusBar()` 写入网络状态图标。
+  - 隐藏原顶部栏里的旧 `network_label_`，避免重复显示。
+- 将全局电量对象放入同一个安全区浮层：
+  - `battery_overlay_`、`battery_overlay_box_`、`battery_overlay_fill_`、`battery_overlay_cap_` 现在作为 `system_overlay_` 子对象。
+  - 电量填充仍按真实 `GetBatteryLevel()` 结果更新。
+  - 低电量仍显示红色，正常电量显示蓝色。
+- 修改 `RaiseOverlayObjects()`：
+  - 卡片页显示时，先置顶 `card_layer_`，再置顶 `system_overlay_`。
+  - 因此分页页隐藏原顶部/底部系统栏时，WiFi 和电量仍保持可见。
+- `UpdateStatusBar()` 后同步调用 `ApplyBatteryOverlayLevel()`，保证 Home 页和卡片页的全局电量都能持续刷新。
+
+#### 涉及文件
+
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `docs/update.md`
+- `docs/xiaoxin-system-notification-card-progress.zh-CN.md`
+- `docs/xiaoxin-vertical-card-pager-plan.zh-CN.md`
+
+#### 验证结果
+
+- `xiaoxin_card_pager_test`：通过。
+- `idf.py build`：通过，生成 `build/ai_pet.bin`。
+- 构建中仅保留既有的 `esp_lcd_touch_get_coordinates` deprecated warning。
+
+#### 实机观察说明
+
+- 当前安全区位置偏保守，目的是先确保用户能稳定看到 WiFi 和电量。
+- 如实机上觉得图标太靠中间，可在确认不会被圆屏边缘裁切后，微调 `k_system_overlay_right` 和 `k_system_overlay_top`。
+
+### Waveshare ESP32-S3 Touch LCD 1.46 分页体验、电量与 PWR 电源键优化
+
+#### 背景
+
+实机反馈卡片分页“不够跟手”，通知卡片右侧信息区域需要更像手表通知中心，并希望使用开发板 PWR 键实现长按开关机。同时，通知卡片新增四格电量后，最初因为板级未接真实电量采样，接电池仍固定显示一格；后续又接入了 BAT_ADC 真实采样。
+
+#### 修改内容
+
+- 分页跟手优化：
+  - 新增 `xiaoxin_card_pager_visual_page()`，将拖动时应显示的 visual page 从渲染层抽回状态机。
+  - `PaopaoPetDisplay` 增加卡片页渲染缓存，连续拖动同一页时不再反复执行 `RenderCardPage()`，热路径只更新卡片层 `y/opacity`。
+  - 触摸轮询从 `20ms` 调整为 `10ms`，提升拖动响应频率。
+- 通知卡片布局优化：
+  - 第一张通知卡右上角新增四格电量仪表，每格约代表 25%。
+  - 低电量时使用红色填充，和左侧低电量状态点呼应。
+  - 其它通知卡保留简化 tag/箭头状态区，避免所有卡片视觉权重一致。
+- PWR 电源键：
+  - 新增 `xiaoxin_power_control` 纯逻辑模块。
+  - 启动时拉高 `PWR_Control_PIN`，保持硬件电源锁存。
+  - 长按 PWR 后不再切换背光亮灭，而是关闭背光、拉低 `PWR_Control_PIN` 请求关机。
+  - USB 供电无法被软件切断时，等待松开 PWR 后进入 deep sleep，并用 PWR 键作为唤醒源。
+- 电池电量采样：
+  - 根据 Waveshare PDF 原理图网络标注，确认 `BAT_ADC -> IO8`、`BAT_Control -> IO7`、`Key_BAT -> IO6`。
+  - GPIO8 对应 ESP32-S3 `ADC_CHANNEL_7`，新增 ADC1 采样、电压校准和三倍分压还原。
+  - 新增 `xiaoxin_battery_level` 模块，将电池电压 mV 映射为百分比。
+  - `GetBatteryLevel()` 现在返回真实采样结果，通知卡片四格电量不再固定兜底为 25%。
+  - `main/CMakeLists.txt` 增加 `esp_adc` 组件依赖。
+
+#### 涉及文件
+
+- `main/CMakeLists.txt`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.h`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.c`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_power_control.h`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_power_control.c`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_battery_level.h`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_battery_level.c`
+- `tests/xiaoxin_card_pager_test.c`
+- `tests/xiaoxin_power_control_test.c`
+- `tests/xiaoxin_battery_level_test.c`
+- `docs/update.md`
+
+#### 验证结果
+
+- `xiaoxin_card_pager_test`：通过。
+- `xiaoxin_power_control_test`：通过。
+- `xiaoxin_battery_level_test`：通过。
+- `git diff --check`：通过。
+- 当前 shell 中未找到 `idf.py`，因此尚未在本机执行完整 ESP-IDF 固件构建。
+
+#### 实机观察说明
+
+- 四格电量为粗粒度显示：4 格代表约 76% 到 100%，不等于精确 100%。
+- USB 供电或电池接近满电时，BAT_ADC 采样电压可能显示 4 格，这是正常现象。
+- 如果需要继续校准，应观察串口日志中的 `Battery voltage=xxxxmV level=xx%`，再决定是否调整分压倍数或电压百分比曲线。
+
 ## 2026-06-17 15:35:54 +08:00
 
 ### Waveshare ESP32-S3 Touch LCD 1.46 小芯分页卡片 UI 错位修复
@@ -280,3 +382,102 @@
 - 如果后续切换为非白色背景，需要同步调整白底填充值、`LvglGif` 的 `background_rgb` 和屏幕背景色。
 - 如果未来 LVGL 或 LCD 驱动修复了小图动态刷新边界问题，可以重新评估是否退回直接显示 GIF 小图对象。
 - 后续继续调整 GIF 尺寸、缩放或显示层级时，应优先保留“全屏背景帧合成”策略，避免黑短线问题回归。
+## 2026-06-18 竖向通知卡连续跟手滚动
+
+### Waveshare ESP32-S3 Touch LCD 1.46 通知页交互更新
+
+#### 背景
+
+实机反馈希望通知页像手机通知中心一样，在一屏内通过滑动查看多条通知，并且要有“跟手”的动态滑动效果。中间曾尝试过横向卡片切换和竖向分页切换，但最终需求明确为：不要“切换一张”的分页感，而要通知卡组随手指连续滚动。
+
+同时，通知页的收回规则需要更严格：只有通知内容已经滑到最底部后，再继续自下而上滑动，才允许把通知页收回到主界面。
+
+#### 修改内容
+
+- 通知卡从单张当前卡扩展为一组竖向通知卡：
+  - `k_card_glass_count` 从 3 调整为 4，可同时承载当前静态通知列表中的 4 条通知。
+  - 通知卡统一使用大玻璃卡样式、系统感 icon、右上角“现在”、标题和正文。
+  - 通知卡竖向间距使用 `k_notification_slide_pitch = 116`，让多条通知形成一组可滚动内容。
+- 新增通知页内部连续滚动状态：
+  - `notification_scroll_y_` 记录通知卡组当前滚动偏移。
+  - `notification_drag_start_scroll_y_` 记录本次触摸开始时的滚动位置。
+  - 新增 `NotificationMinScrollY()`、`ClampNotificationScrollY()`、`NotificationScrollDisplayY()`、`NotificationIndexForScroll()` 等辅助函数。
+- 通知页视觉更新为“跟手滚动”：
+  - 拖动过程中直接调用 `ApplyNotificationScrollVisual()`，卡片位置按像素跟随手指移动。
+  - 松手后不再强制跳到上一条/下一条通知，只保存当前位置。
+  - 顶部/底部越界时使用 1/3 阻尼显示，松手后通过 `AnimateNotificationScroll()` 回弹到合法范围。
+  - 底部圆点指示器仍保留，但当前点由连续滚动位置推导，而不是由一次性分页切换决定。
+- 通知页收回规则调整：
+  - 普通上/下滑优先滚动通知卡组。
+  - 只有当 `notification_scroll_y_` 已经到达最后一条通知的底部，再继续上滑，才把手势交给外层 `xiaoxin_card_pager_drag()`，触发通知页整体上收回主页。
+  - 通知页长按返回主页逻辑被取消，避免绕过“必须滑到底再上滑收回”的规则。
+- 保留状态机里的通知索引接口：
+  - `notification_index` / `notification_count` 仍保留，用于测试、圆点状态和后续真实通知数据源接入。
+  - 但当前主要视觉交互不再依赖 `notification_next()` / `notification_prev()` 做切换动画。
+
+#### 涉及文件
+
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.h`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.c`
+- `tests/xiaoxin_card_pager_test.c`
+- `docs/update.md`
+- `docs/xiaoxin-system-notification-card-progress.zh-CN.md`
+- `docs/xiaoxin-vertical-card-pager-plan.zh-CN.md`
+
+#### 当前交互规则
+
+| 场景 | 手势 | 行为 |
+|---|---|---|
+| Home | 下滑 | 进入通知页 |
+| 通知页 | 上/下滑，未到底 | 通知卡组连续跟手滚动 |
+| 通知页 | 顶部或底部越界 | 阻尼跟手，松手回弹 |
+| 通知页 | 已到最底部后继续上滑 | 收回通知页，返回 Home |
+| 通知页 | 横向滑动 | 不切换通知，不触发主页返回 |
+| 总览页 | 下滑 | 返回 Home |
+
+#### 验证结果
+
+- `xiaoxin_card_pager_test`：通过。
+- `xiaoxin_battery_level_test`：通过。
+- 当前 PowerShell 中仍未找到 `idf.py`，因此本轮未执行完整 ESP-IDF 固件构建。
+
+## 2026-06-18 透明分页背景与栈溢出修复
+
+### Waveshare ESP32-S3 Touch LCD 1.46 通知卡背景行为修正
+
+#### 背景
+
+实机上下滑进入分页卡片时出现 `***ERROR*** A stack overflow in task paopao_pet has been detected.`，设备随后 panic 重启。排查确认不是分页状态机主动重启，而是 `paopao_pet` 任务在卡片显示热路径中栈溢出。
+
+同时，通知卡背景需求进一步明确：通知卡片背景不应来自 LVGL snapshot 或另行生成的背景图，而应让主页本身停在当前一帧，作为分页卡片下方的真实背景。
+
+#### 修改内容
+
+- 修复 `paopao_pet` 任务栈溢出：
+  - 新增 `k_pet_render_task_stack_bytes = 12 * 1024`。
+  - `paopao_pet` 渲染/触摸任务栈从 `4096` 提升到 `12 KiB`。
+- 移除分页背景图链路：
+  - 删除 `card_background_buffer_`、`card_background_image_`、`card_background_dsc_` 等背景图状态。
+  - 删除 `CaptureCardBackgroundSnapshot()`、`DimCardBackgroundSnapshot()`、`HideCardBackgroundSnapshot()` 等伪 snapshot 逻辑。
+  - 确认当前代码中不再引用 `snapshot`、`card_background` 或 `lv_snapshot`。
+- 调整分页显示方式：
+  - `card_layer_` 保持 `LV_OPA_TRANSP`，分页层本身透明。
+  - 卡片页可见时调用 `pet_gif_controller_->Pause()`，让主页桌宠停在当前帧。
+  - 卡片页回到 Home 后调用 `pet_gif_controller_->Resume()`，恢复主页桌宠动画。
+  - 分页层可见期间 `ApplyPetStateIfChanged()` 暂缓切换桌宠状态，避免背景突然跳到其它 GIF 的第一帧。
+- 调整视觉透明度：
+  - 通知玻璃卡背景不透明度降低，使主页静止画面能够透出。
+  - 总览行背景不透明度同步降低，维持与通知页一致的透明覆盖感。
+
+#### 涉及文件
+
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `docs/update.md`
+- `docs/xiaoxin-system-notification-card-progress.zh-CN.md`
+
+#### 验证结果
+
+- `xiaoxin_card_pager_test`：通过。
+- `idf.py build`：通过，已生成 `build/ai_pet.bin`。
+- 构建仅保留既有 `esp_lcd_touch_get_coordinates()` deprecated warning。

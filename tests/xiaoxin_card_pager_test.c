@@ -115,6 +115,19 @@ static void drag_threshold_controls_snap_vs_rebound(void) {
     assert(xiaoxin_card_pager_animation(&pager) == XIAOXIN_CARD_ANIMATION_SNAP);
 }
 
+static void visual_page_stays_stable_during_continuous_drag(void) {
+    xiaoxin_card_pager_t pager;
+    xiaoxin_card_pager_init(&pager, 412);
+
+    xiaoxin_card_pager_press(&pager, 206, 10);
+    xiaoxin_card_pager_drag(&pager, 206, 80);
+
+    assert(xiaoxin_card_pager_visual_page(&pager) == XIAOXIN_CARD_PAGE_NOTIFICATIONS);
+
+    xiaoxin_card_pager_drag(&pager, 206, 140);
+    assert(xiaoxin_card_pager_visual_page(&pager) == XIAOXIN_CARD_PAGE_NOTIFICATIONS);
+}
+
 static void card_items_are_priority_sorted(void) {
     const xiaoxin_card_item_t* items = NULL;
     uint8_t count = 0;
@@ -128,6 +141,32 @@ static void card_items_are_priority_sorted(void) {
     assert(count == 4);
     assert(items[0].priority < items[1].priority);
     assert(items[0].ttl_ms == 0);
+}
+
+static void notification_pagination_tracks_current_item(void) {
+    xiaoxin_card_pager_t pager;
+    xiaoxin_card_pager_init(&pager, 412);
+
+    assert(xiaoxin_card_pager_notification_index(&pager) == 0);
+    assert(xiaoxin_card_pager_notification_count(&pager) == 4);
+    const xiaoxin_card_item_t* first = xiaoxin_card_pager_current_notification(&pager);
+    assert(first != NULL);
+    assert(first->priority == 1);
+
+    assert(!xiaoxin_card_pager_notification_prev(&pager));
+    assert(xiaoxin_card_pager_notification_index(&pager) == 0);
+
+    assert(xiaoxin_card_pager_notification_next(&pager));
+    assert(xiaoxin_card_pager_notification_index(&pager) == 1);
+    const xiaoxin_card_item_t* second = xiaoxin_card_pager_current_notification(&pager);
+    assert(second != NULL);
+    assert(second->priority == 2);
+
+    assert(xiaoxin_card_pager_notification_next(&pager));
+    assert(xiaoxin_card_pager_notification_next(&pager));
+    assert(xiaoxin_card_pager_notification_index(&pager) == 3);
+    assert(!xiaoxin_card_pager_notification_next(&pager));
+    assert(xiaoxin_card_pager_notification_index(&pager) == 3);
 }
 
 static void non_home_pages_capture_pet_interaction(void) {
@@ -151,7 +190,9 @@ int main(void) {
     horizontal_drag_is_not_a_card_page_drag();
     long_drag_can_follow_across_the_screen();
     drag_threshold_controls_snap_vs_rebound();
+    visual_page_stays_stable_during_continuous_drag();
     card_items_are_priority_sorted();
+    notification_pagination_tracks_current_item();
     non_home_pages_capture_pet_interaction();
     puts("xiaoxin_card_pager tests passed");
     return 0;
