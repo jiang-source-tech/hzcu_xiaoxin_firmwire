@@ -54,6 +54,7 @@ xiaoxin_card_animation_t xiaoxin_card_pager_animation(const xiaoxin_card_pager_t
 int16_t xiaoxin_card_pager_offset_y(const xiaoxin_card_pager_t* pager);
 bool xiaoxin_card_pager_is_dragging(const xiaoxin_card_pager_t* pager);
 bool xiaoxin_card_pager_allows_pet_interaction(const xiaoxin_card_pager_t* pager);
+xiaoxin_card_page_t xiaoxin_card_pager_visual_page(const xiaoxin_card_pager_t* pager);
 
 const char* xiaoxin_card_page_name(xiaoxin_card_page_t page);
 void xiaoxin_card_pager_items(

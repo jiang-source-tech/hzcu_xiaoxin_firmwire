@@ -95,6 +95,19 @@ static void long_drag_can_follow_across_the_screen(void) {
     assert(xiaoxin_card_pager_offset_y(&pager) == 412);
 }
 
+static void visual_page_stays_stable_during_continuous_drag(void) {
+    xiaoxin_card_pager_t pager;
+    xiaoxin_card_pager_init(&pager, 412);
+
+    xiaoxin_card_pager_press(&pager, 206, 10);
+    xiaoxin_card_pager_drag(&pager, 206, 80);
+
+    assert(xiaoxin_card_pager_visual_page(&pager) == XIAOXIN_CARD_PAGE_NOTIFICATIONS);
+
+    xiaoxin_card_pager_drag(&pager, 206, 140);
+    assert(xiaoxin_card_pager_visual_page(&pager) == XIAOXIN_CARD_PAGE_NOTIFICATIONS);
+}
+
 static void card_items_are_priority_sorted(void) {
     const xiaoxin_card_item_t* items = NULL;
     uint8_t count = 0;
@@ -130,6 +143,7 @@ int main(void) {
     short_vertical_drag_rebounds_to_current_page();
     horizontal_drag_is_not_a_card_page_drag();
     long_drag_can_follow_across_the_screen();
+    visual_page_stays_stable_during_continuous_drag();
     card_items_are_priority_sorted();
     non_home_pages_capture_pet_interaction();
     puts("xiaoxin_card_pager tests passed");

@@ -153,6 +153,20 @@ bool xiaoxin_card_pager_allows_pet_interaction(const xiaoxin_card_pager_t* pager
   return pager == NULL || pager->current_page == XIAOXIN_CARD_PAGE_HOME;
 }
 
+xiaoxin_card_page_t xiaoxin_card_pager_visual_page(const xiaoxin_card_pager_t* pager) {
+  if (pager == NULL) {
+    return XIAOXIN_CARD_PAGE_HOME;
+  }
+
+  if (!pager->dragging) {
+    return pager->current_page;
+  }
+
+  return pager->target_page == XIAOXIN_CARD_PAGE_HOME
+    ? pager->current_page
+    : pager->target_page;
+}
+
 const char* xiaoxin_card_page_name(xiaoxin_card_page_t page) {
   switch (page) {
     case XIAOXIN_CARD_PAGE_HOME:

@@ -13,6 +13,9 @@
 #include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_rom_sys.h>
+#include <esp_adc/adc_cali.h>
+#include <esp_adc/adc_cali_scheme.h>
+#include <esp_adc/adc_oneshot.h>
 #include "i2c_device.h"
 #include <driver/i2c_master.h>
 #include <driver/ledc.h>
@@ -22,6 +25,7 @@
 #include <esp_lcd_touch.h>
 #include <esp_lcd_touch_cst9217.h>
 #include <esp_lcd_touch_spd2010.h>
+#include <esp_sleep.h>
 #include <esp_timer.h>
 #include "esp_io_expander_tca9554.h"
 #include <iot_button.h>
@@ -37,7 +41,9 @@ extern "C" {
 #include "paopao_pet_gif_assets.h"
 #include "paopao_pet_state.h"
 #include "paopao_pet_trigger.h"
+#include "xiaoxin_battery_level.h"
 #include "xiaoxin_card_pager.h"
+#include "xiaoxin_power_control.h"
 }
 
 #define TAG "waveshare_lcd_1_46"
@@ -68,6 +74,11 @@ extern const uint8_t assets_images_review_gif_end[] asm("_binary_review_gif_end"
 static constexpr uint32_t k_touch_hold_ms = 1200;
 static constexpr int16_t k_touch_drag_min_px = 42;
 static constexpr uint32_t k_touch_motion_suppress_ms = 600;
+static constexpr uint32_t k_touch_poll_ms = 10;
+static constexpr uint32_t k_power_off_release_poll_ms = 20;
+static constexpr adc_channel_t k_battery_adc_channel = ADC_CHANNEL_7;
+static constexpr uint8_t k_battery_adc_samples = 10;
+static constexpr int k_battery_voltage_divider = 3;
 static constexpr uint32_t k_motion_poll_ms = 50;
 static constexpr uint32_t k_shake_cooldown_ms = 1800;
 static constexpr int32_t k_shake_delta_threshold = 12000;
@@ -98,14 +109,25 @@ static constexpr int16_t k_glass_height = 58;
 static constexpr int16_t k_glass_pad_v = 8;
 static constexpr int16_t k_glass_pad_h = 12;
 static constexpr int16_t k_glass_text_x = 30;
-static constexpr int16_t k_glass_text_w = 118;
-static constexpr int16_t k_glass_tag_x = 158;
-static constexpr int16_t k_glass_tag_w = 34;
-static constexpr int16_t k_glass_arrow_x = 198;
+static constexpr int16_t k_glass_text_w = 112;
+static constexpr int16_t k_glass_tag_x = 154;
+static constexpr int16_t k_glass_tag_w = 38;
+static constexpr int16_t k_glass_arrow_x = 200;
+static constexpr int16_t k_battery_meter_x = 154;
+static constexpr int16_t k_battery_meter_y = 8;
+static constexpr int16_t k_battery_meter_w = 48;
+static constexpr int16_t k_battery_meter_h = 18;
+static constexpr int16_t k_battery_segment_w = 8;
+static constexpr int16_t k_battery_segment_h = 10;
+static constexpr int16_t k_battery_segment_gap = 2;
 static constexpr int16_t k_dot_size = 8;
 static constexpr uint32_t k_dot_color_urgent = 0xff5e5b;
 static constexpr uint32_t k_dot_color_warning = 0xffb84d;
 static constexpr uint32_t k_dot_color_info = 0x4fc3f7;
+static constexpr uint32_t k_battery_meter_border = 0x2f77ff;
+static constexpr uint32_t k_battery_meter_fill = 0x49a6ff;
+static constexpr uint32_t k_battery_meter_low = 0xff5e5b;
+static constexpr uint32_t k_battery_meter_empty = 0x17304d;
 static constexpr int16_t k_ov_icon_size = 28;
 static constexpr int16_t k_ov_icon_radius = 8;
 static constexpr int16_t k_overview_text_x = 46;
@@ -332,6 +354,8 @@ struct GlassCard {
     lv_obj_t* body = nullptr;
     lv_obj_t* tag = nullptr;
     lv_obj_t* arrow = nullptr;
+    lv_obj_t* battery_meter = nullptr;
+    lv_obj_t* battery_segments[4] = {};
 };
 
 struct OverviewRow {
@@ -632,6 +656,8 @@ private:
     uint32_t touch_last_active_ms_ = 0;
     uint32_t touch_last_error_log_ms_ = 0;
     uint32_t touch_last_point_log_ms_ = 0;
+    xiaoxin_card_page_t rendered_card_page_ = XIAOXIN_CARD_PAGE_HOME;
+    bool card_page_rendered_ = false;
     bool system_bars_hidden_for_card_ = false;
     bool top_bar_was_hidden_for_card_ = false;
     bool status_bar_was_hidden_for_card_ = false;
@@ -870,6 +896,32 @@ private:
             lv_label_set_text(card.tag, "");
             lv_obj_align(card.tag, LV_ALIGN_LEFT_MID, k_glass_tag_x, 0);
 
+            card.battery_meter = lv_obj_create(card.container);
+            lv_obj_remove_style_all(card.battery_meter);
+            lv_obj_set_size(card.battery_meter, k_battery_meter_w, k_battery_meter_h);
+            lv_obj_set_style_radius(card.battery_meter, 5, 0);
+            lv_obj_set_style_bg_color(card.battery_meter, lv_color_hex(k_tag_bg), 0);
+            lv_obj_set_style_bg_opa(card.battery_meter, LV_OPA_50, 0);
+            lv_obj_set_style_border_color(card.battery_meter, lv_color_hex(k_battery_meter_border), 0);
+            lv_obj_set_style_border_opa(card.battery_meter, LV_OPA_70, 0);
+            lv_obj_set_style_border_width(card.battery_meter, 1, 0);
+            lv_obj_set_pos(card.battery_meter, k_battery_meter_x, k_battery_meter_y);
+            lv_obj_add_flag(card.battery_meter, LV_OBJ_FLAG_HIDDEN);
+
+            for (uint8_t segment = 0; segment < 4; ++segment) {
+                card.battery_segments[segment] = lv_obj_create(card.battery_meter);
+                lv_obj_remove_style_all(card.battery_segments[segment]);
+                lv_obj_set_size(card.battery_segments[segment], k_battery_segment_w, k_battery_segment_h);
+                lv_obj_set_style_radius(card.battery_segments[segment], 2, 0);
+                lv_obj_set_style_bg_color(card.battery_segments[segment], lv_color_hex(k_battery_meter_empty), 0);
+                lv_obj_set_style_bg_opa(card.battery_segments[segment], LV_OPA_60, 0);
+                lv_obj_set_pos(
+                    card.battery_segments[segment],
+                    5 + (int16_t)segment * (k_battery_segment_w + k_battery_segment_gap),
+                    4
+                );
+            }
+
             card.arrow = lv_label_create(card.container);
             lv_obj_set_style_text_color(card.arrow, lv_color_hex(k_title_accent), 0);
             lv_label_set_text(card.arrow, LV_SYMBOL_RIGHT);
@@ -1034,6 +1086,47 @@ private:
         return k_dot_color_info;
     }
 
+    static uint8_t BatterySegmentsForLevel(int level) {
+        const int clamped = std::min(100, std::max(0, level));
+        return (uint8_t)((clamped + 24) / 25);
+    }
+
+    int NotificationBatteryLevelPercent() {
+        int level = 25;
+        bool charging = false;
+        bool discharging = true;
+        if (Board::GetInstance().GetBatteryLevel(level, charging, discharging)) {
+            return std::min(100, std::max(0, level));
+        }
+
+        // The current notification list is static. Until this board wires real
+        // battery sampling into GetBatteryLevel(), keep the low-battery card
+        // visually honest instead of showing a misleading full meter.
+        return 25;
+    }
+
+    void ApplyNotificationBatteryMeter(GlassCard& card, int level) {
+        if (card.battery_meter == nullptr) {
+            return;
+        }
+
+        const uint8_t filled_segments = BatterySegmentsForLevel(level);
+        const uint32_t fill_color = level <= 25 ? k_battery_meter_low : k_battery_meter_fill;
+        for (uint8_t segment = 0; segment < 4; ++segment) {
+            if (card.battery_segments[segment] == nullptr) {
+                continue;
+            }
+
+            const bool filled = segment < filled_segments;
+            lv_obj_set_style_bg_color(
+                card.battery_segments[segment],
+                lv_color_hex(filled ? fill_color : k_battery_meter_empty),
+                0
+            );
+            lv_obj_set_style_bg_opa(card.battery_segments[segment], filled ? LV_OPA_COVER : LV_OPA_60, 0);
+        }
+    }
+
     static uint32_t OverviewIconBgColorForTag(const char* tag) {
         if (tag == nullptr) {
             return k_ov_icon_bg_weather;
@@ -1162,6 +1255,9 @@ private:
             return;
         }
 
+        rendered_card_page_ = page;
+        card_page_rendered_ = true;
+
         for (uint8_t i = 0; i < k_card_glass_count; ++i) {
             AddFlagIfCreated(glass_cards_[i].container, LV_OBJ_FLAG_HIDDEN);
         }
@@ -1234,6 +1330,15 @@ private:
                 if (card.arrow != nullptr) {
                     lv_obj_set_style_text_color(card.arrow, lv_color_hex(arrow_colors[i]), 0);
                 }
+                AddFlagIfCreated(card.battery_meter, LV_OBJ_FLAG_HIDDEN);
+                RemoveFlagIfCreated(card.tag, LV_OBJ_FLAG_HIDDEN);
+                RemoveFlagIfCreated(card.arrow, LV_OBJ_FLAG_HIDDEN);
+                if (i == 0) {
+                    RemoveFlagIfCreated(card.battery_meter, LV_OBJ_FLAG_HIDDEN);
+                    AddFlagIfCreated(card.tag, LV_OBJ_FLAG_HIDDEN);
+                    AddFlagIfCreated(card.arrow, LV_OBJ_FLAG_HIDDEN);
+                    ApplyNotificationBatteryMeter(card, NotificationBatteryLevelPercent());
+                }
                 lv_obj_set_style_opa(card.container, prepare_entry_animation ? LV_OPA_0 : LV_OPA_COVER, 0);
                 lv_obj_remove_flag(card.container, LV_OBJ_FLAG_HIDDEN);
             }
@@ -1288,19 +1393,30 @@ private:
         RaiseOverlayObjects();
     }
 
+    void EnsureCardPageRendered(xiaoxin_card_page_t page, bool prepare_entry_animation = false) {
+        const bool visible_page_is_hidden =
+            page != XIAOXIN_CARD_PAGE_HOME &&
+            card_layer_ != nullptr &&
+            lv_obj_has_flag(card_layer_, LV_OBJ_FLAG_HIDDEN);
+        if (card_page_rendered_ &&
+            rendered_card_page_ == page &&
+            !prepare_entry_animation &&
+            !visible_page_is_hidden) {
+            return;
+        }
+
+        RenderCardPage(page, prepare_entry_animation);
+    }
+
     void ApplyCardPagerVisual() {
         if (card_layer_ == nullptr) {
             return;
         }
 
         const xiaoxin_card_page_t current = xiaoxin_card_pager_current_page(&card_pager_);
-        xiaoxin_card_page_t visual_page = current;
-        if (xiaoxin_card_pager_is_dragging(&card_pager_)) {
-            const xiaoxin_card_page_t target = xiaoxin_card_pager_target_page(&card_pager_);
-            visual_page = target == XIAOXIN_CARD_PAGE_HOME ? current : target;
-        }
+        const xiaoxin_card_page_t visual_page = xiaoxin_card_pager_visual_page(&card_pager_);
 
-        RenderCardPage(visual_page);
+        EnsureCardPageRendered(visual_page);
         if (visual_page == XIAOXIN_CARD_PAGE_HOME) {
             return;
         }
@@ -1327,7 +1443,7 @@ private:
         if (card_layer_ == nullptr) {
             return;
         }
-        RenderCardPage(visual_page, false);
+        EnsureCardPageRendered(visual_page, false);
         if (visual_page == XIAOXIN_CARD_PAGE_HOME) {
             return;
         }
@@ -1577,7 +1693,7 @@ private:
                 paopao_pet_trigger_tick(&trigger_, now_ms);
                 ApplyPetStateIfChanged();
             }
-            vTaskDelay(pdMS_TO_TICKS(20));
+            vTaskDelay(pdMS_TO_TICKS(k_touch_poll_ms));
         }
     }
 
@@ -1674,6 +1790,12 @@ private:
     Spd2010DirectTouchReader spd2010_touch_reader_;
     Qmi8658Motion motion_;
     TaskHandle_t motion_task_ = nullptr;
+    TaskHandle_t power_off_task_ = nullptr;
+    xiaoxin_power_control_t power_control_ = {};
+    adc_oneshot_unit_handle_t battery_adc_handle_ = nullptr;
+    adc_cali_handle_t battery_adc_cali_handle_ = nullptr;
+    bool battery_adc_initialized_ = false;
+    bool battery_adc_available_ = false;
     button_handle_t boot_btn, pwr_btn;
     button_driver_t* boot_btn_driver_ = nullptr;
     button_driver_t* pwr_btn_driver_ = nullptr;
@@ -1854,6 +1976,70 @@ private:
         );
     }
 
+    void InitializeBatteryAdc() {
+        if (battery_adc_initialized_) {
+            return;
+        }
+        battery_adc_initialized_ = true;
+
+        adc_oneshot_unit_init_cfg_t init_config = {
+            .unit_id = ADC_UNIT_1,
+        };
+        esp_err_t err = adc_oneshot_new_unit(&init_config, &battery_adc_handle_);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Battery ADC unit init failed: %s", esp_err_to_name(err));
+            return;
+        }
+
+        adc_oneshot_chan_cfg_t channel_config = {
+            .atten = ADC_ATTEN_DB_12,
+            .bitwidth = ADC_BITWIDTH_12,
+        };
+        err = adc_oneshot_config_channel(battery_adc_handle_, k_battery_adc_channel, &channel_config);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Battery ADC channel init failed: %s", esp_err_to_name(err));
+            return;
+        }
+
+        adc_cali_curve_fitting_config_t cali_config = {
+            .unit_id = ADC_UNIT_1,
+            .atten = ADC_ATTEN_DB_12,
+            .bitwidth = ADC_BITWIDTH_12,
+        };
+        err = adc_cali_create_scheme_curve_fitting(&cali_config, &battery_adc_cali_handle_);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Battery ADC calibration init failed: %s", esp_err_to_name(err));
+            return;
+        }
+
+        battery_adc_available_ = true;
+        ESP_LOGI(TAG, "Battery ADC initialized on GPIO8 / ADC1 channel 7");
+    }
+
+    int ReadBatteryVoltageMv() {
+        InitializeBatteryAdc();
+        if (!battery_adc_available_) {
+            return 0;
+        }
+
+        int voltage_sum = 0;
+        uint8_t sample_count = 0;
+        for (uint8_t i = 0; i < k_battery_adc_samples; ++i) {
+            int raw_value = 0;
+            int pin_voltage_mv = 0;
+            if (adc_oneshot_read(battery_adc_handle_, k_battery_adc_channel, &raw_value) != ESP_OK) {
+                continue;
+            }
+            if (adc_cali_raw_to_voltage(battery_adc_cali_handle_, raw_value, &pin_voltage_mv) != ESP_OK) {
+                continue;
+            }
+            voltage_sum += pin_voltage_mv * k_battery_voltage_divider;
+            sample_count++;
+        }
+
+        return sample_count > 0 ? voltage_sum / sample_count : 0;
+    }
+
     void RunMotionLoop() {
         int16_t last_x = 0;
         int16_t last_y = 0;
@@ -1907,16 +2093,61 @@ private:
     static void MotionTask(void* arg) {
         static_cast<CustomBoard*>(arg)->RunMotionLoop();
     }
+
+    void WaitForPowerButtonReleaseAndSleep() {
+        ESP_LOGI(TAG, "Waiting for PWR release before soft power-off sleep");
+        while (!gpio_get_level(PWR_BUTTON_GPIO)) {
+            vTaskDelay(pdMS_TO_TICKS(k_power_off_release_poll_ms));
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(120));
+        ESP_LOGI(TAG, "Entering deep sleep; PWR button will wake the board when USB is still powering it");
+        esp_err_t err = esp_sleep_enable_ext0_wakeup(PWR_BUTTON_GPIO, 0);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "PWR deep-sleep wake setup failed: %s", esp_err_to_name(err));
+            power_off_task_ = nullptr;
+            vTaskDelete(nullptr);
+            return;
+        }
+        esp_deep_sleep_start();
+    }
+
+    void RequestPowerOff() {
+        if (xiaoxin_power_control_shutdown_requested(&power_control_)) {
+            return;
+        }
+
+        xiaoxin_power_control_handle_long_press(&power_control_);
+        GetBacklight()->SetBrightness(0);
+        gpio_set_level(PWR_Control_PIN, xiaoxin_power_control_power_hold(&power_control_));
+        ESP_LOGI(TAG, "PWR long press: power hold released");
+
+        if (power_off_task_ == nullptr) {
+            xTaskCreatePinnedToCore(
+                PowerOffTask,
+                "pwr_off",
+                3072,
+                this,
+                4,
+                &power_off_task_,
+                1
+            );
+        }
+    }
+
+    static void PowerOffTask(void* arg) {
+        static_cast<CustomBoard*>(arg)->WaitForPowerButtonReleaseAndSleep();
+    }
  
     void InitializeButtonsCustom() {
+        xiaoxin_power_control_init(&power_control_);
         gpio_reset_pin(BOOT_BUTTON_GPIO);                                     
         gpio_set_direction(BOOT_BUTTON_GPIO, GPIO_MODE_INPUT);   
         gpio_reset_pin(PWR_BUTTON_GPIO);                                     
         gpio_set_direction(PWR_BUTTON_GPIO, GPIO_MODE_INPUT);   
         gpio_reset_pin(PWR_Control_PIN);                                     
         gpio_set_direction(PWR_Control_PIN, GPIO_MODE_OUTPUT);     
-        // gpio_set_level(PWR_Control_PIN, false);
-        gpio_set_level(PWR_Control_PIN, true);
+        gpio_set_level(PWR_Control_PIN, xiaoxin_power_control_power_hold(&power_control_));
     }
 
     void InitializeButtons() {
@@ -1965,14 +2196,7 @@ private:
         }, this);
         iot_button_register_cb(pwr_btn, BUTTON_LONG_PRESS_START, nullptr, [](void* button_handle, void* usr_data) {
             auto self = static_cast<CustomBoard*>(usr_data);
-            if(self->GetBacklight()->brightness() > 0) {
-                self->GetBacklight()->SetBrightness(0);
-                gpio_set_level(PWR_Control_PIN, false);
-            }
-            else {
-                self->GetBacklight()->RestoreBrightness();
-                gpio_set_level(PWR_Control_PIN, true);
-            }
+            self->RequestPowerOff();
         }, this);
     }
 
@@ -1993,6 +2217,19 @@ public:
             AUDIO_I2S_SPK_GPIO_BCLK, AUDIO_I2S_SPK_GPIO_LRCK, AUDIO_I2S_SPK_GPIO_DOUT, I2S_STD_SLOT_LEFT, AUDIO_I2S_MIC_GPIO_SCK, AUDIO_I2S_MIC_GPIO_WS, AUDIO_I2S_MIC_GPIO_DIN, I2S_STD_SLOT_RIGHT); // I2S_STD_SLOT_LEFT / I2S_STD_SLOT_RIGHT / I2S_STD_SLOT_BOTH
 
         return &audio_codec;
+    }
+
+    virtual bool GetBatteryLevel(int& level, bool& charging, bool& discharging) override {
+        const int voltage_mv = ReadBatteryVoltageMv();
+        if (voltage_mv <= 0) {
+            return false;
+        }
+
+        level = xiaoxin_battery_percent_from_mv(voltage_mv);
+        charging = false;
+        discharging = true;
+        ESP_LOGI(TAG, "Battery voltage=%dmV level=%d%%", voltage_mv, level);
+        return true;
     }
 
     virtual Display* GetDisplay() override {

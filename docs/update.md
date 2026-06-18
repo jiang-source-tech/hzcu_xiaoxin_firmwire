@@ -1,5 +1,64 @@
 ﻿# Update
 
+## 2026-06-18 00:00:00 +08:00
+
+### Waveshare ESP32-S3 Touch LCD 1.46 分页体验、电量与 PWR 电源键优化
+
+#### 背景
+
+实机反馈卡片分页“不够跟手”，通知卡片右侧信息区域需要更像手表通知中心，并希望使用开发板 PWR 键实现长按开关机。同时，通知卡片新增四格电量后，最初因为板级未接真实电量采样，接电池仍固定显示一格；后续又接入了 BAT_ADC 真实采样。
+
+#### 修改内容
+
+- 分页跟手优化：
+  - 新增 `xiaoxin_card_pager_visual_page()`，将拖动时应显示的 visual page 从渲染层抽回状态机。
+  - `PaopaoPetDisplay` 增加卡片页渲染缓存，连续拖动同一页时不再反复执行 `RenderCardPage()`，热路径只更新卡片层 `y/opacity`。
+  - 触摸轮询从 `20ms` 调整为 `10ms`，提升拖动响应频率。
+- 通知卡片布局优化：
+  - 第一张通知卡右上角新增四格电量仪表，每格约代表 25%。
+  - 低电量时使用红色填充，和左侧低电量状态点呼应。
+  - 其它通知卡保留简化 tag/箭头状态区，避免所有卡片视觉权重一致。
+- PWR 电源键：
+  - 新增 `xiaoxin_power_control` 纯逻辑模块。
+  - 启动时拉高 `PWR_Control_PIN`，保持硬件电源锁存。
+  - 长按 PWR 后不再切换背光亮灭，而是关闭背光、拉低 `PWR_Control_PIN` 请求关机。
+  - USB 供电无法被软件切断时，等待松开 PWR 后进入 deep sleep，并用 PWR 键作为唤醒源。
+- 电池电量采样：
+  - 根据 Waveshare PDF 原理图网络标注，确认 `BAT_ADC -> IO8`、`BAT_Control -> IO7`、`Key_BAT -> IO6`。
+  - GPIO8 对应 ESP32-S3 `ADC_CHANNEL_7`，新增 ADC1 采样、电压校准和三倍分压还原。
+  - 新增 `xiaoxin_battery_level` 模块，将电池电压 mV 映射为百分比。
+  - `GetBatteryLevel()` 现在返回真实采样结果，通知卡片四格电量不再固定兜底为 25%。
+  - `main/CMakeLists.txt` 增加 `esp_adc` 组件依赖。
+
+#### 涉及文件
+
+- `main/CMakeLists.txt`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.h`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.c`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_power_control.h`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_power_control.c`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_battery_level.h`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_battery_level.c`
+- `tests/xiaoxin_card_pager_test.c`
+- `tests/xiaoxin_power_control_test.c`
+- `tests/xiaoxin_battery_level_test.c`
+- `docs/update.md`
+
+#### 验证结果
+
+- `xiaoxin_card_pager_test`：通过。
+- `xiaoxin_power_control_test`：通过。
+- `xiaoxin_battery_level_test`：通过。
+- `git diff --check`：通过。
+- 当前 shell 中未找到 `idf.py`，因此尚未在本机执行完整 ESP-IDF 固件构建。
+
+#### 实机观察说明
+
+- 四格电量为粗粒度显示：4 格代表约 76% 到 100%，不等于精确 100%。
+- USB 供电或电池接近满电时，BAT_ADC 采样电压可能显示 4 格，这是正常现象。
+- 如果需要继续校准，应观察串口日志中的 `Battery voltage=xxxxmV level=xx%`，再决定是否调整分压倍数或电压百分比曲线。
+
 ## 2026-06-17 15:35:54 +08:00
 
 ### Waveshare ESP32-S3 Touch LCD 1.46 小芯分页卡片 UI 错位修复
