@@ -6,6 +6,8 @@
 
 **Architecture:** Add a small C model that turns an Overview state struct into the existing `xiaoxin_card_item_t` card shape. The LVGL page renders only the model snapshot for Overview; Notifications page cards, gestures, clearing, empty state, and pagination indicators are out of scope and must not be modified. Weather, course, and todo services are not implemented in this slice; their missing data is represented by explicit offline/unconfigured/empty text.
 
+**Amendment:** Device status must not display an exact battery percentage in Overview. The board reads battery through ADC, so the model should use the internal estimated value only for coarse labels: `电量充足`, `电量正常`, `电量偏低`, `请尽快充电`, or `电量未知`.
+
 **Tech Stack:** ESP-IDF C/C++, LVGL, local GCC C tests, pytest source-path tests.
 
 ---

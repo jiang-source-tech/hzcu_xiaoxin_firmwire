@@ -32,6 +32,20 @@ static int clamp_battery_percent(int percent) {
   return percent;
 }
 
+static const char* battery_status_text(int percent) {
+  const int clamped = clamp_battery_percent(percent);
+  if (clamped >= 60) {
+    return "电量充足";
+  }
+  if (clamped >= 30) {
+    return "电量正常";
+  }
+  if (clamped >= 15) {
+    return "电量偏低";
+  }
+  return "请尽快充电";
+}
+
 static int clamp_two_digit(int value) {
   if (value < 0) {
     return 0;
@@ -187,12 +201,7 @@ static void build_device_item(
   );
 
   if (state != NULL && state->battery_known) {
-    snprintf(
-      snapshot->detail_storage[XIAOXIN_OVERVIEW_DEVICE_INDEX],
-      XIAOXIN_OVERVIEW_DETAIL_MAX,
-      "电量 %d%%",
-      clamp_battery_percent(state->battery_percent)
-    );
+    copy_detail(snapshot, XIAOXIN_OVERVIEW_DEVICE_INDEX, battery_status_text(state->battery_percent));
     return;
   }
 
