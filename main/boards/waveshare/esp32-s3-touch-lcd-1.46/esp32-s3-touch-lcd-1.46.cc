@@ -17,6 +17,7 @@
 #include <esp_adc/adc_cali.h>
 #include <esp_adc/adc_cali_scheme.h>
 #include <esp_adc/adc_oneshot.h>
+#include <font_awesome.h>
 #include "i2c_device.h"
 #include <driver/i2c_master.h>
 #include <driver/ledc.h>
@@ -44,6 +45,7 @@ extern "C" {
 #include "xiaoxin_battery_level.h"
 #include "xiaoxin_card_pager.h"
 #include "xiaoxin_power_control.h"
+#include "xiaoxin_system_overlay.h"
 }
 
 #define TAG "waveshare_lcd_1_46"
@@ -142,10 +144,10 @@ static constexpr int16_t k_dot_size = 8;
 static constexpr uint32_t k_dot_color_urgent = 0xff5e5b;
 static constexpr uint32_t k_dot_color_warning = 0xffb84d;
 static constexpr uint32_t k_dot_color_info = 0x4fc3f7;
-static constexpr uint32_t k_battery_meter_border = 0x2f77ff;
-static constexpr uint32_t k_battery_meter_fill = 0x49a6ff;
-static constexpr uint32_t k_battery_meter_low = 0xff5e5b;
-static constexpr uint32_t k_battery_meter_empty = 0x17304d;
+static constexpr uint32_t k_battery_meter_border = XIAOXIN_SYSTEM_OVERLAY_ACTIVE_COLOR;
+static constexpr uint32_t k_battery_meter_fill = XIAOXIN_SYSTEM_OVERLAY_ACTIVE_COLOR;
+static constexpr uint32_t k_battery_meter_low = XIAOXIN_SYSTEM_OVERLAY_LOW_BATTERY_COLOR;
+static constexpr uint32_t k_battery_meter_empty = 0x27413a;
 static constexpr int16_t k_ov_icon_size = 30;
 static constexpr int16_t k_ov_icon_radius = 10;
 static constexpr int16_t k_overview_row_w = 252;
@@ -648,6 +650,7 @@ public:
         LcdDisplay::UpdateStatusBar(update_all);
         {
             DisplayLockGuard lock(this);
+            ApplySystemOverlayNetworkStyle();
             ApplyBatteryOverlayLevel(NotificationBatteryLevelPercent());
             RaiseOverlayObjects();
         }
@@ -1004,6 +1007,7 @@ private:
         lv_obj_set_width(network_label_, k_system_wifi_w);
         lv_obj_set_style_text_align(network_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_text_color(network_label_, lv_color_hex(k_battery_meter_fill), 0);
+        lv_obj_set_style_text_opa(network_label_, XIAOXIN_SYSTEM_OVERLAY_ACTIVE_OPA, 0);
         if (icon_font != nullptr) {
             lv_obj_set_style_text_font(network_label_, icon_font, 0);
         }
@@ -1043,6 +1047,7 @@ private:
         lv_obj_set_style_bg_color(battery_overlay_cap_, lv_color_hex(k_battery_meter_fill), 0);
         lv_obj_set_style_bg_opa(battery_overlay_cap_, LV_OPA_COVER, 0);
         lv_obj_align(battery_overlay_cap_, LV_ALIGN_RIGHT_MID, -1, 0);
+        ApplySystemOverlayNetworkStyle();
         ApplyBatteryOverlayLevel(NotificationBatteryLevelPercent());
 
         card_layer_ = lv_obj_create(screen);
@@ -1763,29 +1768,55 @@ private:
         return 25;
     }
 
+    xiaoxin_system_overlay_network_state_t SystemOverlayNetworkState() const {
+        if (Application::GetInstance().GetDeviceState() == kDeviceStateWifiConfiguring) {
+            return XIAOXIN_SYSTEM_OVERLAY_NETWORK_CONFIGURING;
+        }
+        if (network_icon_ == nullptr || std::strcmp(network_icon_, FONT_AWESOME_WIFI_SLASH) == 0) {
+            return XIAOXIN_SYSTEM_OVERLAY_NETWORK_DISCONNECTED;
+        }
+        return XIAOXIN_SYSTEM_OVERLAY_NETWORK_CONNECTED;
+    }
+
+    void ApplySystemOverlayNetworkStyle() {
+        if (network_label_ == nullptr) {
+            return;
+        }
+
+        const auto network_state = SystemOverlayNetworkState();
+        const auto style = xiaoxin_system_overlay_style(network_state, NotificationBatteryLevelPercent());
+        lv_obj_set_style_text_color(network_label_, lv_color_hex(style.network_color), 0);
+        lv_obj_set_style_text_opa(network_label_, style.network_opa, 0);
+        lv_label_set_text(
+            network_label_,
+            style.network_disconnected ? FONT_AWESOME_WIFI_SLASH : (network_icon_ != nullptr ? network_icon_ : "")
+        );
+    }
+
     void ApplyBatteryOverlayLevel(int level) {
         if (battery_overlay_fill_ == nullptr || battery_overlay_box_ == nullptr) {
             return;
         }
 
         const int clamped = std::max(0, std::min(100, level));
+        const auto style = xiaoxin_system_overlay_style(SystemOverlayNetworkState(), clamped);
         const int inner_w = k_system_battery_w - 4;
         const int fill_w = std::max(3, (inner_w * clamped) / 100);
         lv_obj_set_width(battery_overlay_fill_, fill_w);
         lv_obj_set_style_bg_color(
             battery_overlay_fill_,
-            lv_color_hex(clamped <= 20 ? k_battery_meter_low : k_battery_meter_fill),
+            lv_color_hex(style.battery_color),
             0
         );
         lv_obj_set_style_border_color(
             battery_overlay_box_,
-            lv_color_hex(clamped <= 20 ? k_battery_meter_low : k_battery_meter_fill),
+            lv_color_hex(style.battery_color),
             0
         );
         if (battery_overlay_cap_ != nullptr) {
             lv_obj_set_style_bg_color(
                 battery_overlay_cap_,
-                lv_color_hex(clamped <= 20 ? k_battery_meter_low : k_battery_meter_fill),
+                lv_color_hex(style.battery_color),
                 0
             );
         }
