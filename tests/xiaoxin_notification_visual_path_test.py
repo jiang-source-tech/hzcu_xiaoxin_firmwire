@@ -61,14 +61,52 @@ def test_card_pager_layer_has_subtle_empty_state_background():
     assert "lv_obj_set_style_bg_opa(card_layer_, LV_OPA_TRANSP, 0);" not in body
 
 
-def test_overview_title_uses_black_and_notifications_page_has_no_title():
+def test_overview_uses_time_labels_and_keeps_notifications_page_titleless():
     source = read_source()
     body = function_body(source, "void RenderCardPage(xiaoxin_card_page_t page, bool prepare_entry_animation = false)")
 
     assert "static constexpr uint32_t k_page_title_color = 0x111111;" in source
-    assert "lv_obj_set_style_text_color(card_title_label_, lv_color_hex(k_page_title_color), 0);" in source
+    assert "lv_obj_t* overview_time_label_ = nullptr;" in source
+    assert "lv_obj_t* overview_date_label_ = nullptr;" in source
+    assert "xiaoxin_overview_snapshot_t overview_snapshot_ = {};" in source
+    assert "lv_obj_set_style_text_color(overview_time_label_, lv_color_hex(k_page_title_color), 0);" in source
+    assert "lv_label_set_text(overview_time_label_, overview_snapshot_.time_text);" in body
+    assert "lv_label_set_text(overview_date_label_, overview_snapshot_.date_text);" in body
     assert 'lv_label_set_text(card_title_label_, "\\xE9\\x80\\x9A\\xE7\\x9F\\xA5");' not in body
-    assert 'lv_label_set_text(card_title_label_, "\\xE6\\x80\\xBB\\xE8\\xA7\\x88");' in body
+    assert 'lv_label_set_text(card_title_label_, "\\xE6\\x80\\xBB\\xE8\\xA7\\x88");' not in body
+
+
+def test_overview_page_consumes_overview_model_snapshot():
+    source = read_source()
+    body = function_body(source, "void RenderCardPage(xiaoxin_card_page_t page, bool prepare_entry_animation = false)")
+
+    assert '#include "xiaoxin_overview_model.h"' in source
+    assert "xiaoxin_overview_state_t overview_state = BuildOverviewState();" in body
+    assert "xiaoxin_overview_model_build(&overview_state, &overview_snapshot_);" in body
+    assert "const xiaoxin_card_item_t* items = overview_snapshot_.items;" in body
+    assert "const uint8_t count = overview_snapshot_.item_count;" in body
+    assert "xiaoxin_card_pager_items(page, &items, &count);" not in body
+
+
+def test_overview_time_labels_are_hidden_before_page_specific_rendering():
+    body = function_body(
+        read_source(),
+        "void RenderCardPage(xiaoxin_card_page_t page, bool prepare_entry_animation = false)",
+    )
+
+    assert "AddFlagIfCreated(overview_time_label_, LV_OBJ_FLAG_HIDDEN);" in body
+    assert "AddFlagIfCreated(overview_date_label_, LV_OBJ_FLAG_HIDDEN);" in body
+
+
+def test_status_bar_refreshes_visible_overview_snapshot():
+    source = read_source()
+    status_body = function_body(source, "virtual void UpdateStatusBar(bool update_all = false) override")
+    refresh_body = function_body(source, "void RefreshOverviewPageIfVisible()")
+
+    assert "RefreshOverviewPageIfVisible();" in status_body
+    assert "rendered_card_page_ != XIAOXIN_CARD_PAGE_OVERVIEW" in refresh_body
+    assert "lv_obj_has_flag(card_layer_, LV_OBJ_FLAG_HIDDEN)" in refresh_body
+    assert "RenderCardPage(XIAOXIN_CARD_PAGE_OVERVIEW, false);" in refresh_body
 
 
 def test_empty_notifications_use_prominent_panel():

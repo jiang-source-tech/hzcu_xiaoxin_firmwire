@@ -24,13 +24,6 @@ static const notification_event_defaults_t k_notification_defaults[] = {
   {XIAOXIN_NOTIFICATION_EVENT_VOICE_RECOGNITION_FAILED, "语音识别失败", "没听清，请再说一次", "语音", 5, 8000},
 };
 
-static const xiaoxin_card_item_t k_overview_items[] = {
-  {"下一节课", "高数 10:10", "教2-301 · 还有24分", "课程", 1, 0},
-  {"校园导航", "常用地点", "教学楼 / 食堂 / 图书馆", "导航", 2, 0},
-  {"天气", "多云 26C", "湿度72% · 东风2级", "天气", 3, 0},
-  {"今日待办", "2 项待办", "实验报告 · 晚自习", "待办", 4, 0},
-};
-
 static const notification_event_defaults_t* notification_defaults_for(
   xiaoxin_notification_event_type_t type
 ) {
@@ -546,16 +539,7 @@ void xiaoxin_card_pager_items(
     return;
   }
 
-  switch (page) {
-    case XIAOXIN_CARD_PAGE_OVERVIEW:
-      *items = k_overview_items;
-      *count = (uint8_t)(sizeof(k_overview_items) / sizeof(k_overview_items[0]));
-      break;
-    case XIAOXIN_CARD_PAGE_NOTIFICATIONS:
-    case XIAOXIN_CARD_PAGE_HOME:
-    default:
-      *items = NULL;
-      *count = 0;
-      break;
-  }
+  (void)page;
+  *items = NULL;
+  *count = 0;
 }

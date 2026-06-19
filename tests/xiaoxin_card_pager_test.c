@@ -156,7 +156,7 @@ static void visual_page_stays_stable_during_continuous_drag(void) {
     assert(xiaoxin_card_pager_visual_page(&pager) == XIAOXIN_CARD_PAGE_NOTIFICATIONS);
 }
 
-static void overview_items_are_priority_sorted(void) {
+static void overview_items_are_owned_by_overview_model(void) {
     const xiaoxin_card_item_t* items = NULL;
     uint8_t count = 0;
 
@@ -165,35 +165,8 @@ static void overview_items_are_priority_sorted(void) {
     assert(items == NULL);
 
     xiaoxin_card_pager_items(XIAOXIN_CARD_PAGE_OVERVIEW, &items, &count);
-    assert(count == 4);
-    assert(items[0].priority < items[1].priority);
-    assert(items[0].ttl_ms == 0);
-}
-
-static void overview_items_include_main_and_detail_text(void) {
-    const xiaoxin_card_item_t* items = NULL;
-    uint8_t count = 0;
-
-    xiaoxin_card_pager_items(XIAOXIN_CARD_PAGE_OVERVIEW, &items, &count);
-
-    assert(count == 4);
-    assert(items != NULL);
-
-    assert(strcmp(items[0].title, "下一节课") == 0);
-    assert(strcmp(items[0].body, "高数 10:10") == 0);
-    assert(strcmp(items[0].detail, "教2-301 · 还有24分") == 0);
-
-    assert(strcmp(items[1].title, "校园导航") == 0);
-    assert(strcmp(items[1].body, "常用地点") == 0);
-    assert(strcmp(items[1].detail, "教学楼 / 食堂 / 图书馆") == 0);
-
-    assert(strcmp(items[2].title, "天气") == 0);
-    assert(strcmp(items[2].body, "多云 26C") == 0);
-    assert(strcmp(items[2].detail, "湿度72% · 东风2级") == 0);
-
-    assert(strcmp(items[3].title, "今日待办") == 0);
-    assert(strcmp(items[3].body, "2 项待办") == 0);
-    assert(strcmp(items[3].detail, "实验报告 · 晚自习") == 0);
+    assert(count == 0);
+    assert(items == NULL);
 }
 
 static void notification_center_starts_empty_until_events_arrive(void) {
@@ -396,12 +369,14 @@ static void notification_dismiss_removes_visible_item(void) {
     assert(xiaoxin_card_pager_notification_count(&pager) == 4);
     const xiaoxin_card_item_t* before = xiaoxin_card_pager_notification_at(&pager, 2);
     assert(before != NULL);
+    char before_title[XIAOXIN_CARD_NOTIFICATION_TITLE_MAX];
+    snprintf(before_title, sizeof(before_title), "%s", before->title);
 
     assert(xiaoxin_card_pager_notification_dismiss(&pager, 1));
     assert(xiaoxin_card_pager_notification_count(&pager) == 3);
     const xiaoxin_card_item_t* after = xiaoxin_card_pager_notification_at(&pager, 1);
     assert(after != NULL);
-    assert(strcmp(after->title, before->title) == 0);
+    assert(strcmp(after->title, before_title) == 0);
 }
 
 static void notification_dismiss_current_item_clamps_index(void) {
@@ -474,8 +449,7 @@ int main(void) {
     long_drag_can_follow_across_the_screen();
     drag_threshold_controls_snap_vs_rebound();
     visual_page_stays_stable_during_continuous_drag();
-    overview_items_are_priority_sorted();
-    overview_items_include_main_and_detail_text();
+    overview_items_are_owned_by_overview_model();
     notification_center_starts_empty_until_events_arrive();
     notification_event_injection_adds_real_notifications();
     notification_event_upsert_replaces_existing_source();
