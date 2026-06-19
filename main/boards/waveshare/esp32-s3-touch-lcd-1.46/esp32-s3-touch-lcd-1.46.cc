@@ -680,6 +680,7 @@ public:
             ApplySystemOverlayNetworkStyle();
             ApplyBatteryOverlayLevel(battery_level);
             SyncLowBatteryNotificationLocked(battery_level);
+            RefreshOverviewPageIfVisible();
             RaiseOverlayObjects();
         }
     }
@@ -2325,6 +2326,17 @@ private:
         RaiseOverlayObjects();
         rendered_card_page_ = page;
         rendered_card_prepare_entry_ = prepare_entry_animation;
+    }
+
+    void RefreshOverviewPageIfVisible() {
+        if (rendered_card_page_ != XIAOXIN_CARD_PAGE_OVERVIEW ||
+            card_layer_ == nullptr ||
+            lv_obj_has_flag(card_layer_, LV_OBJ_FLAG_HIDDEN)) {
+            return;
+        }
+
+        card_page_rendered_ = false;
+        RenderCardPage(XIAOXIN_CARD_PAGE_OVERVIEW, false);
     }
 
     void EnsureCardPageRendered(xiaoxin_card_page_t page, bool prepare_entry_animation = false) {

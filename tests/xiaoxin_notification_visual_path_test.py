@@ -98,6 +98,17 @@ def test_overview_time_labels_are_hidden_before_page_specific_rendering():
     assert "AddFlagIfCreated(overview_date_label_, LV_OBJ_FLAG_HIDDEN);" in body
 
 
+def test_status_bar_refreshes_visible_overview_snapshot():
+    source = read_source()
+    status_body = function_body(source, "virtual void UpdateStatusBar(bool update_all = false) override")
+    refresh_body = function_body(source, "void RefreshOverviewPageIfVisible()")
+
+    assert "RefreshOverviewPageIfVisible();" in status_body
+    assert "rendered_card_page_ != XIAOXIN_CARD_PAGE_OVERVIEW" in refresh_body
+    assert "lv_obj_has_flag(card_layer_, LV_OBJ_FLAG_HIDDEN)" in refresh_body
+    assert "RenderCardPage(XIAOXIN_CARD_PAGE_OVERVIEW, false);" in refresh_body
+
+
 def test_empty_notifications_use_prominent_panel():
     source = read_source()
     init_body = function_body(source, "void InitializeCardPagerLayer()")
