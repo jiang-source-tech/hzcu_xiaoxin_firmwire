@@ -98,6 +98,9 @@ static constexpr uint8_t k_card_glass_count = XIAOXIN_CARD_NOTIFICATION_MAX;
 static constexpr uint8_t k_notification_indicator_dot_count = XIAOXIN_CARD_NOTIFICATION_MAX;
 static constexpr uint8_t k_overview_row_count = 4;
 static constexpr uint8_t k_overview_sep_count = 3;
+static constexpr uint32_t k_card_layer_bg_color = 0xe9edf3;
+static constexpr lv_opa_t k_card_layer_bg_opa = static_cast<lv_opa_t>(18);
+static constexpr uint32_t k_page_title_color = 0x111111;
 static constexpr uint32_t k_card_bg_color = 0x17181d;
 static constexpr uint32_t k_card_border_color = 0x5a5f6b;
 static constexpr uint32_t k_card_shadow_color = 0x000000;
@@ -191,7 +194,12 @@ static constexpr int16_t k_notification_slide_pitch = 116;
 static constexpr int16_t k_notification_clear_button_w = 104;
 static constexpr int16_t k_notification_clear_button_h = 32;
 static constexpr int16_t k_notification_clear_button_y = 46;
-static constexpr int16_t k_notification_empty_y = 188;
+static constexpr int16_t k_notification_empty_panel_w = 164;
+static constexpr int16_t k_notification_empty_panel_h = 52;
+static constexpr int16_t k_notification_empty_panel_y = 176;
+static constexpr uint32_t k_notification_empty_panel_bg = 0xffffff;
+static constexpr lv_opa_t k_notification_empty_panel_opa = static_cast<lv_opa_t>(172);
+static constexpr lv_opa_t k_notification_empty_panel_border_opa = static_cast<lv_opa_t>(34);
 static constexpr int16_t k_overview_y_start = 64;
 static constexpr int16_t k_overview_row_pitch = 51;
 static constexpr uint8_t k_qmi8658_addr_primary = 0x6B;
@@ -713,6 +721,7 @@ private:
     lv_obj_t* home_indicator_ = nullptr;
     lv_obj_t* notification_clear_button_ = nullptr;
     lv_obj_t* notification_clear_label_ = nullptr;
+    lv_obj_t* notification_empty_panel_ = nullptr;
     lv_obj_t* notification_empty_label_ = nullptr;
     lv_obj_t* notification_indicator_dots_[k_notification_indicator_dot_count] = {};
     GlassCard glass_cards_[k_card_glass_count];
@@ -1173,7 +1182,8 @@ private:
         card_layer_ = lv_obj_create(screen);
         lv_obj_remove_style_all(card_layer_);
         lv_obj_set_size(card_layer_, LV_PCT(100), LV_PCT(100));
-        lv_obj_set_style_bg_opa(card_layer_, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_bg_color(card_layer_, lv_color_hex(k_card_layer_bg_color), 0);
+        lv_obj_set_style_bg_opa(card_layer_, k_card_layer_bg_opa, 0);
         lv_obj_set_style_pad_all(card_layer_, 0, 0);
         lv_obj_set_scrollbar_mode(card_layer_, LV_SCROLLBAR_MODE_OFF);
         lv_obj_align(card_layer_, LV_ALIGN_CENTER, 0, 0);
@@ -1197,7 +1207,8 @@ private:
         card_title_label_ = lv_label_create(card_layer_);
         lv_obj_set_width(card_title_label_, 260);
         lv_obj_set_style_text_align(card_title_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_style_text_color(card_title_label_, lv_color_hex(k_title_accent), 0);
+        lv_obj_set_style_text_color(card_title_label_, lv_color_hex(k_page_title_color), 0);
+        lv_obj_set_style_text_opa(card_title_label_, LV_OPA_COVER, 0);
         lv_label_set_text(card_title_label_, "");
 
         notification_clear_button_ = lv_obj_create(card_layer_);
@@ -1217,12 +1228,26 @@ private:
         lv_label_set_text(notification_clear_label_, "全部清理");
         lv_obj_center(notification_clear_label_);
 
-        notification_empty_label_ = lv_label_create(card_layer_);
-        lv_obj_set_width(notification_empty_label_, 220);
+        notification_empty_panel_ = lv_obj_create(card_layer_);
+        lv_obj_remove_style_all(notification_empty_panel_);
+        lv_obj_set_size(notification_empty_panel_, k_notification_empty_panel_w, k_notification_empty_panel_h);
+        lv_obj_set_style_radius(notification_empty_panel_, 20, 0);
+        lv_obj_set_style_bg_color(notification_empty_panel_, lv_color_hex(k_notification_empty_panel_bg), 0);
+        lv_obj_set_style_bg_opa(notification_empty_panel_, k_notification_empty_panel_opa, 0);
+        lv_obj_set_style_border_color(notification_empty_panel_, lv_color_hex(k_page_title_color), 0);
+        lv_obj_set_style_border_opa(notification_empty_panel_, k_notification_empty_panel_border_opa, 0);
+        lv_obj_set_style_border_width(notification_empty_panel_, 1, 0);
+        lv_obj_clear_flag(notification_empty_panel_, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_align(notification_empty_panel_, LV_ALIGN_TOP_MID, 0, k_notification_empty_panel_y);
+        lv_obj_add_flag(notification_empty_panel_, LV_OBJ_FLAG_HIDDEN);
+
+        notification_empty_label_ = lv_label_create(notification_empty_panel_);
+        lv_obj_set_width(notification_empty_label_, k_notification_empty_panel_w - 24);
         lv_obj_set_style_text_align(notification_empty_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_style_text_color(notification_empty_label_, lv_color_hex(k_text_dimmed), 0);
+        lv_obj_set_style_text_color(notification_empty_label_, lv_color_hex(k_page_title_color), 0);
+        lv_obj_set_style_text_opa(notification_empty_label_, LV_OPA_COVER, 0);
         lv_label_set_text(notification_empty_label_, "暂无通知");
-        lv_obj_align(notification_empty_label_, LV_ALIGN_TOP_MID, 0, k_notification_empty_y);
+        lv_obj_center(notification_empty_label_);
         lv_obj_add_flag(notification_empty_label_, LV_OBJ_FLAG_HIDDEN);
 
         for (uint8_t i = 0; i < k_card_glass_count; ++i) {
@@ -1717,9 +1742,15 @@ private:
         const bool empty = xiaoxin_card_pager_notification_empty(&card_pager_);
         if (empty) {
             AddFlagIfCreated(notification_clear_button_, LV_OBJ_FLAG_HIDDEN);
+            RemoveFlagIfCreated(notification_empty_panel_, LV_OBJ_FLAG_HIDDEN);
             RemoveFlagIfCreated(notification_empty_label_, LV_OBJ_FLAG_HIDDEN);
         } else {
             RemoveFlagIfCreated(notification_clear_button_, LV_OBJ_FLAG_HIDDEN);
+            if (notification_clear_button_ != nullptr) {
+                lv_obj_align(notification_clear_button_, LV_ALIGN_TOP_MID, 0, k_notification_clear_button_y);
+                lv_obj_move_foreground(notification_clear_button_);
+            }
+            AddFlagIfCreated(notification_empty_panel_, LV_OBJ_FLAG_HIDDEN);
             AddFlagIfCreated(notification_empty_label_, LV_OBJ_FLAG_HIDDEN);
         }
 
@@ -2121,6 +2152,7 @@ private:
         AddFlagIfCreated(pull_indicator_, LV_OBJ_FLAG_HIDDEN);
         AddFlagIfCreated(home_indicator_, LV_OBJ_FLAG_HIDDEN);
         AddFlagIfCreated(notification_clear_button_, LV_OBJ_FLAG_HIDDEN);
+        AddFlagIfCreated(notification_empty_panel_, LV_OBJ_FLAG_HIDDEN);
         AddFlagIfCreated(notification_empty_label_, LV_OBJ_FLAG_HIDDEN);
 
         if (page == XIAOXIN_CARD_PAGE_HOME) {
@@ -2141,9 +2173,6 @@ private:
         ApplyBatteryOverlayLevel(NotificationBatteryLevelPercent());
 
         if (page == XIAOXIN_CARD_PAGE_NOTIFICATIONS) {
-            if (card_title_label_ != nullptr) {
-                lv_label_set_text(card_title_label_, "");
-            }
             RemoveFlagIfCreated(pull_indicator_, LV_OBJ_FLAG_HIDDEN);
             RemoveFlagIfCreated(home_indicator_, LV_OBJ_FLAG_HIDDEN);
             if (home_indicator_ != nullptr) {
@@ -2157,6 +2186,8 @@ private:
             );
         } else if (page == XIAOXIN_CARD_PAGE_OVERVIEW) {
             if (card_title_label_ != nullptr) {
+                lv_obj_set_width(card_title_label_, 260);
+                lv_obj_set_style_text_align(card_title_label_, LV_TEXT_ALIGN_CENTER, 0);
                 lv_obj_align(card_title_label_, LV_ALIGN_TOP_MID, 0, 34);
                 lv_label_set_text(card_title_label_, "\xE6\x80\xBB\xE8\xA7\x88");
                 lv_obj_remove_flag(card_title_label_, LV_OBJ_FLAG_HIDDEN);

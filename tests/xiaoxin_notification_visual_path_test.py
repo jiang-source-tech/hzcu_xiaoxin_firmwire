@@ -50,6 +50,65 @@ def test_moving_notification_card_containers_do_not_render_shadows():
     assert "lv_obj_set_style_shadow_offset_y(card.container" not in source
 
 
+def test_card_pager_layer_has_subtle_empty_state_background():
+    source = read_source()
+    body = function_body(source, "void InitializeCardPagerLayer()")
+
+    assert "static constexpr uint32_t k_card_layer_bg_color = 0xe9edf3;" in source
+    assert "static constexpr lv_opa_t k_card_layer_bg_opa = static_cast<lv_opa_t>(18);" in source
+    assert "lv_obj_set_style_bg_color(card_layer_, lv_color_hex(k_card_layer_bg_color), 0);" in body
+    assert "lv_obj_set_style_bg_opa(card_layer_, k_card_layer_bg_opa, 0);" in body
+    assert "lv_obj_set_style_bg_opa(card_layer_, LV_OPA_TRANSP, 0);" not in body
+
+
+def test_overview_title_uses_black_and_notifications_page_has_no_title():
+    source = read_source()
+    body = function_body(source, "void RenderCardPage(xiaoxin_card_page_t page, bool prepare_entry_animation = false)")
+
+    assert "static constexpr uint32_t k_page_title_color = 0x111111;" in source
+    assert "lv_obj_set_style_text_color(card_title_label_, lv_color_hex(k_page_title_color), 0);" in source
+    assert 'lv_label_set_text(card_title_label_, "\\xE9\\x80\\x9A\\xE7\\x9F\\xA5");' not in body
+    assert 'lv_label_set_text(card_title_label_, "\\xE6\\x80\\xBB\\xE8\\xA7\\x88");' in body
+
+
+def test_empty_notifications_use_prominent_panel():
+    source = read_source()
+    init_body = function_body(source, "void InitializeCardPagerLayer()")
+    render_body = function_body(
+        source,
+        "void RenderNotificationCards(const xiaoxin_card_item_t* /*items*/, uint8_t count, bool prepare_entry_animation)",
+    )
+
+    assert "lv_obj_t* notification_empty_panel_ = nullptr;" in source
+    assert "lv_obj_set_style_bg_color(notification_empty_panel_, lv_color_hex(k_notification_empty_panel_bg), 0);" in init_body
+    assert "lv_obj_set_style_bg_opa(notification_empty_panel_, k_notification_empty_panel_opa, 0);" in init_body
+    assert "lv_obj_set_style_text_color(notification_empty_label_, lv_color_hex(k_page_title_color), 0);" in init_body
+    assert "RemoveFlagIfCreated(notification_empty_panel_, LV_OBJ_FLAG_HIDDEN);" in render_body
+    assert "AddFlagIfCreated(notification_empty_panel_, LV_OBJ_FLAG_HIDDEN);" in render_body
+
+
+def test_notification_clear_button_stays_centered_on_notifications_page():
+    source = read_source()
+    init_body = function_body(source, "void InitializeCardPagerLayer()")
+    render_body = function_body(
+        source,
+        "void RenderCardPage(xiaoxin_card_page_t page, bool prepare_entry_animation = false)",
+    )
+
+    assert "lv_obj_align(notification_clear_button_, LV_ALIGN_TOP_MID, 0, k_notification_clear_button_y);" in init_body
+    assert "lv_obj_align(notification_clear_button_, LV_ALIGN_TOP_RIGHT" not in render_body
+
+
+def test_notification_clear_button_is_foregrounded_when_visible():
+    render_body = function_body(
+        read_source(),
+        "void RenderNotificationCards(const xiaoxin_card_item_t* /*items*/, uint8_t count, bool prepare_entry_animation)",
+    )
+
+    assert "lv_obj_align(notification_clear_button_, LV_ALIGN_TOP_MID, 0, k_notification_clear_button_y);" in render_body
+    assert "lv_obj_move_foreground(notification_clear_button_);" in render_body
+
+
 def test_touch_poll_interval_does_not_exceed_display_refresh_budget():
     source = read_source()
 

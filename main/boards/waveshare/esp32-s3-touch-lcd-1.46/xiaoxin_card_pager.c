@@ -5,6 +5,7 @@
 #include <string.h>
 
 static const int16_t k_min_vertical_drag_px = 6;
+static const int16_t k_return_home_threshold_percent = 8;
 
 typedef struct {
   xiaoxin_notification_event_type_t type;
@@ -192,6 +193,19 @@ static xiaoxin_card_page_t target_for_delta(
   return current_page;
 }
 
+static int16_t release_threshold_px(const xiaoxin_card_pager_t* pager) {
+  if (pager == NULL) {
+    return 0;
+  }
+
+  if (pager->target_page == XIAOXIN_CARD_PAGE_HOME &&
+      pager->current_page != XIAOXIN_CARD_PAGE_HOME) {
+    return (int16_t)((pager->screen_height * k_return_home_threshold_percent) / 100);
+  }
+
+  return pager->threshold_px;
+}
+
 void xiaoxin_card_pager_init(xiaoxin_card_pager_t* pager, int16_t screen_height) {
   if (pager == NULL) {
     return;
@@ -263,7 +277,7 @@ void xiaoxin_card_pager_release(xiaoxin_card_pager_t* pager) {
     return;
   }
 
-  if (pager->dragging && abs_i16(pager->offset_y) >= pager->threshold_px) {
+  if (pager->dragging && abs_i16(pager->offset_y) >= release_threshold_px(pager)) {
     pager->current_page = pager->target_page;
     pager->animation = XIAOXIN_CARD_ANIMATION_SNAP;
   } else {

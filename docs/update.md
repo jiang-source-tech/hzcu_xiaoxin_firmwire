@@ -1,5 +1,59 @@
 ﻿# Update
 
+## 2026-06-19 00:00:00 +08:00
+
+### Waveshare ESP32-S3 Touch LCD 1.46 真实通知中心、空状态视觉与返回手势阈值优化
+
+#### 背景
+
+本轮通知页不再只是静态 UI 样板，而是接入了真实通知事件仓库。通知页初始为空，只有低电量、WiFi、OTA、语音失败、课程提醒等事件进入后才生成通知卡。
+
+实机反馈通知页为空时视觉重心不够明确，分页层完全透明时空状态文字容易和 Home 背景混在一起。同时，通知页或总览页已经打开后，反向滑动回 Home 仍沿用 Home 进入分页的 20% 高阈值，轻扫收回不够顺手。
+
+#### 修改内容
+
+- 落地真实通知中心：
+  - 新增通知事件模型 `xiaoxin_notification_event_t`，支持低电量、WiFi 断开、OTA 更新、语音识别失败、聊天回复兼容值和课程提醒。
+  - 通知页启动时不再填充静态假通知，`notification_count` 初始为 `0`。
+  - 新增 `xiaoxin_card_pager_notification_upsert_event()`，同类状态通知按类型更新，避免重复堆积。
+  - 新增 `xiaoxin_card_pager_notification_remove_event()`，用于外部状态恢复后移除对应通知。
+  - 新增 `xiaoxin_card_pager_notification_clear_all()` 和单条 dismiss，支持用户清理当前通知仓库。
+  - 新增课程提醒 helper，在提醒窗口内生成“上课提醒”通知，并按课程事件更新。
+  - 通知按优先级排序：课程提醒、低电量、WiFi、OTA、语音失败依次展示。
+  - 聊天回复事件保留兼容枚举，但不再渲染成通知卡，避免聊天内容刷屏通知中心。
+  - 低电量状态通过显示层同步为通知事件，恢复正常后可移除。
+- 调整分页层背景：
+  - `card_layer_` 不再完全透明，改为使用 `0xe9edf3` 的低透明度浅色背景。
+  - 背景透明度为 `18`，保留 Home 静止画面透出，同时让空状态和页面控件更稳定可读。
+- 调整页面标题与通知页标题行为：
+  - 页面标题颜色改为近黑色 `0x111111`。
+  - 通知页不再显示顶部“通知”标题，减少和清理按钮、通知卡组之间的视觉拥挤。
+  - 总览页继续显示“总览”，并保持居中对齐。
+- 优化通知空状态：
+  - 新增 `notification_empty_panel_`，将“暂无通知”放入半透明白色圆角面板。
+  - 空通知时隐藏“全部清理”按钮，显示空状态面板。
+  - 有通知时隐藏空状态面板，恢复“全部清理”入口。
+- 优化打开页返回 Home 的释放阈值：
+  - 新增 `release_threshold_px()`。
+  - 当目标页为 Home 且当前页不是 Home 时，释放阈值从通用 20% 改为屏幕高度的 8%。
+  - Home 进入通知页/总览页仍沿用原有阈值，避免误触进入分页。
+
+#### 涉及文件
+
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.h`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.c`
+- `tests/xiaoxin_card_pager_test.c`
+- `tests/xiaoxin_card_pager_threshold_test.py`
+- `tests/xiaoxin_notification_visual_path_test.py`
+- `docs/update.md`
+
+#### 验证结果
+
+- `python -m pytest tests\xiaoxin_notification_visual_path_test.py tests\xiaoxin_card_pager_threshold_test.py`：通过，12 passed。
+- `git diff --check`：通过，仅提示既有 CRLF/LF 行尾转换 warning。
+- `xiaoxin_card_pager_test`：已新增真实通知仓库、事件 upsert、状态移除、课程提醒、优先级排序、聊天回复忽略、单条 dismiss、全部清理和打开页短反向滑动返回 Home 用例；当前本机 `gcc` 连最小 C 程序也返回退出码 1 且无诊断输出，因此本轮未完成 C 测试二进制编译运行。
+
 ## 2026-06-18 00:00:00 +08:00
 
 ### Waveshare ESP32-S3 Touch LCD 1.46 全局 WiFi / 电量安全区浮层
@@ -21,7 +75,7 @@
 - 将全局电量对象放入同一个安全区浮层：
   - `battery_overlay_`、`battery_overlay_box_`、`battery_overlay_fill_`、`battery_overlay_cap_` 现在作为 `system_overlay_` 子对象。
   - 电量填充仍按真实 `GetBatteryLevel()` 结果更新。
-  - 低电量仍显示红色，正常电量显示蓝色。
+  - 低电量仍显示红色，正常电量显示青绿色 `0x168a73`。
 - 修改 `RaiseOverlayObjects()`：
   - 卡片页显示时，先置顶 `card_layer_`，再置顶 `system_overlay_`。
   - 因此分页页隐藏原顶部/底部系统栏时，WiFi 和电量仍保持可见。

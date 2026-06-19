@@ -58,6 +58,33 @@ static void reverse_swipes_return_home(void) {
     assert(xiaoxin_card_pager_current_page(&pager) == XIAOXIN_CARD_PAGE_HOME);
 }
 
+static void short_reverse_swipes_return_home_from_open_pages(void) {
+    xiaoxin_card_pager_t pager;
+    xiaoxin_card_pager_init(&pager, 412);
+
+    xiaoxin_card_pager_press(&pager, 206, 60);
+    xiaoxin_card_pager_drag(&pager, 206, 154);
+    xiaoxin_card_pager_release(&pager);
+    assert(xiaoxin_card_pager_current_page(&pager) == XIAOXIN_CARD_PAGE_NOTIFICATIONS);
+
+    xiaoxin_card_pager_press(&pager, 206, 154);
+    xiaoxin_card_pager_drag(&pager, 206, 120);
+    xiaoxin_card_pager_release(&pager);
+    assert(xiaoxin_card_pager_current_page(&pager) == XIAOXIN_CARD_PAGE_HOME);
+    assert(xiaoxin_card_pager_animation(&pager) == XIAOXIN_CARD_ANIMATION_SNAP);
+
+    xiaoxin_card_pager_press(&pager, 206, 352);
+    xiaoxin_card_pager_drag(&pager, 206, 258);
+    xiaoxin_card_pager_release(&pager);
+    assert(xiaoxin_card_pager_current_page(&pager) == XIAOXIN_CARD_PAGE_OVERVIEW);
+
+    xiaoxin_card_pager_press(&pager, 206, 258);
+    xiaoxin_card_pager_drag(&pager, 206, 292);
+    xiaoxin_card_pager_release(&pager);
+    assert(xiaoxin_card_pager_current_page(&pager) == XIAOXIN_CARD_PAGE_HOME);
+    assert(xiaoxin_card_pager_animation(&pager) == XIAOXIN_CARD_ANIMATION_SNAP);
+}
+
 static void short_vertical_drag_rebounds_to_current_page(void) {
     xiaoxin_card_pager_t pager;
     xiaoxin_card_pager_init(&pager, 412);
@@ -415,6 +442,7 @@ int main(void) {
     home_down_swipe_enters_notifications();
     home_up_swipe_enters_overview();
     reverse_swipes_return_home();
+    short_reverse_swipes_return_home_from_open_pages();
     short_vertical_drag_rebounds_to_current_page();
     horizontal_drag_is_not_a_card_page_drag();
     long_drag_can_follow_across_the_screen();
