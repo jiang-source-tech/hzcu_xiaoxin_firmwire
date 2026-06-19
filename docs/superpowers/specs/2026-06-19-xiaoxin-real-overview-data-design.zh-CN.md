@@ -21,6 +21,7 @@
 - 不在本轮接入真实天气 API、云端课表、云端待办服务。
 - 不实现复杂设置页或 Web 配置面板。
 - 不改变 Home / Notifications / Overview 的滑动分页状态机。
+- 不修改 Notifications 分页的卡片数据、卡片渲染、左滑清理、全部清理、空状态和分页指示器。
 - 不把天气、课程、待办的业务逻辑直接写进 LVGL 渲染代码。
 
 ## 3. 用户体验
@@ -57,7 +58,7 @@ tag
 1. 天气
 2. 课程
 3. 待办
-4. 设备/通知摘要
+4. 设备状态
 
 前三张面向日常信息，第四张给设备自身留一个真实状态出口，避免离线时整页都像“空数据”。
 
@@ -133,22 +134,14 @@ tag
 添加提醒后显示
 ```
 
-### 4.4 设备/通知摘要卡片
+### 4.4 设备状态卡片
 
-正常联网且无重要通知时：
+正常联网时：
 
 ```text
 设备状态
 WiFi 已连接
 电量 78%
-```
-
-有通知时：
-
-```text
-设备状态
-1 条通知
-低电量 · 电量 18%
 ```
 
 未联网时：
@@ -177,10 +170,10 @@ WiFi 已连接
 | --- | --- |
 | `xiaoxin_overview_model.h` | 定义 Overview 输入状态、输出条目、刷新 API |
 | `xiaoxin_overview_model.c` | 生成时间日期文本和四张总览卡片 |
-| `xiaoxin_card_pager.c` | 不再持有生产用 Overview 示例数组，只提供页面状态机和通知能力 |
+| `xiaoxin_card_pager.c` | 仅移除 Overview 示例数组；Notifications 相关逻辑保持不变 |
 | `esp32-s3-touch-lcd-1.46.cc` | 读取 Overview 模型输出并渲染现有 UI |
 
-`xiaoxin_card_pager.c` 可以保留页面枚举和通知逻辑，但生产路径的 Overview 内容必须来自 `xiaoxin_overview_snapshot_t`。
+`xiaoxin_card_pager.c` 保留页面枚举和通知逻辑，但生产路径的 Overview 内容必须来自 `xiaoxin_overview_snapshot_t`。本轮不得修改 Notifications 分页卡片行为。
 
 ### 5.1 输入状态
 
@@ -198,7 +191,6 @@ typedef struct {
   bool network_connected;
   int battery_percent;
   bool battery_known;
-  uint8_t notification_count;
 
   bool weather_available;
   bool weather_configured;
@@ -239,15 +231,15 @@ typedef struct {
 
 - 时间有效：格式化为 `HH:MM` 和 `M月D日 周X`。
 - 时间无效：输出 `--:--` 和 `时间未同步`。
-- 天气优先区分“未联网”和“未配置位置”。
+- 天气优先区分“未联网”和“未配置位置”；未联网优先显示同步状态，联网后再提示位置配置。
 - 课程优先区分“未配置课表”和“今天无课”。
 - 待办优先区分“未配置/为空”和“有待办”。
-- 设备摘要始终尽量显示真实网络、电量、通知数量。
+- 设备状态始终尽量显示真实网络和电量。
 
 天气状态优先级固定为：
 
-1. `weather_configured == false`：显示 `未配置位置` / `设置位置后显示`。
-2. `network_connected == false`：显示 `天气未同步` / `连接网络后更新`。
+1. `network_connected == false`：显示 `天气未同步` / `连接网络后更新`。
+2. `weather_configured == false`：显示 `未配置位置` / `设置位置后显示`。
 3. `weather_available == true`：显示真实天气。
 4. 其他情况：显示 `天气未同步` / `连接网络后更新`。
 
@@ -266,7 +258,7 @@ typedef struct {
 
 ```mermaid
 flowchart LR
-    DeviceState["设备状态\nWiFi / 电量 / 通知"] --> OverviewState["xiaoxin_overview_state_t"]
+    DeviceState["设备状态\nWiFi / 电量"] --> OverviewState["xiaoxin_overview_state_t"]
     LocalTime["本地时间"] --> OverviewState
     Weather["天气数据源\n后续接入"] --> OverviewState
     Courses["课表数据源\n后续接入"] --> OverviewState
@@ -323,7 +315,8 @@ xiaoxin_overview_state_t xiaoxin_overview_demo_state(void);
 - 未配置天气位置时显示 `未配置位置`。
 - 课表未配置、今日无课、有下一节课三种状态。
 - 待办为空、有待办两种状态。
-- 设备摘要在联网、离线、低电量、通知存在时输出正确。
+- 设备状态在联网、离线、电量可读、电量不可读时输出正确。
+- Notifications 分页卡片相关测试继续通过；本轮不新增、不修改通知分页卡片行为。
 
 现有卡片分页测试继续验证页面切换、通知中心和 Overview 条目数量。
 
@@ -334,4 +327,5 @@ xiaoxin_overview_state_t xiaoxin_overview_demo_state(void);
 - 没有课程或待办配置时，课程和待办卡片显示明确空状态。
 - 有真实或注入数据时，四张卡片能显示为当前示例 UI 的丰富形态。
 - UI 渲染层只消费 Overview 快照，不直接拼接业务文案。
+- Notifications 分页卡片没有行为或视觉改动。
 - 本地模型测试通过。
