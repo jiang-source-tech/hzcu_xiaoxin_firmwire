@@ -632,9 +632,6 @@ public:
         LcdDisplay::SetChatMessage(role, content);
         {
             DisplayLockGuard lock(this);
-            if (std::strcmp(role, "assistant") == 0) {
-                AddChatReplyNotificationLocked(content);
-            }
             if (system_bars_hidden_for_card_) {
                 bottom_bar_was_hidden_for_card_ = IsHidden(bottom_bar_);
             }
@@ -821,17 +818,14 @@ private:
             return;
         }
 
-        if (low_battery_notification_active_ &&
-            last_low_battery_notification_level_ == level) {
+        if (low_battery_notification_active_) {
             return;
         }
 
-        char body[48];
-        std::snprintf(body, sizeof(body), "剩余 %d%%，请尽快充电", level);
         const xiaoxin_notification_event_t event = {
             .type = XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY,
             .title = nullptr,
-            .body = body,
+            .body = "电量偏低，请尽快充电",
             .tag = nullptr,
             .priority = 0,
             .ttl_ms = 0,
@@ -871,21 +865,6 @@ private:
         UpsertNotificationEventLocked(event);
         network_notification_active_ = true;
         last_network_notification_state_ = state;
-    }
-
-    void AddChatReplyNotificationLocked(const char* content) {
-        if (content == nullptr || content[0] == '\0') {
-            return;
-        }
-        const xiaoxin_notification_event_t event = {
-            .type = XIAOXIN_NOTIFICATION_EVENT_CHAT_REPLY,
-            .title = nullptr,
-            .body = content,
-            .tag = nullptr,
-            .priority = 0,
-            .ttl_ms = 0,
-        };
-        UpsertNotificationEventLocked(event);
     }
 
     void AddVoiceFailureNotificationLocked(const char* status) {

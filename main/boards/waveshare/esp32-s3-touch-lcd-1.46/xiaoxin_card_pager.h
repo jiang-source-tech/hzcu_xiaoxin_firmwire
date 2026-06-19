@@ -37,9 +37,18 @@ typedef enum {
   XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED,
   XIAOXIN_NOTIFICATION_EVENT_OTA_UPDATE,
   XIAOXIN_NOTIFICATION_EVENT_VOICE_RECOGNITION_FAILED,
+  /* Compatibility value: chat replies are no longer rendered as notification cards. */
   XIAOXIN_NOTIFICATION_EVENT_CHAT_REPLY,
   XIAOXIN_NOTIFICATION_EVENT_REMINDER,
 } xiaoxin_notification_event_type_t;
+
+typedef struct {
+  const char* course_id;
+  const char* course_name;
+  const char* classroom;
+  int64_t starts_at_unix_ms;
+  uint16_t remind_before_min;
+} xiaoxin_course_reminder_t;
 
 typedef struct {
   xiaoxin_notification_event_type_t type;
@@ -95,6 +104,11 @@ const xiaoxin_card_item_t* xiaoxin_card_pager_notification_at(
 bool xiaoxin_card_pager_notification_upsert_event(
   xiaoxin_card_pager_t* pager,
   const xiaoxin_notification_event_t* event
+);
+bool xiaoxin_card_pager_notification_upsert_course_reminder(
+  xiaoxin_card_pager_t* pager,
+  const xiaoxin_course_reminder_t* reminder,
+  int64_t now_unix_ms
 );
 bool xiaoxin_card_pager_notification_remove_event(
   xiaoxin_card_pager_t* pager,

@@ -16,12 +16,11 @@ typedef struct {
 } notification_event_defaults_t;
 
 static const notification_event_defaults_t k_notification_defaults[] = {
-  {XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY, "低电量", "请尽快充电", "电量", 1, 0},
-  {XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED, "WiFi 断开", "正在重新连接", "网络", 2, 0},
-  {XIAOXIN_NOTIFICATION_EVENT_OTA_UPDATE, "OTA 更新", "发现新固件", "系统", 3, 0},
-  {XIAOXIN_NOTIFICATION_EVENT_VOICE_RECOGNITION_FAILED, "语音识别失败", "没听清，请再说一次", "语音", 4, 8000},
-  {XIAOXIN_NOTIFICATION_EVENT_CHAT_REPLY, "聊天回复", "小新回复了你", "聊天", 5, 0},
-  {XIAOXIN_NOTIFICATION_EVENT_REMINDER, "定时提醒", "有一个提醒到时间了", "提醒", 6, 0},
+  {XIAOXIN_NOTIFICATION_EVENT_REMINDER, "上课提醒", "有一节课快开始了", "课程", 1, 0},
+  {XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY, "低电量", "电量偏低，请尽快充电", "电量", 2, 0},
+  {XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED, "WiFi 断开", "WiFi 已断开，请检查网络", "网络", 3, 0},
+  {XIAOXIN_NOTIFICATION_EVENT_OTA_UPDATE, "OTA 更新", "发现新固件", "系统", 4, 0},
+  {XIAOXIN_NOTIFICATION_EVENT_VOICE_RECOGNITION_FAILED, "语音识别失败", "没听清，请再说一次", "语音", 5, 8000},
 };
 
 static const xiaoxin_card_item_t k_overview_items[] = {
@@ -358,6 +357,11 @@ bool xiaoxin_card_pager_notification_upsert_event(
   }
 
   const uint8_t index = (uint8_t)slot;
+  const char* body = event->body != NULL ? event->body : defaults->body;
+  if (event->type == XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY) {
+    body = defaults->body;
+  }
+
   pager->notification_types[index] = event->type;
   copy_text(
     pager->notification_title_storage[index],
@@ -367,7 +371,7 @@ bool xiaoxin_card_pager_notification_upsert_event(
   copy_text(
     pager->notification_body_storage[index],
     XIAOXIN_CARD_NOTIFICATION_BODY_MAX,
-    event->body != NULL ? event->body : defaults->body
+    body
   );
   copy_text(
     pager->notification_tag_storage[index],
@@ -380,6 +384,58 @@ bool xiaoxin_card_pager_notification_upsert_event(
   notification_sort_by_priority(pager);
   clamp_notification_index(pager);
   return true;
+}
+
+bool xiaoxin_card_pager_notification_upsert_course_reminder(
+  xiaoxin_card_pager_t* pager,
+  const xiaoxin_course_reminder_t* reminder,
+  int64_t now_unix_ms
+) {
+  if (pager == NULL || reminder == NULL || reminder->course_name == NULL || reminder->course_name[0] == '\0') {
+    return false;
+  }
+
+  const int64_t remind_window_ms = (int64_t)reminder->remind_before_min * 60 * 1000;
+  const int64_t until_start_ms = reminder->starts_at_unix_ms - now_unix_ms;
+  if (until_start_ms > remind_window_ms) {
+    return false;
+  }
+
+  int64_t minutes_until_start = 0;
+  if (until_start_ms > 0) {
+    minutes_until_start = (until_start_ms + 59999) / (60 * 1000);
+  }
+
+  char body[XIAOXIN_CARD_NOTIFICATION_BODY_MAX];
+  const char* classroom = reminder->classroom != NULL ? reminder->classroom : "";
+  if (classroom[0] != '\0') {
+    snprintf(
+      body,
+      sizeof(body),
+      "%lld 分钟后 %s @ %s",
+      (long long)minutes_until_start,
+      reminder->course_name,
+      classroom
+    );
+  } else {
+    snprintf(
+      body,
+      sizeof(body),
+      "%lld 分钟后 %s",
+      (long long)minutes_until_start,
+      reminder->course_name
+    );
+  }
+
+  const xiaoxin_notification_event_t event = {
+    .type = XIAOXIN_NOTIFICATION_EVENT_REMINDER,
+    .title = "上课提醒",
+    .body = body,
+    .tag = "课程",
+    .priority = 1,
+    .ttl_ms = 0,
+  };
+  return xiaoxin_card_pager_notification_upsert_event(pager, &event);
 }
 
 bool xiaoxin_card_pager_notification_remove_event(

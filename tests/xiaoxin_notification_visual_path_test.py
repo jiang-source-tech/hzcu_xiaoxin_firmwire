@@ -54,3 +54,17 @@ def test_touch_poll_interval_does_not_exceed_display_refresh_budget():
     source = read_source()
 
     assert "static constexpr uint32_t k_touch_poll_ms = 16;" in source
+
+
+def test_assistant_chat_message_does_not_create_notification_card():
+    body = function_body(read_source(), "virtual void SetChatMessage")
+
+    assert "AddChatReplyNotificationLocked" not in body
+    assert "XIAOXIN_NOTIFICATION_EVENT_CHAT_REPLY" not in body
+
+
+def test_low_battery_notification_uses_status_copy_without_percent():
+    body = function_body(read_source(), "void SyncLowBatteryNotificationLocked(int level)")
+
+    assert "剩余 %d%%" not in body
+    assert "电量偏低，请尽快充电" in body

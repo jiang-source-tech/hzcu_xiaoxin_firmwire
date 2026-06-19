@@ -167,9 +167,9 @@ static void notification_event_injection_adds_real_notifications(void) {
     const xiaoxin_card_item_t* current = xiaoxin_card_pager_current_notification(&pager);
     assert(current != NULL);
     assert(strcmp(current->title, "低电量") == 0);
-    assert(strcmp(current->body, "剩余 18%") == 0);
+    assert(strcmp(current->body, "电量偏低，请尽快充电") == 0);
     assert(strcmp(current->tag, "电量") == 0);
-    assert(current->priority == 1);
+    assert(current->priority == 2);
 }
 
 static void notification_event_upsert_replaces_existing_source(void) {
@@ -195,13 +195,56 @@ static void notification_event_upsert_replaces_existing_source(void) {
     assert(strcmp(current->body, "已断开 30 秒") == 0);
 }
 
-static void notification_events_are_sorted_by_priority(void) {
+static void chat_reply_events_are_ignored_by_notification_center(void) {
     xiaoxin_card_pager_t pager;
     xiaoxin_card_pager_init(&pager, 412);
 
     const xiaoxin_notification_event_t chat = {
         .type = XIAOXIN_NOTIFICATION_EVENT_CHAT_REPLY,
         .body = "小新回复了你",
+    };
+
+    assert(!xiaoxin_card_pager_notification_upsert_event(&pager, &chat));
+    assert(xiaoxin_card_pager_notification_empty(&pager));
+}
+
+static void course_reminder_helper_injects_class_notification_once_in_window(void) {
+    xiaoxin_card_pager_t pager;
+    xiaoxin_card_pager_init(&pager, 412);
+
+    const int64_t start_ms = 1000000;
+    const xiaoxin_course_reminder_t reminder = {
+        .course_id = "math-001",
+        .course_name = "高等数学",
+        .classroom = "3教 204",
+        .starts_at_unix_ms = start_ms,
+        .remind_before_min = 15,
+    };
+
+    assert(!xiaoxin_card_pager_notification_upsert_course_reminder(&pager, &reminder, start_ms - 16 * 60 * 1000));
+    assert(xiaoxin_card_pager_notification_empty(&pager));
+
+    assert(xiaoxin_card_pager_notification_upsert_course_reminder(&pager, &reminder, start_ms - 15 * 60 * 1000));
+    assert(xiaoxin_card_pager_notification_upsert_course_reminder(&pager, &reminder, start_ms - 14 * 60 * 1000));
+
+    assert(xiaoxin_card_pager_notification_count(&pager) == 1);
+    const xiaoxin_card_item_t* current = xiaoxin_card_pager_current_notification(&pager);
+    assert(current != NULL);
+    assert(strcmp(current->title, "上课提醒") == 0);
+    assert(strcmp(current->body, "14 分钟后 高等数学 @ 3教 204") == 0);
+    assert(strcmp(current->tag, "课程") == 0);
+    assert(current->priority == 1);
+}
+
+static void notification_events_are_sorted_by_priority(void) {
+    xiaoxin_card_pager_t pager;
+    xiaoxin_card_pager_init(&pager, 412);
+
+    const xiaoxin_notification_event_t low_battery = {
+        .type = XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY,
+    };
+    const xiaoxin_notification_event_t wifi = {
+        .type = XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED,
     };
     const xiaoxin_notification_event_t voice = {
         .type = XIAOXIN_NOTIFICATION_EVENT_VOICE_RECOGNITION_FAILED,
@@ -211,15 +254,24 @@ static void notification_events_are_sorted_by_priority(void) {
         .type = XIAOXIN_NOTIFICATION_EVENT_OTA_UPDATE,
         .body = "发现新固件",
     };
+    const xiaoxin_notification_event_t reminder = {
+        .type = XIAOXIN_NOTIFICATION_EVENT_REMINDER,
+        .body = "15 分钟后 高等数学 @ 3教 204",
+    };
 
-    assert(xiaoxin_card_pager_notification_upsert_event(&pager, &chat));
+    assert(xiaoxin_card_pager_notification_upsert_event(&pager, &voice));
+    assert(xiaoxin_card_pager_notification_upsert_event(&pager, &low_battery));
+    assert(xiaoxin_card_pager_notification_upsert_event(&pager, &wifi));
     assert(xiaoxin_card_pager_notification_upsert_event(&pager, &voice));
     assert(xiaoxin_card_pager_notification_upsert_event(&pager, &ota));
+    assert(xiaoxin_card_pager_notification_upsert_event(&pager, &reminder));
 
-    assert(xiaoxin_card_pager_notification_count(&pager) == 3);
-    assert(strcmp(xiaoxin_card_pager_notification_at(&pager, 0)->title, "OTA 更新") == 0);
-    assert(strcmp(xiaoxin_card_pager_notification_at(&pager, 1)->title, "语音识别失败") == 0);
-    assert(strcmp(xiaoxin_card_pager_notification_at(&pager, 2)->title, "聊天回复") == 0);
+    assert(xiaoxin_card_pager_notification_count(&pager) == 5);
+    assert(strcmp(xiaoxin_card_pager_notification_at(&pager, 0)->title, "上课提醒") == 0);
+    assert(strcmp(xiaoxin_card_pager_notification_at(&pager, 1)->title, "低电量") == 0);
+    assert(strcmp(xiaoxin_card_pager_notification_at(&pager, 2)->title, "WiFi 断开") == 0);
+    assert(strcmp(xiaoxin_card_pager_notification_at(&pager, 3)->title, "OTA 更新") == 0);
+    assert(strcmp(xiaoxin_card_pager_notification_at(&pager, 4)->title, "语音识别失败") == 0);
 }
 
 static void notification_event_remove_resolves_status_notifications(void) {
@@ -246,7 +298,7 @@ static void notification_pagination_tracks_current_item(void) {
         {.type = XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY, .body = "剩余 18%"},
         {.type = XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED, .body = "正在重新连接"},
         {.type = XIAOXIN_NOTIFICATION_EVENT_OTA_UPDATE, .body = "发现新固件"},
-        {.type = XIAOXIN_NOTIFICATION_EVENT_CHAT_REPLY, .body = "小新回复了你"},
+        {.type = XIAOXIN_NOTIFICATION_EVENT_REMINDER, .body = "15 分钟后 高等数学 @ 3教 204"},
     };
     for (size_t i = 0; i < sizeof(events) / sizeof(events[0]); ++i) {
         assert(xiaoxin_card_pager_notification_upsert_event(&pager, &events[i]));
@@ -282,7 +334,7 @@ static void notification_dismiss_removes_visible_item(void) {
         {.type = XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY, .body = "剩余 18%"},
         {.type = XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED, .body = "正在重新连接"},
         {.type = XIAOXIN_NOTIFICATION_EVENT_OTA_UPDATE, .body = "发现新固件"},
-        {.type = XIAOXIN_NOTIFICATION_EVENT_CHAT_REPLY, .body = "小新回复了你"},
+        {.type = XIAOXIN_NOTIFICATION_EVENT_REMINDER, .body = "15 分钟后 高等数学 @ 3教 204"},
     };
     for (size_t i = 0; i < sizeof(events) / sizeof(events[0]); ++i) {
         assert(xiaoxin_card_pager_notification_upsert_event(&pager, &events[i]));
@@ -307,7 +359,7 @@ static void notification_dismiss_current_item_clamps_index(void) {
         {.type = XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY, .body = "剩余 18%"},
         {.type = XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED, .body = "正在重新连接"},
         {.type = XIAOXIN_NOTIFICATION_EVENT_OTA_UPDATE, .body = "发现新固件"},
-        {.type = XIAOXIN_NOTIFICATION_EVENT_CHAT_REPLY, .body = "小新回复了你"},
+        {.type = XIAOXIN_NOTIFICATION_EVENT_REMINDER, .body = "15 分钟后 高等数学 @ 3教 204"},
     };
     for (size_t i = 0; i < sizeof(events) / sizeof(events[0]); ++i) {
         assert(xiaoxin_card_pager_notification_upsert_event(&pager, &events[i]));
@@ -372,6 +424,8 @@ int main(void) {
     notification_center_starts_empty_until_events_arrive();
     notification_event_injection_adds_real_notifications();
     notification_event_upsert_replaces_existing_source();
+    chat_reply_events_are_ignored_by_notification_center();
+    course_reminder_helper_injects_class_notification_once_in_window();
     notification_events_are_sorted_by_priority();
     notification_event_remove_resolves_status_notifications();
     notification_pagination_tracks_current_item();
