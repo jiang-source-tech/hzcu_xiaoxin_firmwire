@@ -163,8 +163,8 @@ static constexpr int16_t k_overview_row_w = 252;
 static constexpr int16_t k_overview_row_h = 48;
 static constexpr int16_t k_overview_icon_x = 13;
 static constexpr int16_t k_overview_text_x = 56;
-static constexpr int16_t k_overview_text_w = 154;
-static constexpr int16_t k_overview_arrow_x = 224;
+static constexpr int16_t k_overview_text_w = 160;
+static constexpr int16_t k_overview_arrow_x = 228;
 static constexpr int16_t k_overview_sep_w = 190;
 static constexpr uint32_t k_ov_icon_bg_course = 0x4fc3f7;
 static constexpr uint32_t k_ov_icon_bg_nav = 0xa0d468;
@@ -418,6 +418,7 @@ struct OverviewRow {
     lv_obj_t* text_box = nullptr;
     lv_obj_t* title = nullptr;
     lv_obj_t* body = nullptr;
+    lv_obj_t* detail = nullptr;
     lv_obj_t* arrow = nullptr;
 };
 
@@ -1383,7 +1384,7 @@ private:
 
             row.text_box = lv_obj_create(row.container);
             lv_obj_remove_style_all(row.text_box);
-            lv_obj_set_size(row.text_box, k_overview_text_w, 34);
+            lv_obj_set_size(row.text_box, k_overview_text_w, 42);
             lv_obj_set_style_layout(row.text_box, LV_LAYOUT_NONE, 0);
             lv_obj_clear_flag(row.text_box, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_align(row.text_box, LV_ALIGN_LEFT_MID, k_overview_text_x, 0);
@@ -1397,10 +1398,17 @@ private:
 
             row.body = lv_label_create(row.text_box);
             lv_obj_set_width(row.body, k_overview_text_w);
-            lv_obj_set_style_text_color(row.body, lv_color_hex(k_text_secondary), 0);
+            lv_obj_set_style_text_color(row.body, lv_color_hex(k_title_accent), 0);
             lv_label_set_long_mode(row.body, LV_LABEL_LONG_MODE_DOTS);
             lv_label_set_text(row.body, "");
-            lv_obj_set_pos(row.body, 0, 18);
+            lv_obj_set_pos(row.body, 0, 14);
+
+            row.detail = lv_label_create(row.text_box);
+            lv_obj_set_width(row.detail, k_overview_text_w);
+            lv_obj_set_style_text_color(row.detail, lv_color_hex(k_text_dimmed), 0);
+            lv_label_set_long_mode(row.detail, LV_LABEL_LONG_MODE_DOTS);
+            lv_label_set_text(row.detail, "");
+            lv_obj_set_pos(row.detail, 0, 28);
 
             row.arrow = lv_label_create(row.container);
             lv_obj_set_style_text_color(row.arrow, lv_color_hex(k_title_accent), 0);
@@ -2029,16 +2037,6 @@ private:
         return "息";
     }
 
-    static const char* OverviewCompactBodyText(uint8_t row, const char* fallback) {
-        static const char* k_compact_body[k_overview_row_count] = {
-            "\xE9\xAB\x98\xE6\x95\xB0 10:10",
-            "\xE5\xB8\xB8\xE7\x94\xA8\xE5\x9C\xB0\xE7\x82\xB9",
-            "\xE5\xA4\x9A\xE4\xBA\x91 26C",
-            "2 \xE9\xA1\xB9\xE5\xBE\x85\xE5\x8A\x9E"
-        };
-        return row < k_overview_row_count ? k_compact_body[row] : fallback;
-    }
-
     void ApplyCardEntryAnimation(xiaoxin_card_page_t page) {
         if (page == XIAOXIN_CARD_PAGE_NOTIFICATIONS) {
             for (uint8_t i = 0; i < k_card_glass_count; ++i) {
@@ -2214,7 +2212,10 @@ private:
                     lv_label_set_text(row.title, items[i].title);
                 }
                 if (row.body != nullptr) {
-                    lv_label_set_text(row.body, OverviewCompactBodyText(i, items[i].body));
+                    lv_label_set_text(row.body, items[i].body != nullptr ? items[i].body : "");
+                }
+                if (row.detail != nullptr) {
+                    lv_label_set_text(row.detail, items[i].detail != nullptr ? items[i].detail : "");
                 }
 
                 const uint32_t arrow_colors[k_overview_row_count] = {k_title_accent, 0x3d7ab8, 0x3d7ab8, 0x2d5a8a};
