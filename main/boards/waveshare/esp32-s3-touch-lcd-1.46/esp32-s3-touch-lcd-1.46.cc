@@ -35,6 +35,7 @@
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <cstdlib>
 
@@ -93,10 +94,13 @@ static constexpr uint32_t k_pet_image_scale_base = LV_SCALE_NONE;
 static constexpr uint16_t k_pet_target_visual_longest = 162;
 static constexpr uint16_t k_card_snap_min_anim_ms = 150;
 static constexpr uint16_t k_card_snap_max_anim_ms = 240;
-static constexpr uint8_t k_card_glass_count = 4;
-static constexpr uint8_t k_notification_indicator_dot_count = 4;
+static constexpr uint8_t k_card_glass_count = XIAOXIN_CARD_NOTIFICATION_MAX;
+static constexpr uint8_t k_notification_indicator_dot_count = XIAOXIN_CARD_NOTIFICATION_MAX;
 static constexpr uint8_t k_overview_row_count = 4;
 static constexpr uint8_t k_overview_sep_count = 3;
+static constexpr uint32_t k_card_layer_bg_color = 0xe9edf3;
+static constexpr lv_opa_t k_card_layer_bg_opa = static_cast<lv_opa_t>(18);
+static constexpr uint32_t k_page_title_color = 0x111111;
 static constexpr uint32_t k_card_bg_color = 0x17181d;
 static constexpr uint32_t k_card_border_color = 0x5a5f6b;
 static constexpr uint32_t k_card_shadow_color = 0x000000;
@@ -104,13 +108,17 @@ static constexpr lv_opa_t k_glass_bg_opa[k_card_glass_count] = {
     static_cast<lv_opa_t>(174),
     static_cast<lv_opa_t>(124),
     static_cast<lv_opa_t>(82),
-    static_cast<lv_opa_t>(52)
+    static_cast<lv_opa_t>(52),
+    static_cast<lv_opa_t>(36),
+    static_cast<lv_opa_t>(24)
 };
 static constexpr lv_opa_t k_glass_border_opa[k_card_glass_count] = {
     static_cast<lv_opa_t>(44),
     static_cast<lv_opa_t>(20),
     static_cast<lv_opa_t>(12),
-    static_cast<lv_opa_t>(8)
+    static_cast<lv_opa_t>(8),
+    static_cast<lv_opa_t>(6),
+    static_cast<lv_opa_t>(4)
 };
 static constexpr int16_t k_glass_radius = 34;
 static constexpr int16_t k_glass_width = 268;
@@ -186,7 +194,12 @@ static constexpr int16_t k_notification_slide_pitch = 116;
 static constexpr int16_t k_notification_clear_button_w = 104;
 static constexpr int16_t k_notification_clear_button_h = 32;
 static constexpr int16_t k_notification_clear_button_y = 46;
-static constexpr int16_t k_notification_empty_y = 188;
+static constexpr int16_t k_notification_empty_panel_w = 164;
+static constexpr int16_t k_notification_empty_panel_h = 52;
+static constexpr int16_t k_notification_empty_panel_y = 176;
+static constexpr uint32_t k_notification_empty_panel_bg = 0xffffff;
+static constexpr lv_opa_t k_notification_empty_panel_opa = static_cast<lv_opa_t>(172);
+static constexpr lv_opa_t k_notification_empty_panel_border_opa = static_cast<lv_opa_t>(34);
 static constexpr int16_t k_overview_y_start = 64;
 static constexpr int16_t k_overview_row_pitch = 51;
 static constexpr uint8_t k_qmi8658_addr_primary = 0x6B;
@@ -553,6 +566,10 @@ public:
 
         LcdDisplay::SetStatus(status);
 
+        const bool status_error =
+            StatusEquals(status, Lang::Strings::ERROR) ||
+            Contains(status, "Error") || Contains(status, "error");
+
         if (StatusEquals(status, Lang::Strings::LISTENING) ||
             Contains(status, "Listening") || Contains(status, "listening")) {
             DispatchPetTrigger(PAOPAO_PET_TRIGGER_LISTENING);
@@ -564,14 +581,16 @@ public:
         } else if (StatusEquals(status, Lang::Strings::STANDBY) ||
                    Contains(status, "Standby") || Contains(status, "standby")) {
             DispatchPetTrigger(PAOPAO_PET_TRIGGER_IDLE);
-        } else if (StatusEquals(status, Lang::Strings::ERROR) ||
-                   Contains(status, "Error") || Contains(status, "error")) {
+        } else if (status_error) {
             DispatchPetTrigger(PAOPAO_PET_TRIGGER_ERROR);
         } else if (IsBusyStatus(status)) {
             DispatchPetTrigger(PAOPAO_PET_TRIGGER_CONNECTING);
         }
         {
             DisplayLockGuard lock(this);
+            if (status_error) {
+                AddVoiceFailureNotificationLocked(status);
+            }
             RaiseOverlayObjects();
         }
     }
@@ -651,8 +670,10 @@ public:
         LcdDisplay::UpdateStatusBar(update_all);
         {
             DisplayLockGuard lock(this);
+            const int battery_level = NotificationBatteryLevelPercent();
             ApplySystemOverlayNetworkStyle();
-            ApplyBatteryOverlayLevel(NotificationBatteryLevelPercent());
+            ApplyBatteryOverlayLevel(battery_level);
+            SyncLowBatteryNotificationLocked(battery_level);
             RaiseOverlayObjects();
         }
     }
@@ -700,6 +721,7 @@ private:
     lv_obj_t* home_indicator_ = nullptr;
     lv_obj_t* notification_clear_button_ = nullptr;
     lv_obj_t* notification_clear_label_ = nullptr;
+    lv_obj_t* notification_empty_panel_ = nullptr;
     lv_obj_t* notification_empty_label_ = nullptr;
     lv_obj_t* notification_indicator_dots_[k_notification_indicator_dot_count] = {};
     GlassCard glass_cards_[k_card_glass_count];
@@ -735,8 +757,6 @@ private:
     uint32_t ui_perf_touch_loop_calls_ = 0;
     uint32_t ui_perf_touch_loop_total_us_ = 0;
     uint32_t ui_perf_touch_loop_max_us_ = 0;
-    xiaoxin_card_page_t rendered_card_page_ = XIAOXIN_CARD_PAGE_HOME;
-    bool card_page_rendered_ = false;
     bool pet_animation_paused_for_card_ = false;
     bool system_bars_hidden_for_card_ = false;
     bool top_bar_was_hidden_for_card_ = false;
@@ -751,6 +771,11 @@ private:
     int16_t notification_card_drag_x_ = 0;
     bool notification_dismiss_animating_ = false;
     uint8_t notification_animating_visible_index_ = 0xff;
+    bool low_battery_notification_active_ = false;
+    int last_low_battery_notification_level_ = -1;
+    bool network_notification_active_ = false;
+    xiaoxin_system_overlay_network_state_t last_network_notification_state_ =
+        XIAOXIN_SYSTEM_OVERLAY_NETWORK_CONNECTED;
 
     static uint32_t NowMs() {
         return (uint32_t)(esp_timer_get_time() / 1000ULL);
@@ -762,6 +787,105 @@ private:
 
     static bool StatusEquals(const char* status, const char* expected) {
         return status != nullptr && expected != nullptr && std::strcmp(status, expected) == 0;
+    }
+
+    void RefreshNotificationPageIfVisibleLocked() {
+        if (xiaoxin_card_pager_current_page(&card_pager_) != XIAOXIN_CARD_PAGE_NOTIFICATIONS) {
+            return;
+        }
+        RenderNotificationPageAfterDataChange();
+    }
+
+    void UpsertNotificationEventLocked(const xiaoxin_notification_event_t& event) {
+        if (xiaoxin_card_pager_notification_upsert_event(&card_pager_, &event)) {
+            notification_scroll_y_ = ClampNotificationScrollY(
+                notification_scroll_y_,
+                xiaoxin_card_pager_notification_count(&card_pager_)
+            );
+            RefreshNotificationPageIfVisibleLocked();
+        }
+    }
+
+    void RemoveNotificationEventLocked(xiaoxin_notification_event_type_t type) {
+        if (xiaoxin_card_pager_notification_remove_event(&card_pager_, type)) {
+            notification_scroll_y_ = ClampNotificationScrollY(
+                notification_scroll_y_,
+                xiaoxin_card_pager_notification_count(&card_pager_)
+            );
+            RefreshNotificationPageIfVisibleLocked();
+        }
+    }
+
+    void SyncLowBatteryNotificationLocked(int level) {
+        const bool low = level <= 20;
+        if (!low) {
+            if (low_battery_notification_active_) {
+                RemoveNotificationEventLocked(XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY);
+            }
+            low_battery_notification_active_ = false;
+            last_low_battery_notification_level_ = level;
+            return;
+        }
+
+        if (low_battery_notification_active_) {
+            return;
+        }
+
+        const xiaoxin_notification_event_t event = {
+            .type = XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY,
+            .title = nullptr,
+            .body = "电量偏低，请尽快充电",
+            .tag = nullptr,
+            .priority = 0,
+            .ttl_ms = 0,
+        };
+        UpsertNotificationEventLocked(event);
+        low_battery_notification_active_ = true;
+        last_low_battery_notification_level_ = level;
+    }
+
+    void SyncNetworkNotificationLocked(xiaoxin_system_overlay_network_state_t state) {
+        const bool disconnected = state != XIAOXIN_SYSTEM_OVERLAY_NETWORK_CONNECTED;
+        if (!disconnected) {
+            if (network_notification_active_) {
+                RemoveNotificationEventLocked(XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED);
+            }
+            network_notification_active_ = false;
+            last_network_notification_state_ = state;
+            return;
+        }
+
+        if (network_notification_active_ &&
+            last_network_notification_state_ == state) {
+            return;
+        }
+
+        const char* body = state == XIAOXIN_SYSTEM_OVERLAY_NETWORK_CONFIGURING
+            ? "正在配网或等待连接"
+            : "WiFi 已断开，正在重新连接";
+        const xiaoxin_notification_event_t event = {
+            .type = XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED,
+            .title = nullptr,
+            .body = body,
+            .tag = nullptr,
+            .priority = 0,
+            .ttl_ms = 0,
+        };
+        UpsertNotificationEventLocked(event);
+        network_notification_active_ = true;
+        last_network_notification_state_ = state;
+    }
+
+    void AddVoiceFailureNotificationLocked(const char* status) {
+        const xiaoxin_notification_event_t event = {
+            .type = XIAOXIN_NOTIFICATION_EVENT_VOICE_RECOGNITION_FAILED,
+            .title = nullptr,
+            .body = status != nullptr ? status : "没听清，请再说一次",
+            .tag = nullptr,
+            .priority = 0,
+            .ttl_ms = 8000,
+        };
+        UpsertNotificationEventLocked(event);
     }
 
     static bool PointInObj(lv_obj_t* obj, uint16_t x, uint16_t y) {
@@ -1058,7 +1182,8 @@ private:
         card_layer_ = lv_obj_create(screen);
         lv_obj_remove_style_all(card_layer_);
         lv_obj_set_size(card_layer_, LV_PCT(100), LV_PCT(100));
-        lv_obj_set_style_bg_opa(card_layer_, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_bg_color(card_layer_, lv_color_hex(k_card_layer_bg_color), 0);
+        lv_obj_set_style_bg_opa(card_layer_, k_card_layer_bg_opa, 0);
         lv_obj_set_style_pad_all(card_layer_, 0, 0);
         lv_obj_set_scrollbar_mode(card_layer_, LV_SCROLLBAR_MODE_OFF);
         lv_obj_align(card_layer_, LV_ALIGN_CENTER, 0, 0);
@@ -1082,7 +1207,8 @@ private:
         card_title_label_ = lv_label_create(card_layer_);
         lv_obj_set_width(card_title_label_, 260);
         lv_obj_set_style_text_align(card_title_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_style_text_color(card_title_label_, lv_color_hex(k_title_accent), 0);
+        lv_obj_set_style_text_color(card_title_label_, lv_color_hex(k_page_title_color), 0);
+        lv_obj_set_style_text_opa(card_title_label_, LV_OPA_COVER, 0);
         lv_label_set_text(card_title_label_, "");
 
         notification_clear_button_ = lv_obj_create(card_layer_);
@@ -1102,12 +1228,26 @@ private:
         lv_label_set_text(notification_clear_label_, "全部清理");
         lv_obj_center(notification_clear_label_);
 
-        notification_empty_label_ = lv_label_create(card_layer_);
-        lv_obj_set_width(notification_empty_label_, 220);
+        notification_empty_panel_ = lv_obj_create(card_layer_);
+        lv_obj_remove_style_all(notification_empty_panel_);
+        lv_obj_set_size(notification_empty_panel_, k_notification_empty_panel_w, k_notification_empty_panel_h);
+        lv_obj_set_style_radius(notification_empty_panel_, 20, 0);
+        lv_obj_set_style_bg_color(notification_empty_panel_, lv_color_hex(k_notification_empty_panel_bg), 0);
+        lv_obj_set_style_bg_opa(notification_empty_panel_, k_notification_empty_panel_opa, 0);
+        lv_obj_set_style_border_color(notification_empty_panel_, lv_color_hex(k_page_title_color), 0);
+        lv_obj_set_style_border_opa(notification_empty_panel_, k_notification_empty_panel_border_opa, 0);
+        lv_obj_set_style_border_width(notification_empty_panel_, 1, 0);
+        lv_obj_clear_flag(notification_empty_panel_, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_align(notification_empty_panel_, LV_ALIGN_TOP_MID, 0, k_notification_empty_panel_y);
+        lv_obj_add_flag(notification_empty_panel_, LV_OBJ_FLAG_HIDDEN);
+
+        notification_empty_label_ = lv_label_create(notification_empty_panel_);
+        lv_obj_set_width(notification_empty_label_, k_notification_empty_panel_w - 24);
         lv_obj_set_style_text_align(notification_empty_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_style_text_color(notification_empty_label_, lv_color_hex(k_text_dimmed), 0);
+        lv_obj_set_style_text_color(notification_empty_label_, lv_color_hex(k_page_title_color), 0);
+        lv_obj_set_style_text_opa(notification_empty_label_, LV_OPA_COVER, 0);
         lv_label_set_text(notification_empty_label_, "暂无通知");
-        lv_obj_align(notification_empty_label_, LV_ALIGN_TOP_MID, 0, k_notification_empty_y);
+        lv_obj_center(notification_empty_label_);
         lv_obj_add_flag(notification_empty_label_, LV_OBJ_FLAG_HIDDEN);
 
         for (uint8_t i = 0; i < k_card_glass_count; ++i) {
@@ -1602,9 +1742,15 @@ private:
         const bool empty = xiaoxin_card_pager_notification_empty(&card_pager_);
         if (empty) {
             AddFlagIfCreated(notification_clear_button_, LV_OBJ_FLAG_HIDDEN);
+            RemoveFlagIfCreated(notification_empty_panel_, LV_OBJ_FLAG_HIDDEN);
             RemoveFlagIfCreated(notification_empty_label_, LV_OBJ_FLAG_HIDDEN);
         } else {
             RemoveFlagIfCreated(notification_clear_button_, LV_OBJ_FLAG_HIDDEN);
+            if (notification_clear_button_ != nullptr) {
+                lv_obj_align(notification_clear_button_, LV_ALIGN_TOP_MID, 0, k_notification_clear_button_y);
+                lv_obj_move_foreground(notification_clear_button_);
+            }
+            AddFlagIfCreated(notification_empty_panel_, LV_OBJ_FLAG_HIDDEN);
             AddFlagIfCreated(notification_empty_label_, LV_OBJ_FLAG_HIDDEN);
         }
 
@@ -1813,6 +1959,7 @@ private:
             network_label_,
             style.network_disconnected ? FONT_AWESOME_WIFI_SLASH : (network_icon_ != nullptr ? network_icon_ : "")
         );
+        SyncNetworkNotificationLocked(network_state);
     }
 
     void ApplyBatteryOverlayLevel(int level) {
@@ -2005,6 +2152,7 @@ private:
         AddFlagIfCreated(pull_indicator_, LV_OBJ_FLAG_HIDDEN);
         AddFlagIfCreated(home_indicator_, LV_OBJ_FLAG_HIDDEN);
         AddFlagIfCreated(notification_clear_button_, LV_OBJ_FLAG_HIDDEN);
+        AddFlagIfCreated(notification_empty_panel_, LV_OBJ_FLAG_HIDDEN);
         AddFlagIfCreated(notification_empty_label_, LV_OBJ_FLAG_HIDDEN);
 
         if (page == XIAOXIN_CARD_PAGE_HOME) {
@@ -2025,9 +2173,6 @@ private:
         ApplyBatteryOverlayLevel(NotificationBatteryLevelPercent());
 
         if (page == XIAOXIN_CARD_PAGE_NOTIFICATIONS) {
-            if (card_title_label_ != nullptr) {
-                lv_label_set_text(card_title_label_, "");
-            }
             RemoveFlagIfCreated(pull_indicator_, LV_OBJ_FLAG_HIDDEN);
             RemoveFlagIfCreated(home_indicator_, LV_OBJ_FLAG_HIDDEN);
             if (home_indicator_ != nullptr) {
@@ -2041,6 +2186,8 @@ private:
             );
         } else if (page == XIAOXIN_CARD_PAGE_OVERVIEW) {
             if (card_title_label_ != nullptr) {
+                lv_obj_set_width(card_title_label_, 260);
+                lv_obj_set_style_text_align(card_title_label_, LV_TEXT_ALIGN_CENTER, 0);
                 lv_obj_align(card_title_label_, LV_ALIGN_TOP_MID, 0, 34);
                 lv_label_set_text(card_title_label_, "\xE6\x80\xBB\xE8\xA7\x88");
                 lv_obj_remove_flag(card_title_label_, LV_OBJ_FLAG_HIDDEN);
