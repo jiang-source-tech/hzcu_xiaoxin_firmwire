@@ -54,6 +54,40 @@
 - `git diff --check`：通过，仅提示既有 CRLF/LF 行尾转换 warning。
 - `xiaoxin_card_pager_test`：已新增真实通知仓库、事件 upsert、状态移除、课程提醒、优先级排序、聊天回复忽略、单条 dismiss、全部清理和打开页短反向滑动返回 Home 用例；当前本机 `gcc` 连最小 C 程序也返回退出码 1 且无诊断输出，因此本轮未完成 C 测试二进制编译运行。
 
+### Waveshare ESP32-S3 Touch LCD 1.46 总览卡片信息密度优化
+
+#### 背景
+
+实机总览页的四张卡片布局已经可用，但每张卡片只有标题和一行正文，信息量偏少。用户希望暂时保留当前总览页形态，只让单张卡片承载更完整的信息。
+
+#### 修改内容
+
+- 保留总览页四张卡片、图标、右侧箭头和整体分页交互。
+- `xiaoxin_card_item_t` 新增 `detail` 字段，用于总览卡片的辅助信息。
+- 总览静态数据从“标题 + 单行正文”扩展为“标题 + 主信息 + 辅助信息”：
+  - 下一节课：`高数 10:10` / `教2-301 · 还有24分`。
+  - 校园导航：`常用地点` / `教学楼 / 食堂 / 图书馆`。
+  - 天气：`多云 26C` / `湿度72% · 东风2级`。
+  - 今日待办：`2 项待办` / `实验报告 · 晚自习`。
+- 通知卡片不使用 `detail` 字段，通知渲染仍只显示标题和正文。
+- 总览行渲染新增第三行 detail 标签，并让文本容器使用现有 48px 行高，降低三行文字贴底或裁切风险。
+
+#### 涉及文件
+
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.h`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.c`
+- `tests/xiaoxin_card_pager_test.c`
+- `docs/superpowers/plans/2026-06-19-xiaoxin-overview-card-density.md`
+- `docs/update.md`
+
+#### 验证结果
+
+- `git diff --check`：通过，仅提示既有 CRLF/LF 行尾转换 warning。
+- `ninja -C build esp-idf/main/CMakeFiles/__idf_main.dir/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc.obj`：通过，仅保留既有 `esp_lcd_touch_get_coordinates` deprecated warning。
+- `xiaoxin_card_pager_test` 已新增总览 detail 数据契约用例；当前本机 `gcc` 的 `cc1.exe` 运行时失败，未能产出测试二进制。
+- `ninja -C build`：通过，生成 `build/ai_pet.bin`。
+
 ## 2026-06-18 00:00:00 +08:00
 
 ### Waveshare ESP32-S3 Touch LCD 1.46 全局 WiFi / 电量安全区浮层
