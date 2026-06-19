@@ -10,6 +10,10 @@
 
 **Tech Stack:** ESP-IDF C/C++, LVGL, local GCC C tests, pytest source-path tests.
 
+**Implementation Status:** Implemented on branch `codex/xiaoxin-overview-card-density`. This plan is kept as the historical execution recipe, but the shipped result supersedes the earlier code snippets that showed exact battery percentages. Overview now renders from `xiaoxin_overview_snapshot_t`, weather/course/todo use honest empty states until server data is synced, and device battery is displayed as a qualitative status only.
+
+**Follow-up Data Source Direction:** Weather and course should be fetched or prepared by the service side, then synced to the hardware as short summary fields. Today todo should also be server-backed first: the service owns create/edit/complete/filter logic, while the hardware displays a read-only synced summary such as `todo_configured`, `todo_count`, and `todo_detail`.
+
 ---
 
 ## Scope Guard
@@ -97,7 +101,7 @@ static void offline_defaults_show_unsynced_weather_and_empty_sources(void) {
 
     assert(strcmp(snapshot.items[3].title, "设备状态") == 0);
     assert(strcmp(snapshot.items[3].body, "离线模式") == 0);
-    assert(strcmp(snapshot.items[3].detail, "电量 78%") == 0);
+    assert(strcmp(snapshot.items[3].detail, "电量充足") == 0);
     assert(strcmp(snapshot.items[3].tag, "设备") == 0);
 }
 
@@ -120,7 +124,7 @@ static void connected_without_weather_location_prompts_configuration(void) {
     assert(strcmp(snapshot.items[0].body, "未配置位置") == 0);
     assert(strcmp(snapshot.items[0].detail, "设置位置后显示") == 0);
     assert(strcmp(snapshot.items[3].body, "WiFi 已连接") == 0);
-    assert(strcmp(snapshot.items[3].detail, "电量 55%") == 0);
+    assert(strcmp(snapshot.items[3].detail, "电量正常") == 0);
 }
 
 static void rich_injected_sources_render_current_example_shape(void) {
@@ -167,7 +171,7 @@ static void rich_injected_sources_render_current_example_shape(void) {
 
     assert(strcmp(snapshot.items[3].title, "设备状态") == 0);
     assert(strcmp(snapshot.items[3].body, "WiFi 已连接") == 0);
-    assert(strcmp(snapshot.items[3].detail, "电量 78%") == 0);
+    assert(strcmp(snapshot.items[3].detail, "电量充足") == 0);
 }
 
 static void unknown_battery_outputs_unknown_detail(void) {
@@ -328,6 +332,20 @@ static int clamp_percent(int value) {
   return value;
 }
 
+static const char* battery_status_text(int percent) {
+  const int clamped = clamp_percent(percent);
+  if (clamped >= 60) {
+    return "电量充足";
+  }
+  if (clamped >= 30) {
+    return "电量正常";
+  }
+  if (clamped >= 15) {
+    return "电量偏低";
+  }
+  return "请尽快充电";
+}
+
 static void copy_text(char* dest, size_t dest_size, const char* text) {
   if (dest == NULL || dest_size == 0) {
     return;
@@ -465,7 +483,7 @@ static void build_device_item(
   char detail[XIAOXIN_OVERVIEW_DETAIL_MAX];
   const bool battery_known = state != NULL && state->battery_known;
   if (battery_known) {
-    snprintf(detail, sizeof(detail), "电量 %d%%", clamp_percent(state->battery_percent));
+    copy_text(detail, sizeof(detail), battery_status_text(state->battery_percent));
   } else {
     copy_text(detail, sizeof(detail), "电量未知");
   }

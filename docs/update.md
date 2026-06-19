@@ -2,6 +2,64 @@
 
 ## 2026-06-19 00:00:00 +08:00
 
+### Waveshare ESP32-S3 Touch LCD 1.46 真实总览数据路径与电量状态文案
+
+#### 背景
+
+总览页前一版已经把四张卡片做成了更高信息密度的样式，但内容仍来自硬编码示例。用户希望保留当前 UI 形态，让真实天气、课程、待办和设备状态能够接到同一组卡片上显示；在真实数据尚未接入、未联网或未配置时，要显示诚实的空状态，而不是继续显示示例内容。
+
+同时，设备电量来自板载 ADC 估算。精确百分比容易让用户误以为读数很准，因此总览页设备状态不再显示百分比，只显示粗粒度状态文案。
+
+#### 修改内容
+
+- 新增独立总览数据模型 `xiaoxin_overview_model`：
+  - 输入 `xiaoxin_overview_state_t`，包含时间、网络、电量、天气、课程和待办摘要字段。
+  - 输出 `xiaoxin_overview_snapshot_t`，即一次总览页渲染所需的时间/日期文本和四张卡片条目。
+  - LVGL 渲染层只消费快照，不再直接拼接天气、课程、待办业务文案。
+- 总览页顶部新增时间日期区域：
+  - 时间有效时显示 `HH:MM` 和 `M月D日 周X`。
+  - 时间未同步时显示 `--:--` / `时间未同步`。
+- 移除 `xiaoxin_card_pager.c` 中的 Overview 静态示例数组：
+  - `xiaoxin_card_pager_items(XIAOXIN_CARD_PAGE_OVERVIEW, ...)` 不再返回假天气、假课程、假待办。
+  - Notifications 分页的数据仓库、清理、空状态、手势和指示器不属于本轮修改范围。
+- 天气、课程、待办当前使用真实接入前的降级状态：
+  - 天气未联网时显示 `天气未同步` / `连接网络后更新`，已联网但未配置位置时显示 `未配置位置`。
+  - 课程未配置时显示 `暂无课程` / `在配置中添加课表`，有课表但当天无课时显示 `今日无课`。
+  - 待办未配置或为空时显示 `暂无待办` / `添加提醒后显示`。
+- 今日待办的后续真实功能边界：
+  - 服务端作为待办事实来源，负责创建、编辑、完成、过期和筛选今日待办。
+  - 硬件端第一阶段只同步只读摘要，例如 `todo_configured`、`todo_count`、`todo_detail`，以后可增加最近同步时间。
+  - 离线时优先显示已缓存摘要；没有缓存或从未配置时显示明确空状态。
+- 设备状态卡片改为定性电量文案：
+  - `>= 60` 显示 `电量充足`。
+  - `30-59` 显示 `电量正常`。
+  - `15-29` 显示 `电量偏低`。
+  - `< 15` 显示 `请尽快充电`。
+  - 电量不可读取时显示 `电量未知`。
+- `UpdateStatusBar()` 在总览页可见时会刷新当前总览快照，避免时间、网络和电量状态停留在旧值。
+
+#### 涉及文件
+
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_overview_model.h`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_overview_model.c`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.c`
+- `main/CMakeLists.txt`
+- `tests/xiaoxin_overview_model_test.c`
+- `tests/xiaoxin_card_pager_test.c`
+- `tests/xiaoxin_notification_visual_path_test.py`
+- `tests/xiaoxin_card_pager_threshold_test.py`
+- `docs/superpowers/specs/2026-06-19-xiaoxin-real-overview-data-design.zh-CN.md`
+- `docs/superpowers/plans/2026-06-19-xiaoxin-real-overview-data.md`
+- `docs/update.md`
+
+#### 验证结果
+
+- `xiaoxin_overview_model_test`：通过，覆盖离线默认状态、联网未配置、真实注入数据、未知电量和电量分档。
+- `xiaoxin_card_pager_test`：通过，确认 Overview 数据已从 pager 静态数组迁出，通知分页行为保持可用。
+- `python -m pytest tests/xiaoxin_card_pager_threshold_test.py tests/xiaoxin_notification_visual_path_test.py -q`：通过，15 passed。
+- 当前 shell 中未找到 `idf.py` / `cmake`，因此本轮未在本机完成完整 ESP-IDF 固件构建。
+
 ### Waveshare ESP32-S3 Touch LCD 1.46 真实通知中心、空状态视觉与返回手势阈值优化
 
 #### 背景

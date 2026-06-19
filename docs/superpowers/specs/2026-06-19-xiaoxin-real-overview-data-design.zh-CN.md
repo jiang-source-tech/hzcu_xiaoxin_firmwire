@@ -1,6 +1,6 @@
 # 小芯真实总览数据接入设计规格
 
-> 状态：待评审
+> 状态：已实现
 > 日期：2026-06-19
 > 设备：Waveshare ESP32-S3 Touch LCD 1.46
 > 范围：保留当前 Overview UI，让时间、天气、课程、待办等真实数据可以接入显示
@@ -14,6 +14,17 @@
 - 把天气、课程、待办从硬编码示例文案改成可由真实数据源更新的摘要。
 - 在没有联网、没有配置、没有数据时显示明确的降级状态，而不是显示假数据。
 - 后续接入天气服务、课表配置、待办提醒时，只更新数据模型，不重写 UI 布局。
+
+## 0. 落地状态
+
+本规格已经在 `codex/xiaoxin-overview-card-density` 分支落地：
+
+- Overview 内容生产路径已经从 `xiaoxin_card_pager.c` 静态示例数组迁出。
+- `xiaoxin_overview_model_build()` 负责把状态输入转换为 `xiaoxin_overview_snapshot_t`。
+- `RenderCardPage(XIAOXIN_CARD_PAGE_OVERVIEW, ...)` 只渲染 Overview 快照。
+- 天气、课程、待办的真实后端尚未接入，当前显示明确的未同步、未配置或空状态。
+- 设备状态卡片不显示 ADC 估算百分比，只显示粗粒度电量状态。
+- Notifications 分页卡片、清理、空状态、手势和事件仓库未纳入本规格修改范围。
 
 ## 2. 非目标
 
@@ -134,6 +145,18 @@ tag
 添加提醒后显示
 ```
 
+#### 4.3.1 今日待办真实功能边界
+
+今日待办不建议在硬件端第一阶段实现完整编辑功能。推荐把服务端作为事实来源：
+
+- 服务端负责创建、编辑、完成、过期、重复规则和“今日待办”筛选。
+- 硬件端只同步摘要字段，用于总览页只读展示。
+- 第一版同步字段保持轻量：`todo_configured`、`todo_count`、`todo_detail`。
+- 后续如需更准确表达离线状态，可增加 `todo_last_synced_at` 或缓存有效期。
+- 离线时，如果已有缓存摘要，可以继续显示缓存内容；如果从未同步或未配置，则显示 `暂无待办` / `添加提醒后显示`。
+
+这样可以让总览页先成为可靠摘要入口，避免在小圆屏上做复杂待办编辑表单。
+
 ### 4.4 设备状态卡片
 
 正常联网时：
@@ -169,6 +192,14 @@ WiFi 已连接
 | `15-29` | `电量偏低` |
 | `< 15` | `请尽快充电` |
 | 不可读取 | `电量未知` |
+
+### 4.5 天气与课程接入边界
+
+天气和课程与待办类似，推荐由服务端或上位配置系统完成重逻辑：
+
+- 天气：服务端按用户配置的位置调用天气 API，再同步 `weather_configured`、`weather_available`、`weather_summary`、`weather_detail` 到设备。
+- 课程：服务端或配置端维护课表，设备只接收“下一节课”或“今日无课”的摘要。
+- 硬件端不直接承担第三方 API 鉴权、复杂课表规则或长列表编辑，只负责展示最近一次同步结果和降级状态。
 
 ## 5. 架构
 
@@ -235,6 +266,8 @@ typedef struct {
 
 `items` 继续复用当前 UI 已支持的 `xiaoxin_card_item_t`，包括 `title`、`body`、`detail`、`tag`、`priority`、`ttl_ms`。
 
+这里的“快照”指一次渲染用的稳定数据包。UI 层拿到快照后，只按照其中的文本和条目刷新标签；天气、课程、待办、电量分档等判断都在模型层完成。这样后续数据来源改变时，只需要更新 `xiaoxin_overview_state_t` 的填充方式，不需要改卡片布局。
+
 ### 5.3 生成规则
 
 `xiaoxin_overview_model_build()` 根据输入状态生成快照：
@@ -272,7 +305,7 @@ flowchart LR
     LocalTime["本地时间"] --> OverviewState
     Weather["天气数据源\n后续接入"] --> OverviewState
     Courses["课表数据源\n后续接入"] --> OverviewState
-    Todos["待办数据源\n后续接入"] --> OverviewState
+    Todos["服务端待办摘要\n后续接入"] --> OverviewState
     OverviewState --> Model["xiaoxin_overview_model_build"]
     Model --> Snapshot["xiaoxin_overview_snapshot_t"]
     Snapshot --> UI["现有 Overview LVGL UI"]
