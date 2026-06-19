@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "../main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.h"
 
@@ -128,14 +129,13 @@ static void visual_page_stays_stable_during_continuous_drag(void) {
     assert(xiaoxin_card_pager_visual_page(&pager) == XIAOXIN_CARD_PAGE_NOTIFICATIONS);
 }
 
-static void card_items_are_priority_sorted(void) {
+static void overview_items_are_priority_sorted(void) {
     const xiaoxin_card_item_t* items = NULL;
     uint8_t count = 0;
 
     xiaoxin_card_pager_items(XIAOXIN_CARD_PAGE_NOTIFICATIONS, &items, &count);
-    assert(count == 4);
-    assert(items[0].priority < items[1].priority);
-    assert(items[0].title != NULL);
+    assert(count == 0);
+    assert(items == NULL);
 
     xiaoxin_card_pager_items(XIAOXIN_CARD_PAGE_OVERVIEW, &items, &count);
     assert(count == 4);
@@ -143,9 +143,114 @@ static void card_items_are_priority_sorted(void) {
     assert(items[0].ttl_ms == 0);
 }
 
+static void notification_center_starts_empty_until_events_arrive(void) {
+    xiaoxin_card_pager_t pager;
+    xiaoxin_card_pager_init(&pager, 412);
+
+    assert(xiaoxin_card_pager_notification_empty(&pager));
+    assert(xiaoxin_card_pager_notification_count(&pager) == 0);
+    assert(xiaoxin_card_pager_current_notification(&pager) == NULL);
+}
+
+static void notification_event_injection_adds_real_notifications(void) {
+    xiaoxin_card_pager_t pager;
+    xiaoxin_card_pager_init(&pager, 412);
+
+    const xiaoxin_notification_event_t low_battery = {
+        .type = XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY,
+        .body = "剩余 18%",
+    };
+    assert(xiaoxin_card_pager_notification_upsert_event(&pager, &low_battery));
+
+    assert(!xiaoxin_card_pager_notification_empty(&pager));
+    assert(xiaoxin_card_pager_notification_count(&pager) == 1);
+    const xiaoxin_card_item_t* current = xiaoxin_card_pager_current_notification(&pager);
+    assert(current != NULL);
+    assert(strcmp(current->title, "低电量") == 0);
+    assert(strcmp(current->body, "剩余 18%") == 0);
+    assert(strcmp(current->tag, "电量") == 0);
+    assert(current->priority == 1);
+}
+
+static void notification_event_upsert_replaces_existing_source(void) {
+    xiaoxin_card_pager_t pager;
+    xiaoxin_card_pager_init(&pager, 412);
+
+    const xiaoxin_notification_event_t first = {
+        .type = XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED,
+        .body = "正在重新连接",
+    };
+    const xiaoxin_notification_event_t second = {
+        .type = XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED,
+        .body = "已断开 30 秒",
+    };
+
+    assert(xiaoxin_card_pager_notification_upsert_event(&pager, &first));
+    assert(xiaoxin_card_pager_notification_upsert_event(&pager, &second));
+
+    assert(xiaoxin_card_pager_notification_count(&pager) == 1);
+    const xiaoxin_card_item_t* current = xiaoxin_card_pager_current_notification(&pager);
+    assert(current != NULL);
+    assert(strcmp(current->title, "WiFi 断开") == 0);
+    assert(strcmp(current->body, "已断开 30 秒") == 0);
+}
+
+static void notification_events_are_sorted_by_priority(void) {
+    xiaoxin_card_pager_t pager;
+    xiaoxin_card_pager_init(&pager, 412);
+
+    const xiaoxin_notification_event_t chat = {
+        .type = XIAOXIN_NOTIFICATION_EVENT_CHAT_REPLY,
+        .body = "小新回复了你",
+    };
+    const xiaoxin_notification_event_t voice = {
+        .type = XIAOXIN_NOTIFICATION_EVENT_VOICE_RECOGNITION_FAILED,
+        .body = "没听清，请再说一次",
+    };
+    const xiaoxin_notification_event_t ota = {
+        .type = XIAOXIN_NOTIFICATION_EVENT_OTA_UPDATE,
+        .body = "发现新固件",
+    };
+
+    assert(xiaoxin_card_pager_notification_upsert_event(&pager, &chat));
+    assert(xiaoxin_card_pager_notification_upsert_event(&pager, &voice));
+    assert(xiaoxin_card_pager_notification_upsert_event(&pager, &ota));
+
+    assert(xiaoxin_card_pager_notification_count(&pager) == 3);
+    assert(strcmp(xiaoxin_card_pager_notification_at(&pager, 0)->title, "OTA 更新") == 0);
+    assert(strcmp(xiaoxin_card_pager_notification_at(&pager, 1)->title, "语音识别失败") == 0);
+    assert(strcmp(xiaoxin_card_pager_notification_at(&pager, 2)->title, "聊天回复") == 0);
+}
+
+static void notification_event_remove_resolves_status_notifications(void) {
+    xiaoxin_card_pager_t pager;
+    xiaoxin_card_pager_init(&pager, 412);
+
+    const xiaoxin_notification_event_t wifi = {
+        .type = XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED,
+        .body = "正在重新连接",
+    };
+
+    assert(xiaoxin_card_pager_notification_upsert_event(&pager, &wifi));
+    assert(xiaoxin_card_pager_notification_count(&pager) == 1);
+    assert(xiaoxin_card_pager_notification_remove_event(&pager, XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED));
+    assert(xiaoxin_card_pager_notification_empty(&pager));
+    assert(!xiaoxin_card_pager_notification_remove_event(&pager, XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED));
+}
+
 static void notification_pagination_tracks_current_item(void) {
     xiaoxin_card_pager_t pager;
     xiaoxin_card_pager_init(&pager, 412);
+
+    const xiaoxin_notification_event_t events[] = {
+        {.type = XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY, .body = "剩余 18%"},
+        {.type = XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED, .body = "正在重新连接"},
+        {.type = XIAOXIN_NOTIFICATION_EVENT_OTA_UPDATE, .body = "发现新固件"},
+        {.type = XIAOXIN_NOTIFICATION_EVENT_CHAT_REPLY, .body = "小新回复了你"},
+    };
+    for (size_t i = 0; i < sizeof(events) / sizeof(events[0]); ++i) {
+        assert(xiaoxin_card_pager_notification_upsert_event(&pager, &events[i]));
+    }
 
     assert(xiaoxin_card_pager_notification_index(&pager) == 0);
     assert(xiaoxin_card_pager_notification_count(&pager) == 4);
@@ -173,6 +278,16 @@ static void notification_dismiss_removes_visible_item(void) {
     xiaoxin_card_pager_t pager;
     xiaoxin_card_pager_init(&pager, 412);
 
+    const xiaoxin_notification_event_t events[] = {
+        {.type = XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY, .body = "剩余 18%"},
+        {.type = XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED, .body = "正在重新连接"},
+        {.type = XIAOXIN_NOTIFICATION_EVENT_OTA_UPDATE, .body = "发现新固件"},
+        {.type = XIAOXIN_NOTIFICATION_EVENT_CHAT_REPLY, .body = "小新回复了你"},
+    };
+    for (size_t i = 0; i < sizeof(events) / sizeof(events[0]); ++i) {
+        assert(xiaoxin_card_pager_notification_upsert_event(&pager, &events[i]));
+    }
+
     assert(xiaoxin_card_pager_notification_count(&pager) == 4);
     const xiaoxin_card_item_t* before = xiaoxin_card_pager_notification_at(&pager, 2);
     assert(before != NULL);
@@ -180,12 +295,23 @@ static void notification_dismiss_removes_visible_item(void) {
     assert(xiaoxin_card_pager_notification_dismiss(&pager, 1));
     assert(xiaoxin_card_pager_notification_count(&pager) == 3);
     const xiaoxin_card_item_t* after = xiaoxin_card_pager_notification_at(&pager, 1);
-    assert(after == before);
+    assert(after != NULL);
+    assert(strcmp(after->title, before->title) == 0);
 }
 
 static void notification_dismiss_current_item_clamps_index(void) {
     xiaoxin_card_pager_t pager;
     xiaoxin_card_pager_init(&pager, 412);
+
+    const xiaoxin_notification_event_t events[] = {
+        {.type = XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY, .body = "剩余 18%"},
+        {.type = XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED, .body = "正在重新连接"},
+        {.type = XIAOXIN_NOTIFICATION_EVENT_OTA_UPDATE, .body = "发现新固件"},
+        {.type = XIAOXIN_NOTIFICATION_EVENT_CHAT_REPLY, .body = "小新回复了你"},
+    };
+    for (size_t i = 0; i < sizeof(events) / sizeof(events[0]); ++i) {
+        assert(xiaoxin_card_pager_notification_upsert_event(&pager, &events[i]));
+    }
 
     assert(xiaoxin_card_pager_notification_next(&pager));
     assert(xiaoxin_card_pager_notification_next(&pager));
@@ -216,8 +342,8 @@ static void notification_dismiss_invalid_index_returns_false(void) {
     xiaoxin_card_pager_t pager;
     xiaoxin_card_pager_init(&pager, 412);
 
-    assert(!xiaoxin_card_pager_notification_dismiss(&pager, 4));
-    assert(xiaoxin_card_pager_notification_count(&pager) == 4);
+    assert(!xiaoxin_card_pager_notification_dismiss(&pager, 0));
+    assert(xiaoxin_card_pager_notification_count(&pager) == 0);
 }
 
 static void non_home_pages_capture_pet_interaction(void) {
@@ -242,7 +368,12 @@ int main(void) {
     long_drag_can_follow_across_the_screen();
     drag_threshold_controls_snap_vs_rebound();
     visual_page_stays_stable_during_continuous_drag();
-    card_items_are_priority_sorted();
+    overview_items_are_priority_sorted();
+    notification_center_starts_empty_until_events_arrive();
+    notification_event_injection_adds_real_notifications();
+    notification_event_upsert_replaces_existing_source();
+    notification_events_are_sorted_by_priority();
+    notification_event_remove_resolves_status_notifications();
     notification_pagination_tracks_current_item();
     notification_dismiss_removes_visible_item();
     notification_dismiss_current_item_clamps_index();

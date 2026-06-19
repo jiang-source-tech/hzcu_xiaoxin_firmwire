@@ -35,6 +35,7 @@
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <cstdlib>
 
@@ -93,8 +94,8 @@ static constexpr uint32_t k_pet_image_scale_base = LV_SCALE_NONE;
 static constexpr uint16_t k_pet_target_visual_longest = 162;
 static constexpr uint16_t k_card_snap_min_anim_ms = 150;
 static constexpr uint16_t k_card_snap_max_anim_ms = 240;
-static constexpr uint8_t k_card_glass_count = 4;
-static constexpr uint8_t k_notification_indicator_dot_count = 4;
+static constexpr uint8_t k_card_glass_count = XIAOXIN_CARD_NOTIFICATION_MAX;
+static constexpr uint8_t k_notification_indicator_dot_count = XIAOXIN_CARD_NOTIFICATION_MAX;
 static constexpr uint8_t k_overview_row_count = 4;
 static constexpr uint8_t k_overview_sep_count = 3;
 static constexpr uint32_t k_card_bg_color = 0x17181d;
@@ -104,13 +105,17 @@ static constexpr lv_opa_t k_glass_bg_opa[k_card_glass_count] = {
     static_cast<lv_opa_t>(174),
     static_cast<lv_opa_t>(124),
     static_cast<lv_opa_t>(82),
-    static_cast<lv_opa_t>(52)
+    static_cast<lv_opa_t>(52),
+    static_cast<lv_opa_t>(36),
+    static_cast<lv_opa_t>(24)
 };
 static constexpr lv_opa_t k_glass_border_opa[k_card_glass_count] = {
     static_cast<lv_opa_t>(44),
     static_cast<lv_opa_t>(20),
     static_cast<lv_opa_t>(12),
-    static_cast<lv_opa_t>(8)
+    static_cast<lv_opa_t>(8),
+    static_cast<lv_opa_t>(6),
+    static_cast<lv_opa_t>(4)
 };
 static constexpr int16_t k_glass_radius = 34;
 static constexpr int16_t k_glass_width = 268;
@@ -553,6 +558,10 @@ public:
 
         LcdDisplay::SetStatus(status);
 
+        const bool status_error =
+            StatusEquals(status, Lang::Strings::ERROR) ||
+            Contains(status, "Error") || Contains(status, "error");
+
         if (StatusEquals(status, Lang::Strings::LISTENING) ||
             Contains(status, "Listening") || Contains(status, "listening")) {
             DispatchPetTrigger(PAOPAO_PET_TRIGGER_LISTENING);
@@ -564,14 +573,16 @@ public:
         } else if (StatusEquals(status, Lang::Strings::STANDBY) ||
                    Contains(status, "Standby") || Contains(status, "standby")) {
             DispatchPetTrigger(PAOPAO_PET_TRIGGER_IDLE);
-        } else if (StatusEquals(status, Lang::Strings::ERROR) ||
-                   Contains(status, "Error") || Contains(status, "error")) {
+        } else if (status_error) {
             DispatchPetTrigger(PAOPAO_PET_TRIGGER_ERROR);
         } else if (IsBusyStatus(status)) {
             DispatchPetTrigger(PAOPAO_PET_TRIGGER_CONNECTING);
         }
         {
             DisplayLockGuard lock(this);
+            if (status_error) {
+                AddVoiceFailureNotificationLocked(status);
+            }
             RaiseOverlayObjects();
         }
     }
@@ -621,6 +632,9 @@ public:
         LcdDisplay::SetChatMessage(role, content);
         {
             DisplayLockGuard lock(this);
+            if (std::strcmp(role, "assistant") == 0) {
+                AddChatReplyNotificationLocked(content);
+            }
             if (system_bars_hidden_for_card_) {
                 bottom_bar_was_hidden_for_card_ = IsHidden(bottom_bar_);
             }
@@ -651,8 +665,10 @@ public:
         LcdDisplay::UpdateStatusBar(update_all);
         {
             DisplayLockGuard lock(this);
+            const int battery_level = NotificationBatteryLevelPercent();
             ApplySystemOverlayNetworkStyle();
-            ApplyBatteryOverlayLevel(NotificationBatteryLevelPercent());
+            ApplyBatteryOverlayLevel(battery_level);
+            SyncLowBatteryNotificationLocked(battery_level);
             RaiseOverlayObjects();
         }
     }
@@ -735,8 +751,6 @@ private:
     uint32_t ui_perf_touch_loop_calls_ = 0;
     uint32_t ui_perf_touch_loop_total_us_ = 0;
     uint32_t ui_perf_touch_loop_max_us_ = 0;
-    xiaoxin_card_page_t rendered_card_page_ = XIAOXIN_CARD_PAGE_HOME;
-    bool card_page_rendered_ = false;
     bool pet_animation_paused_for_card_ = false;
     bool system_bars_hidden_for_card_ = false;
     bool top_bar_was_hidden_for_card_ = false;
@@ -751,6 +765,11 @@ private:
     int16_t notification_card_drag_x_ = 0;
     bool notification_dismiss_animating_ = false;
     uint8_t notification_animating_visible_index_ = 0xff;
+    bool low_battery_notification_active_ = false;
+    int last_low_battery_notification_level_ = -1;
+    bool network_notification_active_ = false;
+    xiaoxin_system_overlay_network_state_t last_network_notification_state_ =
+        XIAOXIN_SYSTEM_OVERLAY_NETWORK_CONNECTED;
 
     static uint32_t NowMs() {
         return (uint32_t)(esp_timer_get_time() / 1000ULL);
@@ -762,6 +781,123 @@ private:
 
     static bool StatusEquals(const char* status, const char* expected) {
         return status != nullptr && expected != nullptr && std::strcmp(status, expected) == 0;
+    }
+
+    void RefreshNotificationPageIfVisibleLocked() {
+        if (xiaoxin_card_pager_current_page(&card_pager_) != XIAOXIN_CARD_PAGE_NOTIFICATIONS) {
+            return;
+        }
+        RenderNotificationPageAfterDataChange();
+    }
+
+    void UpsertNotificationEventLocked(const xiaoxin_notification_event_t& event) {
+        if (xiaoxin_card_pager_notification_upsert_event(&card_pager_, &event)) {
+            notification_scroll_y_ = ClampNotificationScrollY(
+                notification_scroll_y_,
+                xiaoxin_card_pager_notification_count(&card_pager_)
+            );
+            RefreshNotificationPageIfVisibleLocked();
+        }
+    }
+
+    void RemoveNotificationEventLocked(xiaoxin_notification_event_type_t type) {
+        if (xiaoxin_card_pager_notification_remove_event(&card_pager_, type)) {
+            notification_scroll_y_ = ClampNotificationScrollY(
+                notification_scroll_y_,
+                xiaoxin_card_pager_notification_count(&card_pager_)
+            );
+            RefreshNotificationPageIfVisibleLocked();
+        }
+    }
+
+    void SyncLowBatteryNotificationLocked(int level) {
+        const bool low = level <= 20;
+        if (!low) {
+            if (low_battery_notification_active_) {
+                RemoveNotificationEventLocked(XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY);
+            }
+            low_battery_notification_active_ = false;
+            last_low_battery_notification_level_ = level;
+            return;
+        }
+
+        if (low_battery_notification_active_ &&
+            last_low_battery_notification_level_ == level) {
+            return;
+        }
+
+        char body[48];
+        std::snprintf(body, sizeof(body), "剩余 %d%%，请尽快充电", level);
+        const xiaoxin_notification_event_t event = {
+            .type = XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY,
+            .title = nullptr,
+            .body = body,
+            .tag = nullptr,
+            .priority = 0,
+            .ttl_ms = 0,
+        };
+        UpsertNotificationEventLocked(event);
+        low_battery_notification_active_ = true;
+        last_low_battery_notification_level_ = level;
+    }
+
+    void SyncNetworkNotificationLocked(xiaoxin_system_overlay_network_state_t state) {
+        const bool disconnected = state != XIAOXIN_SYSTEM_OVERLAY_NETWORK_CONNECTED;
+        if (!disconnected) {
+            if (network_notification_active_) {
+                RemoveNotificationEventLocked(XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED);
+            }
+            network_notification_active_ = false;
+            last_network_notification_state_ = state;
+            return;
+        }
+
+        if (network_notification_active_ &&
+            last_network_notification_state_ == state) {
+            return;
+        }
+
+        const char* body = state == XIAOXIN_SYSTEM_OVERLAY_NETWORK_CONFIGURING
+            ? "正在配网或等待连接"
+            : "WiFi 已断开，正在重新连接";
+        const xiaoxin_notification_event_t event = {
+            .type = XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED,
+            .title = nullptr,
+            .body = body,
+            .tag = nullptr,
+            .priority = 0,
+            .ttl_ms = 0,
+        };
+        UpsertNotificationEventLocked(event);
+        network_notification_active_ = true;
+        last_network_notification_state_ = state;
+    }
+
+    void AddChatReplyNotificationLocked(const char* content) {
+        if (content == nullptr || content[0] == '\0') {
+            return;
+        }
+        const xiaoxin_notification_event_t event = {
+            .type = XIAOXIN_NOTIFICATION_EVENT_CHAT_REPLY,
+            .title = nullptr,
+            .body = content,
+            .tag = nullptr,
+            .priority = 0,
+            .ttl_ms = 0,
+        };
+        UpsertNotificationEventLocked(event);
+    }
+
+    void AddVoiceFailureNotificationLocked(const char* status) {
+        const xiaoxin_notification_event_t event = {
+            .type = XIAOXIN_NOTIFICATION_EVENT_VOICE_RECOGNITION_FAILED,
+            .title = nullptr,
+            .body = status != nullptr ? status : "没听清，请再说一次",
+            .tag = nullptr,
+            .priority = 0,
+            .ttl_ms = 8000,
+        };
+        UpsertNotificationEventLocked(event);
     }
 
     static bool PointInObj(lv_obj_t* obj, uint16_t x, uint16_t y) {
@@ -1813,6 +1949,7 @@ private:
             network_label_,
             style.network_disconnected ? FONT_AWESOME_WIFI_SLASH : (network_icon_ != nullptr ? network_icon_ : "")
         );
+        SyncNetworkNotificationLocked(network_state);
     }
 
     void ApplyBatteryOverlayLevel(int level) {
