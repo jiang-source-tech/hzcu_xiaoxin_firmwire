@@ -159,13 +159,13 @@ static constexpr uint32_t k_battery_meter_low = XIAOXIN_SYSTEM_OVERLAY_LOW_BATTE
 static constexpr uint32_t k_battery_meter_empty = 0x27413a;
 static constexpr int16_t k_ov_icon_size = 30;
 static constexpr int16_t k_ov_icon_radius = 10;
-static constexpr int16_t k_overview_row_w = 252;
-static constexpr int16_t k_overview_row_h = 48;
+static constexpr int16_t k_overview_row_w = 270;
+static constexpr int16_t k_overview_row_h = 58;
 static constexpr int16_t k_overview_icon_x = 13;
 static constexpr int16_t k_overview_text_x = 56;
-static constexpr int16_t k_overview_text_w = 160;
-static constexpr int16_t k_overview_arrow_x = 228;
-static constexpr int16_t k_overview_sep_w = 190;
+static constexpr int16_t k_overview_text_w = 176;
+static constexpr int16_t k_overview_arrow_x = 244;
+static constexpr int16_t k_overview_sep_w = 206;
 static constexpr uint32_t k_ov_icon_bg_course = 0x4fc3f7;
 static constexpr uint32_t k_ov_icon_bg_nav = 0xa0d468;
 static constexpr uint32_t k_ov_icon_bg_weather = 0xffb84d;
@@ -200,8 +200,8 @@ static constexpr int16_t k_notification_empty_panel_y = 176;
 static constexpr uint32_t k_notification_empty_panel_bg = 0xffffff;
 static constexpr lv_opa_t k_notification_empty_panel_opa = static_cast<lv_opa_t>(172);
 static constexpr lv_opa_t k_notification_empty_panel_border_opa = static_cast<lv_opa_t>(34);
-static constexpr int16_t k_overview_y_start = 64;
-static constexpr int16_t k_overview_row_pitch = 51;
+static constexpr int16_t k_overview_y_start = 70;
+static constexpr int16_t k_overview_row_pitch = 61;
 static constexpr uint8_t k_qmi8658_addr_primary = 0x6B;
 static constexpr uint8_t k_qmi8658_addr_secondary = 0x6A;
 static constexpr uint8_t k_qmi8658_reg_who_am_i = 0x00;
@@ -1384,7 +1384,7 @@ private:
 
             row.text_box = lv_obj_create(row.container);
             lv_obj_remove_style_all(row.text_box);
-            lv_obj_set_size(row.text_box, k_overview_text_w, 48);
+            lv_obj_set_size(row.text_box, k_overview_text_w, 54);
             lv_obj_set_style_layout(row.text_box, LV_LAYOUT_NONE, 0);
             lv_obj_clear_flag(row.text_box, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_align(row.text_box, LV_ALIGN_LEFT_MID, k_overview_text_x, 0);
@@ -1401,14 +1401,14 @@ private:
             lv_obj_set_style_text_color(row.body, lv_color_hex(k_title_accent), 0);
             lv_label_set_long_mode(row.body, LV_LABEL_LONG_MODE_DOTS);
             lv_label_set_text(row.body, "");
-            lv_obj_set_pos(row.body, 0, 15);
+            lv_obj_set_pos(row.body, 0, 17);
 
             row.detail = lv_label_create(row.text_box);
             lv_obj_set_width(row.detail, k_overview_text_w);
             lv_obj_set_style_text_color(row.detail, lv_color_hex(k_text_dimmed), 0);
             lv_label_set_long_mode(row.detail, LV_LABEL_LONG_MODE_DOTS);
             lv_label_set_text(row.detail, "");
-            lv_obj_set_pos(row.detail, 0, 30);
+            lv_obj_set_pos(row.detail, 0, 34);
 
             row.arrow = lv_label_create(row.container);
             lv_obj_set_style_text_color(row.arrow, lv_color_hex(k_title_accent), 0);
