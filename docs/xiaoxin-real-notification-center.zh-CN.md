@@ -1,4 +1,4 @@
-# 小新真实通知中心触发说明
+# 小芯真实通知中心触发说明
 
 日期：2026-06-19
 分支：codex/xiaoxin-real-notifications

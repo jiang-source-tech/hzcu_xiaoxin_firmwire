@@ -254,7 +254,7 @@ static void chat_reply_events_are_ignored_by_notification_center(void) {
 
     const xiaoxin_notification_event_t chat = {
         .type = XIAOXIN_NOTIFICATION_EVENT_CHAT_REPLY,
-        .body = "小新回复了你",
+        .body = "小芯回复了你",
     };
 
     assert(!xiaoxin_card_pager_notification_upsert_event(&pager, &chat));
