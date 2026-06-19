@@ -25,6 +25,11 @@ int main(void) {
     failures += expect_name(PAOPAO_PET_STATE_FAILING, "failed.gif");
     failures += expect_name(PAOPAO_PET_STATE_GIDDY, "giddy.gif");
     failures += expect_name(PAOPAO_PET_STATE_REVIEW, "review.gif");
+    failures += expect_name(PAOPAO_PET_STATE_HAPPY, "happy.gif");
+    failures += expect_name(PAOPAO_PET_STATE_CRYING, "crying.gif");
+    failures += expect_name(PAOPAO_PET_STATE_ANXIETY, "anxiety.gif");
+    failures += expect_name(PAOPAO_PET_STATE_TIRED, "tired.gif");
+    failures += expect_name(PAOPAO_PET_STATE_STAMP, "stamp.gif");
 
     if (failures != 0) {
         return 1;

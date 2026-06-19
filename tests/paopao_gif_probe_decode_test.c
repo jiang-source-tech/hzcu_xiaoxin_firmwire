@@ -22,6 +22,11 @@ static const gif_probe_case_t k_gif_cases[] = {
     {"main/assets/images/failed.gif", 256, 256},
     {"main/assets/images/giddy.gif", 256, 256},
     {"main/assets/images/review.gif", 256, 256},
+    {"main/assets/images/happy.gif", 256, 256},
+    {"main/assets/images/crying.gif", 256, 256},
+    {"main/assets/images/anxiety.gif", 256, 256},
+    {"main/assets/images/tired.gif", 256, 256},
+    {"main/assets/images/stamp.gif", 256, 256},
 };
 
 static uint8_t* read_file(const char* path, size_t* size) {

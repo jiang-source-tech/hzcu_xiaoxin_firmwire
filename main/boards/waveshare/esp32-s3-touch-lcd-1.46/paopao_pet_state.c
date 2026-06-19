@@ -101,6 +101,16 @@ const char *paopao_pet_state_name(paopao_pet_state_t state) {
       return "giddy";
     case PAOPAO_PET_STATE_REVIEW:
       return "review";
+    case PAOPAO_PET_STATE_HAPPY:
+      return "happy";
+    case PAOPAO_PET_STATE_CRYING:
+      return "crying";
+    case PAOPAO_PET_STATE_ANXIETY:
+      return "anxiety";
+    case PAOPAO_PET_STATE_TIRED:
+      return "tired";
+    case PAOPAO_PET_STATE_STAMP:
+      return "stamp";
   }
 
   return "unknown";

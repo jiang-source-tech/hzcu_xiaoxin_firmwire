@@ -92,6 +92,18 @@ static void only_local_shake_triggers_giddy(void) {
     assert(paopao_pet_trigger_tick(&ctx, 1900) == PAOPAO_PET_STATE_IDLE);
 }
 
+static void service_core_emotions_use_distinct_reaction_states(void) {
+    paopao_pet_trigger_context_t ctx;
+    paopao_pet_trigger_init(&ctx, 0);
+
+    assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_SERVICE_HAPPY, 100) == PAOPAO_PET_STATE_HAPPY);
+    assert(paopao_pet_trigger_tick(&ctx, 1700) == PAOPAO_PET_STATE_IDLE);
+    assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_SERVICE_CRYING, 2000) == PAOPAO_PET_STATE_CRYING);
+    assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_SERVICE_ANGRY, 4200) == PAOPAO_PET_STATE_STAMP);
+    assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_SERVICE_ANXIOUS, 6400) == PAOPAO_PET_STATE_ANXIETY);
+    assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_SERVICE_TIRED, 8600) == PAOPAO_PET_STATE_TIRED);
+}
+
 static void idle_variant_uses_review_not_giddy(void) {
     paopao_pet_trigger_context_t ctx;
     paopao_pet_trigger_init(&ctx, 0);
@@ -137,6 +149,7 @@ int main(void) {
     service_suggestion_does_not_override_error_state();
     neutral_service_suggestion_does_not_clear_voice_state();
     only_local_shake_triggers_giddy();
+    service_core_emotions_use_distinct_reaction_states();
     idle_variant_uses_review_not_giddy();
     background_connecting_does_not_replace_pet_state();
     local_drag_uses_jumping_reaction();

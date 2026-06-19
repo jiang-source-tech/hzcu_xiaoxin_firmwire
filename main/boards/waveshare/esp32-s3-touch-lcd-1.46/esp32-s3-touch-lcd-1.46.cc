@@ -40,6 +40,7 @@
 #include <cstdlib>
 
 extern "C" {
+#include "paopao_pet_emotion.h"
 #include "paopao_pet_gif_assets.h"
 #include "paopao_pet_state.h"
 #include "paopao_pet_trigger.h"
@@ -73,6 +74,16 @@ extern const uint8_t assets_images_giddy_gif_start[] asm("_binary_giddy_gif_star
 extern const uint8_t assets_images_giddy_gif_end[] asm("_binary_giddy_gif_end");
 extern const uint8_t assets_images_review_gif_start[] asm("_binary_review_gif_start");
 extern const uint8_t assets_images_review_gif_end[] asm("_binary_review_gif_end");
+extern const uint8_t assets_images_happy_gif_start[] asm("_binary_happy_gif_start");
+extern const uint8_t assets_images_happy_gif_end[] asm("_binary_happy_gif_end");
+extern const uint8_t assets_images_crying_gif_start[] asm("_binary_crying_gif_start");
+extern const uint8_t assets_images_crying_gif_end[] asm("_binary_crying_gif_end");
+extern const uint8_t assets_images_anxiety_gif_start[] asm("_binary_anxiety_gif_start");
+extern const uint8_t assets_images_anxiety_gif_end[] asm("_binary_anxiety_gif_end");
+extern const uint8_t assets_images_tired_gif_start[] asm("_binary_tired_gif_start");
+extern const uint8_t assets_images_tired_gif_end[] asm("_binary_tired_gif_end");
+extern const uint8_t assets_images_stamp_gif_start[] asm("_binary_stamp_gif_start");
+extern const uint8_t assets_images_stamp_gif_end[] asm("_binary_stamp_gif_end");
 
 static constexpr uint32_t k_touch_hold_ms = 1200;
 static constexpr int16_t k_touch_drag_min_px = 42;
@@ -453,6 +464,16 @@ static PaopaoGifBinary PaopaoGifAssetForState(paopao_pet_state_t state) {
             return {assets_images_giddy_gif_start, assets_images_giddy_gif_end};
         case PAOPAO_PET_STATE_REVIEW:
             return {assets_images_review_gif_start, assets_images_review_gif_end};
+        case PAOPAO_PET_STATE_HAPPY:
+            return {assets_images_happy_gif_start, assets_images_happy_gif_end};
+        case PAOPAO_PET_STATE_CRYING:
+            return {assets_images_crying_gif_start, assets_images_crying_gif_end};
+        case PAOPAO_PET_STATE_ANXIETY:
+            return {assets_images_anxiety_gif_start, assets_images_anxiety_gif_end};
+        case PAOPAO_PET_STATE_TIRED:
+            return {assets_images_tired_gif_start, assets_images_tired_gif_end};
+        case PAOPAO_PET_STATE_STAMP:
+            return {assets_images_stamp_gif_start, assets_images_stamp_gif_end};
         default:
             return {assets_images_idle_gif_start, assets_images_idle_gif_end};
     }
@@ -482,6 +503,16 @@ static uint16_t PaopaoGifVisualLongestForState(paopao_pet_state_t state) {
             return 238;
         case PAOPAO_PET_STATE_REVIEW:
             return 126;
+        case PAOPAO_PET_STATE_HAPPY:
+            return 201;
+        case PAOPAO_PET_STATE_CRYING:
+            return 230;
+        case PAOPAO_PET_STATE_ANXIETY:
+            return 173;
+        case PAOPAO_PET_STATE_TIRED:
+            return 164;
+        case PAOPAO_PET_STATE_STAMP:
+            return 166;
         default:
             return k_pet_target_visual_longest;
     }
@@ -597,23 +628,11 @@ public:
     }
 
     virtual void SetEmotion(const char* emotion) override {
-        if (emotion == nullptr) {
+        const paopao_pet_trigger_event_t event = paopao_pet_trigger_for_emotion(emotion);
+        if (event == PAOPAO_PET_TRIGGER_NONE) {
             return;
         }
-
-        if (std::strstr(emotion, "happy") || std::strstr(emotion, "laugh") ||
-            std::strstr(emotion, "loving") || std::strstr(emotion, "cool")) {
-            DispatchPetTrigger(PAOPAO_PET_TRIGGER_SERVICE_HAPPY);
-        } else if (std::strstr(emotion, "think")) {
-            DispatchPetTrigger(PAOPAO_PET_TRIGGER_SERVICE_THINKING);
-        } else if (std::strstr(emotion, "sleep")) {
-            DispatchPetTrigger(PAOPAO_PET_TRIGGER_SERVICE_SLEEP);
-        } else if (std::strstr(emotion, "sad") || std::strstr(emotion, "angry") ||
-                   std::strstr(emotion, "cry") || std::strstr(emotion, "shock")) {
-            DispatchPetTrigger(PAOPAO_PET_TRIGGER_SERVICE_FAILING);
-        } else if (std::strstr(emotion, "neutral") || std::strstr(emotion, "microchip")) {
-            DispatchPetTrigger(PAOPAO_PET_TRIGGER_SERVICE_NEUTRAL);
-        }
+        DispatchPetTrigger(event);
     }
 
     virtual void SetChatMessage(const char* role, const char* content) override {

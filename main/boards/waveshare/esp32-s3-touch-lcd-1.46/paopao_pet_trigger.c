@@ -78,6 +78,8 @@ paopao_pet_state_t paopao_pet_trigger_dispatch(
   uint32_t now_ms
 ) {
   switch (event) {
+    case PAOPAO_PET_TRIGGER_NONE:
+      break;
     case PAOPAO_PET_TRIGGER_IDLE:
       set_base_state(ctx, PAOPAO_PET_STATE_IDLE, now_ms, false);
       break;
@@ -144,7 +146,7 @@ paopao_pet_state_t paopao_pet_trigger_dispatch(
       break;
     case PAOPAO_PET_TRIGGER_SERVICE_HAPPY:
       if (!is_locked_state(ctx->base_state) && !is_sleeping(ctx)) {
-        return paopao_pet_trigger_play_reaction(ctx, PAOPAO_PET_STATE_DONE, k_default_reaction_ms, now_ms);
+        return paopao_pet_trigger_play_reaction(ctx, PAOPAO_PET_STATE_HAPPY, k_default_reaction_ms, now_ms);
       }
       break;
     case PAOPAO_PET_TRIGGER_SERVICE_THINKING:
@@ -162,6 +164,26 @@ paopao_pet_state_t paopao_pet_trigger_dispatch(
     case PAOPAO_PET_TRIGGER_SERVICE_FAILING:
       if (!is_locked_state(ctx->base_state)) {
         return paopao_pet_trigger_play_reaction(ctx, PAOPAO_PET_STATE_FAILING, k_alert_reaction_ms, now_ms);
+      }
+      break;
+    case PAOPAO_PET_TRIGGER_SERVICE_CRYING:
+      if (!is_locked_state(ctx->base_state) && !is_sleeping(ctx)) {
+        return paopao_pet_trigger_play_reaction(ctx, PAOPAO_PET_STATE_CRYING, k_alert_reaction_ms, now_ms);
+      }
+      break;
+    case PAOPAO_PET_TRIGGER_SERVICE_ANXIOUS:
+      if (!is_locked_state(ctx->base_state) && !is_sleeping(ctx)) {
+        return paopao_pet_trigger_play_reaction(ctx, PAOPAO_PET_STATE_ANXIETY, k_alert_reaction_ms, now_ms);
+      }
+      break;
+    case PAOPAO_PET_TRIGGER_SERVICE_TIRED:
+      if (!is_locked_state(ctx->base_state) && !is_sleeping(ctx)) {
+        return paopao_pet_trigger_play_reaction(ctx, PAOPAO_PET_STATE_TIRED, k_alert_reaction_ms, now_ms);
+      }
+      break;
+    case PAOPAO_PET_TRIGGER_SERVICE_ANGRY:
+      if (!is_locked_state(ctx->base_state) && !is_sleeping(ctx)) {
+        return paopao_pet_trigger_play_reaction(ctx, PAOPAO_PET_STATE_STAMP, k_alert_reaction_ms, now_ms);
       }
       break;
   }

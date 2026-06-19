@@ -24,6 +24,16 @@ const char* paopao_pet_gif_asset_name(paopao_pet_state_t state) {
       return "giddy.gif";
     case PAOPAO_PET_STATE_REVIEW:
       return "review.gif";
+    case PAOPAO_PET_STATE_HAPPY:
+      return "happy.gif";
+    case PAOPAO_PET_STATE_CRYING:
+      return "crying.gif";
+    case PAOPAO_PET_STATE_ANXIETY:
+      return "anxiety.gif";
+    case PAOPAO_PET_STATE_TIRED:
+      return "tired.gif";
+    case PAOPAO_PET_STATE_STAMP:
+      return "stamp.gif";
     default:
       return "idle.gif";
   }

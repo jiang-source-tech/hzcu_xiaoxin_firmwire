@@ -2,6 +2,101 @@
 
 ## 2026-06-19 00:00:00 +08:00
 
+### Waveshare ESP32-S3 Touch LCD 1.46 宠物核心情绪 GIF 映射
+
+#### 背景
+
+当前桌宠已有多组 GIF 动画资源，但服务端 `llm.emotion` 到 GIF 的映射仍偏粗糙：开心复用完成反馈，伤心、生气、哭泣等负向情绪容易落到 `failed.gif`，导致“真实错误失败”和“宠物情绪表达”混在一起。
+
+本轮先按“少量核心情绪稳定运行”的原则接入核心情绪，不追求所有 emotion 字符串都拥有独立动画。同时考虑当前开发板 512 KB SRAM、384 KB ROM、8 MB PSRAM、16 MB Flash 的资源约束，继续保持同一时间只播放一个宠物 GIF，不叠加额外特效。
+
+#### 修改内容
+
+- 新增服务端情绪归一模块：
+  - 新增 `paopao_pet_emotion.h/.c`。
+  - 将 `SetEmotion()` 中的 emotion 字符串判断迁出显示类，统一由 `paopao_pet_trigger_for_emotion()` 处理。
+  - emotion 匹配大小写不敏感，按子串匹配。
+- 新增核心情绪状态：
+  - `PAOPAO_PET_STATE_HAPPY` -> `happy.gif`
+  - `PAOPAO_PET_STATE_CRYING` -> `crying.gif`
+  - `PAOPAO_PET_STATE_ANXIETY` -> `anxiety.gif`
+  - `PAOPAO_PET_STATE_TIRED` -> `tired.gif`
+  - `PAOPAO_PET_STATE_STAMP` -> `stamp.gif`
+- 调整服务端 emotion 映射：
+  - `happy`, `laugh`, `loving`, `excited`, `cool` -> `happy.gif`
+  - `cry`, `sad`, `unhappy`, `upset`, `lonely` -> `crying.gif`
+  - `angry`, `annoyed`, `frustrated`, `mad`, `impatient` -> `stamp.gif`
+  - `anxious`, `worried`, `nervous`, `scared`, `afraid` -> `anxiety.gif`
+  - `tired`, `weak`, `low_battery` -> `tired.gif`
+  - `sleep`, `sleepy`, `sleeping` -> `sleeping.gif`
+  - `think`, `confused`, `curious` -> `thinking.gif`
+  - `error`, `fail`, `shock` -> `failed.gif`
+  - `neutral`, `calm`, `relaxed`, `microchip` 不打断当前状态。
+- 明确 `stamp.gif` 表达“跺脚、生气、不满、抗议”，用于 angry 类 emotion。
+- 保留 `failed.gif` 给真实错误、失败、识别失败，不再泛化表示伤心或生气。
+- 修复 `unhappy` 被 `happy` 子串误判的问题：负向哭泣类关键词优先于开心类关键词匹配。
+- 接入新 GIF 资源：
+  - 新增 `main/assets/images/crying.gif`。
+  - `happy.gif`、`anxiety.gif`、`tired.gif`、`stamp.gif` 从已有资源接入状态机。
+- 更新显示层二进制资源映射和视觉尺寸表：
+  - 新增 `happy`、`crying`、`anxiety`、`tired`、`stamp` 的嵌入符号映射。
+  - 所有已接入状态机 GIF 按前景最长边统一缩放到 `162px`。
+  - 复测后将 `anxiety.gif` 的前景最长边从 `172` 校准为实测 `173`。
+  - 未接入的 `waving.gif` 也已测量，后续接入时建议使用前景最长边 `138`。
+- 新增正式说明文档 `docs/xiaoxin-pet-emotion-gif-mapping.zh-CN.md`：
+  - 记录不同 GIF 的情绪含义。
+  - 记录服务端 `emotion -> trigger -> GIF` 映射。
+  - 记录每个 GIF 当前真实触发方式。
+  - 记录资源约束、状态优先级、动画持续时间和后续新增 GIF 的步骤。
+
+#### 当前 GIF 触发规则
+
+| GIF | 当前触发方式 |
+| --- | --- |
+| `idle.gif` | 初始状态；`SetStatus(standby)`；短反应结束后回到 idle |
+| `waiting.gif` | `SetStatus(listening)`；`PAOPAO_PET_TRIGGER_WAKE` |
+| `thinking.gif` | `SetStatus(thinking)`；`SetChatMessage(role=user)`；服务端 emotion 包含 `think`, `confused`, `curious` |
+| `speaking_fixed.gif` | `SetStatus(speaking)`；`SetChatMessage(role=assistant)` |
+| `done.gif` | 屏幕短点按；Boot 按键单击；`PAOPAO_PET_TRIGGER_TASK_DONE` |
+| `sleeping.gif` | idle 安静约 60 秒；屏幕或 Boot 按键长按；服务端 emotion 包含 `sleep`, `sleepy`, `sleeping` |
+| `jumping.gif` | 屏幕横向拖动 |
+| `failed.gif` | `SetStatus(error)`；服务端 emotion 包含 `error`, `fail`, `shock` |
+| `giddy.gif` | IMU 检测到设备摇晃；服务端 `giddy` 当前不会触发 |
+| `review.gif` | idle 一段时间后的空闲小动作 |
+| `happy.gif` | 服务端开心类 emotion |
+| `crying.gif` | 服务端伤心/哭泣类 emotion |
+| `anxiety.gif` | 服务端焦虑类 emotion |
+| `tired.gif` | 服务端疲惫/低电量类 emotion |
+| `stamp.gif` | 服务端生气/不满类 emotion |
+| `working.gif` | 状态和资源已存在，但当前状态机没有实际入口触发 |
+| `waving.gif` | 资源已存在，但当前尚未接入状态机 |
+
+#### 涉及文件
+
+- `main/assets/images/crying.gif`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_emotion.h`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_emotion.c`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_gif_assets.c`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_state.h`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_state.c`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_trigger.h`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_trigger.c`
+- `tests/paopao_pet_emotion_test.c`
+- `tests/paopao_pet_trigger_test.c`
+- `tests/paopao_pet_gif_assets_test.c`
+- `tests/paopao_gif_probe_decode_test.c`
+- `docs/xiaoxin-pet-emotion-gif-mapping.zh-CN.md`
+- `docs/update.md`
+
+#### 验证结果
+
+- 已用 Python/Pillow 遍历 GIF 帧透明前景包围盒，确认所有已接入状态机的 GIF 缩放后前景最长边均为 `162px`。
+- 当前 `main/assets/images/*.gif` 共 17 个，总大小约 `1,541,074 bytes`。
+- `git diff --check`：通过，仅提示既有 CRLF/LF 行尾转换 warning。
+- 当前 shell 未找到 `idf.py` 和 `ninja`，无法执行完整 ESP-IDF 构建。
+- 当前本机 `gcc` 连最小 C 程序也返回退出码 `1`，因此本轮未能运行 host C 测试二进制。
+
 ### Waveshare ESP32-S3 Touch LCD 1.46 真实通知中心、空状态视觉与返回手势阈值优化
 
 #### 背景
