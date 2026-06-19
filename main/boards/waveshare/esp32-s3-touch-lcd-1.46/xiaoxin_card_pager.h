@@ -27,6 +27,7 @@ typedef enum {
 typedef struct {
   const char* title;
   const char* body;
+  const char* detail;
   const char* tag;
   uint32_t priority;
   uint32_t ttl_ms;

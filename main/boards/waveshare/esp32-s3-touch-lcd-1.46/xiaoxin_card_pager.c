@@ -25,10 +25,10 @@ static const notification_event_defaults_t k_notification_defaults[] = {
 };
 
 static const xiaoxin_card_item_t k_overview_items[] = {
-  {"下一节课", "高等数学 10:10", "课程", 1, 0},
-  {"校园导航", "打开常用地点入口", "导航", 2, 0},
-  {"天气", "多云 26C", "天气", 3, 0},
-  {"今日待办", "还有 2 项", "待办", 4, 0},
+  {"下一节课", "高数 10:10", "教2-301 · 还有24分", "课程", 1, 0},
+  {"校园导航", "常用地点", "教学楼 / 食堂 / 图书馆", "导航", 2, 0},
+  {"天气", "多云 26C", "湿度72% · 东风2级", "天气", 3, 0},
+  {"今日待办", "2 项待办", "实验报告 · 晚自习", "待办", 4, 0},
 };
 
 static const notification_event_defaults_t* notification_defaults_for(
@@ -59,6 +59,7 @@ static void notification_rebind_slot(xiaoxin_card_pager_t* pager, uint8_t slot) 
   }
   pager->notification_items[slot].title = pager->notification_title_storage[slot];
   pager->notification_items[slot].body = pager->notification_body_storage[slot];
+  pager->notification_items[slot].detail = NULL;
   pager->notification_items[slot].tag = pager->notification_tag_storage[slot];
 }
 

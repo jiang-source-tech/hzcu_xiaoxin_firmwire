@@ -54,6 +54,58 @@
 - `git diff --check`：通过，仅提示既有 CRLF/LF 行尾转换 warning。
 - `xiaoxin_card_pager_test`：已新增真实通知仓库、事件 upsert、状态移除、课程提醒、优先级排序、聊天回复忽略、单条 dismiss、全部清理和打开页短反向滑动返回 Home 用例；当前本机 `gcc` 连最小 C 程序也返回退出码 1 且无诊断输出，因此本轮未完成 C 测试二进制编译运行。
 
+### Waveshare ESP32-S3 Touch LCD 1.46 总览卡片信息密度优化
+
+#### 背景
+
+实机总览页的四张卡片布局已经可用，但每张卡片只有标题和一行正文，信息量偏少。用户希望暂时保留当前总览页形态，只让单张卡片承载更完整的信息。
+
+#### 修改内容
+
+- 保留总览页四张卡片、图标、右侧箭头和整体分页交互。
+- `xiaoxin_card_item_t` 新增 `detail` 字段，用于总览卡片的辅助信息。
+- 通知卡片复用同一个 `xiaoxin_card_item_t` 结构，但在通知仓库绑定时将 `detail` 显式置为 `NULL`，因此通知页仍保持原来的标题/正文渲染，不会多出第三行。
+- 总览静态数据从“标题 + 单行正文”扩展为“标题 + 主信息 + 辅助信息”：
+  - 下一节课：`高数 10:10` / `教2-301 · 还有24分`。
+  - 校园导航：`常用地点` / `教学楼 / 食堂 / 图书馆`。
+  - 天气：`多云 26C` / `湿度72% · 东风2级`。
+  - 今日待办：`2 项待办` / `实验报告 · 晚自习`。
+- 总览行渲染新增第三行 `detail` 标签，正文行使用强调色，辅助信息使用弱化色，三行都使用 `LV_LABEL_LONG_MODE_DOTS` 防止长文本撑破卡片。
+- 删除旧的 `OverviewCompactBodyText()` 硬编码压缩文案，让总览页直接使用数据源里的 `body` 和 `detail`。
+
+#### 最终布局参数
+
+- 卡片宽度：`252` -> `270`。
+- 卡片高度：`48` -> `58`。
+- 卡片间距：`51` -> `61`。
+- 起始位置：`k_overview_y_start = 70`，让第一张卡片避开顶部标题和电量区域。
+- 文本区域：宽度 `176`，高度 `54`。
+- 三行文字位置：标题 `y=0`，主信息 `y=17`，辅助信息 `y=34`。
+- 右侧箭头位置：`k_overview_arrow_x = 244`，配合放大后的卡片宽度继续留在安全区内。
+
+#### 实现边界
+
+- 未改变 Home / Notifications / Overview 的分页状态机。
+- 未改变通知中心的排序、清理、空状态和左滑逻辑。
+- 未接入真实课程、天气或待办后端，本轮只把现有总览样例数据改成更完整的展示内容。
+- 未新增小屏深层操作入口，当前总览页仍是只读摘要页。
+
+#### 涉及文件
+
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.h`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.c`
+- `tests/xiaoxin_card_pager_test.c`
+- `docs/superpowers/plans/2026-06-19-xiaoxin-overview-card-density.md`
+- `docs/update.md`
+
+#### 验证结果
+
+- `git diff --check`：通过，仅提示既有 CRLF/LF 行尾转换 warning。
+- `ninja -C build esp-idf/main/CMakeFiles/__idf_main.dir/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc.obj`：通过，仅保留既有 `esp_lcd_touch_get_coordinates` deprecated warning。
+- `xiaoxin_card_pager_test` 已新增总览 detail 数据契约用例；当前本机 `gcc` 的 `cc1.exe` 运行时失败，未能产出测试二进制。
+- `ninja -C build`：通过，生成 `build/ai_pet.bin`。
+
 ## 2026-06-18 00:00:00 +08:00
 
 ### Waveshare ESP32-S3 Touch LCD 1.46 全局 WiFi / 电量安全区浮层
