@@ -230,7 +230,7 @@ In `InitializeCardPagerLayer()`, replace the Overview title/body label block wit
 ```cpp
             row.text_box = lv_obj_create(row.container);
             lv_obj_remove_style_all(row.text_box);
-            lv_obj_set_size(row.text_box, k_overview_text_w, 42);
+            lv_obj_set_size(row.text_box, k_overview_text_w, 48);
             lv_obj_set_style_layout(row.text_box, LV_LAYOUT_NONE, 0);
             lv_obj_clear_flag(row.text_box, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_align(row.text_box, LV_ALIGN_LEFT_MID, k_overview_text_x, 0);
@@ -247,14 +247,14 @@ In `InitializeCardPagerLayer()`, replace the Overview title/body label block wit
             lv_obj_set_style_text_color(row.body, lv_color_hex(k_title_accent), 0);
             lv_label_set_long_mode(row.body, LV_LABEL_LONG_MODE_DOTS);
             lv_label_set_text(row.body, "");
-            lv_obj_set_pos(row.body, 0, 14);
+            lv_obj_set_pos(row.body, 0, 15);
 
             row.detail = lv_label_create(row.text_box);
             lv_obj_set_width(row.detail, k_overview_text_w);
             lv_obj_set_style_text_color(row.detail, lv_color_hex(k_text_dimmed), 0);
             lv_label_set_long_mode(row.detail, LV_LABEL_LONG_MODE_DOTS);
             lv_label_set_text(row.detail, "");
-            lv_obj_set_pos(row.detail, 0, 28);
+            lv_obj_set_pos(row.detail, 0, 30);
 ```
 
 - [ ] **Step 4: Stop overriding Overview body with hard-coded compact text**
