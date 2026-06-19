@@ -38,6 +38,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
+#include <time.h>
 
 extern "C" {
 #include "paopao_pet_gif_assets.h"
@@ -45,6 +46,7 @@ extern "C" {
 #include "paopao_pet_trigger.h"
 #include "xiaoxin_battery_level.h"
 #include "xiaoxin_card_pager.h"
+#include "xiaoxin_overview_model.h"
 #include "xiaoxin_power_control.h"
 #include "xiaoxin_system_overlay.h"
 }
@@ -200,8 +202,11 @@ static constexpr int16_t k_notification_empty_panel_y = 176;
 static constexpr uint32_t k_notification_empty_panel_bg = 0xffffff;
 static constexpr lv_opa_t k_notification_empty_panel_opa = static_cast<lv_opa_t>(172);
 static constexpr lv_opa_t k_notification_empty_panel_border_opa = static_cast<lv_opa_t>(34);
-static constexpr int16_t k_overview_y_start = 70;
-static constexpr int16_t k_overview_row_pitch = 61;
+static constexpr int16_t k_overview_time_y = 26;
+static constexpr int16_t k_overview_date_y = 49;
+static constexpr int16_t k_overview_time_w = 260;
+static constexpr int16_t k_overview_y_start = 78;
+static constexpr int16_t k_overview_row_pitch = 58;
 static constexpr uint8_t k_qmi8658_addr_primary = 0x6B;
 static constexpr uint8_t k_qmi8658_addr_secondary = 0x6A;
 static constexpr uint8_t k_qmi8658_reg_who_am_i = 0x00;
@@ -718,6 +723,8 @@ private:
     lv_obj_t* battery_overlay_fill_ = nullptr;
     lv_obj_t* battery_overlay_cap_ = nullptr;
     lv_obj_t* card_title_label_ = nullptr;
+    lv_obj_t* overview_time_label_ = nullptr;
+    lv_obj_t* overview_date_label_ = nullptr;
     lv_obj_t* pull_indicator_ = nullptr;
     lv_obj_t* home_indicator_ = nullptr;
     lv_obj_t* notification_clear_button_ = nullptr;
@@ -737,6 +744,7 @@ private:
     std::unique_ptr<LvglGif> pet_gif_controller_ = nullptr;
     TouchReader* touch_ = nullptr;
     xiaoxin_card_pager_t card_pager_ = {};
+    xiaoxin_overview_snapshot_t overview_snapshot_ = {};
     paopao_pet_trigger_context_t trigger_;
     paopao_pet_state_t current_state_ = PAOPAO_PET_STATE_IDLE;
     bool touch_pressed_ = false;
@@ -1211,6 +1219,25 @@ private:
         lv_obj_set_style_text_color(card_title_label_, lv_color_hex(k_page_title_color), 0);
         lv_obj_set_style_text_opa(card_title_label_, LV_OPA_COVER, 0);
         lv_label_set_text(card_title_label_, "");
+        lv_obj_add_flag(card_title_label_, LV_OBJ_FLAG_HIDDEN);
+
+        overview_time_label_ = lv_label_create(card_layer_);
+        lv_obj_set_width(overview_time_label_, k_overview_time_w);
+        lv_obj_set_style_text_align(overview_time_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_color(overview_time_label_, lv_color_hex(k_page_title_color), 0);
+        lv_obj_set_style_text_opa(overview_time_label_, LV_OPA_COVER, 0);
+        lv_label_set_text(overview_time_label_, "");
+        lv_obj_align(overview_time_label_, LV_ALIGN_TOP_MID, 0, k_overview_time_y);
+        lv_obj_add_flag(overview_time_label_, LV_OBJ_FLAG_HIDDEN);
+
+        overview_date_label_ = lv_label_create(card_layer_);
+        lv_obj_set_width(overview_date_label_, k_overview_time_w);
+        lv_obj_set_style_text_align(overview_date_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_color(overview_date_label_, lv_color_hex(k_text_dimmed), 0);
+        lv_obj_set_style_text_opa(overview_date_label_, LV_OPA_COVER, 0);
+        lv_label_set_text(overview_date_label_, "");
+        lv_obj_align(overview_date_label_, LV_ALIGN_TOP_MID, 0, k_overview_date_y);
+        lv_obj_add_flag(overview_date_label_, LV_OBJ_FLAG_HIDDEN);
 
         notification_clear_button_ = lv_obj_create(card_layer_);
         lv_obj_remove_style_all(notification_clear_button_);
@@ -1944,6 +1971,57 @@ private:
         return 25;
     }
 
+    static void PopulateOverviewTime(xiaoxin_overview_state_t& state) {
+        time_t now = 0;
+        time(&now);
+
+        struct tm timeinfo = {};
+        if (now > 24 * 60 * 60 &&
+            localtime_r(&now, &timeinfo) != nullptr &&
+            timeinfo.tm_year >= 120) {
+            state.time_valid = true;
+            state.hour = timeinfo.tm_hour;
+            state.minute = timeinfo.tm_min;
+            state.month = timeinfo.tm_mon + 1;
+            state.day = timeinfo.tm_mday;
+            state.weekday = (uint8_t)timeinfo.tm_wday;
+        }
+    }
+
+    static bool ReadOverviewBattery(int& level) {
+        bool charging = false;
+        bool discharging = true;
+        if (!Board::GetInstance().GetBatteryLevel(level, charging, discharging)) {
+            return false;
+        }
+        level = std::min(100, std::max(0, level));
+        return true;
+    }
+
+    xiaoxin_overview_state_t BuildOverviewState() {
+        xiaoxin_overview_state_t state = {};
+        PopulateOverviewTime(state);
+
+        state.network_connected = SystemOverlayNetworkState() == XIAOXIN_SYSTEM_OVERLAY_NETWORK_CONNECTED;
+        state.battery_known = ReadOverviewBattery(state.battery_percent);
+
+        state.weather_configured = false;
+        state.weather_available = false;
+        state.weather_summary = nullptr;
+        state.weather_detail = nullptr;
+
+        state.course_configured = false;
+        state.course_available_today = false;
+        state.course_title = nullptr;
+        state.course_detail = nullptr;
+
+        state.todo_configured = false;
+        state.todo_count = 0;
+        state.todo_detail = nullptr;
+
+        return state;
+    }
+
     xiaoxin_system_overlay_network_state_t SystemOverlayNetworkState() const {
         if (Application::GetInstance().GetDeviceState() == kDeviceStateWifiConfiguring) {
             return XIAOXIN_SYSTEM_OVERLAY_NETWORK_CONFIGURING;
@@ -2147,6 +2225,8 @@ private:
             AddFlagIfCreated(overview_separators_[i], LV_OBJ_FLAG_HIDDEN);
         }
         AddFlagIfCreated(card_title_label_, LV_OBJ_FLAG_HIDDEN);
+        AddFlagIfCreated(overview_time_label_, LV_OBJ_FLAG_HIDDEN);
+        AddFlagIfCreated(overview_date_label_, LV_OBJ_FLAG_HIDDEN);
         AddFlagIfCreated(pull_indicator_, LV_OBJ_FLAG_HIDDEN);
         AddFlagIfCreated(home_indicator_, LV_OBJ_FLAG_HIDDEN);
         AddFlagIfCreated(notification_clear_button_, LV_OBJ_FLAG_HIDDEN);
@@ -2161,10 +2241,6 @@ private:
             RaiseOverlayObjects();
             return;
         }
-
-        const xiaoxin_card_item_t* items = nullptr;
-        uint8_t count = 0;
-        xiaoxin_card_pager_items(page, &items, &count);
 
         lv_obj_remove_flag(card_layer_, LV_OBJ_FLAG_HIDDEN);
         ApplyPetAnimationForCardPager();
@@ -2183,18 +2259,26 @@ private:
                 prepare_entry_animation
             );
         } else if (page == XIAOXIN_CARD_PAGE_OVERVIEW) {
-            if (card_title_label_ != nullptr) {
-                lv_obj_set_width(card_title_label_, 260);
-                lv_obj_set_style_text_align(card_title_label_, LV_TEXT_ALIGN_CENTER, 0);
-                lv_obj_align(card_title_label_, LV_ALIGN_TOP_MID, 0, 34);
-                lv_label_set_text(card_title_label_, "\xE6\x80\xBB\xE8\xA7\x88");
-                lv_obj_remove_flag(card_title_label_, LV_OBJ_FLAG_HIDDEN);
+            xiaoxin_overview_state_t overview_state = BuildOverviewState();
+            xiaoxin_overview_model_build(&overview_state, &overview_snapshot_);
+
+            if (overview_time_label_ != nullptr) {
+                lv_label_set_text(overview_time_label_, overview_snapshot_.time_text);
+                lv_obj_align(overview_time_label_, LV_ALIGN_TOP_MID, 0, k_overview_time_y);
+                lv_obj_remove_flag(overview_time_label_, LV_OBJ_FLAG_HIDDEN);
+            }
+            if (overview_date_label_ != nullptr) {
+                lv_label_set_text(overview_date_label_, overview_snapshot_.date_text);
+                lv_obj_align(overview_date_label_, LV_ALIGN_TOP_MID, 0, k_overview_date_y);
+                lv_obj_remove_flag(overview_date_label_, LV_OBJ_FLAG_HIDDEN);
             }
             RemoveFlagIfCreated(home_indicator_, LV_OBJ_FLAG_HIDDEN);
             if (home_indicator_ != nullptr) {
                 lv_obj_align(home_indicator_, LV_ALIGN_TOP_MID, 0, 8);
             }
 
+            const xiaoxin_card_item_t* items = overview_snapshot_.items;
+            const uint8_t count = overview_snapshot_.item_count;
             const uint8_t visible = std::min<uint8_t>(count, k_overview_row_count);
             for (uint8_t i = 0; i < visible && items != nullptr; ++i) {
                 OverviewRow& row = overview_rows_[i];
