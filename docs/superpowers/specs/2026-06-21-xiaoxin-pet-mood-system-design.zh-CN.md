@@ -11,7 +11,7 @@
 
 - 低电量时表现疲惫或焦虑。
 - 长时间无交互时自然进入打盹或空闲小动作。
-- 用户触摸、按键、摇晃后给出即时反馈。
+- 用户触摸、拖动、摇晃后给出即时反馈。
 - 语音识别失败、网络断开等异常能影响宠物表现。
 - 网络恢复、任务完成等正向事件给出轻量成功反馈。
 - 情绪逻辑集中在独立模块，避免散落在 LVGL 显示代码中。
@@ -26,7 +26,7 @@
 - `paopao_pet_trigger.h/.c` 维护 `base_state`、`reaction_state`、短反应时长、睡眠、错误锁定和本地交互优先级。
 - `paopao_pet_emotion.h/.c` 将服务端 `llm.emotion` 字符串归一到宠物触发事件。
 - `paopao_pet_gif_assets.c` 将宠物状态映射到 GIF 资源。
-- `esp32-s3-touch-lcd-1.46.cc` 已接入触摸、Boot 按键、IMU 摇晃、电量读取、网络/设备状态和显示刷新。
+- `esp32-s3-touch-lcd-1.46.cc` 已接入触摸、Boot 按键、IMU 摇晃、电量读取、网络/设备状态和显示刷新；P1 情绪系统不要求继续占用 Boot 按键。
 - `docs/xiaoxin-pet-emotion-gif-mapping.zh-CN.md` 已记录 GIF 含义、服务端 emotion 归一规则和测试覆盖。
 
 因此，P1 不应重写宠物动画系统，而应在现有触发器前增加一层“情绪策略”。
@@ -40,6 +40,7 @@
 - 不改变现有 Home / Notifications / Overview 分页交互。
 - 不改变服务端 `llm.emotion` 的协议字段。
 - 不让普通情绪覆盖错误锁定、语音监听、说话等关键基础状态。
+- 不把 Boot 按键作为 P1 情绪系统的必要输入；该按键可闲置出来，保留给系统、调试、设置入口或后续产品决策。
 
 ## 4. 方案比较
 
@@ -119,16 +120,16 @@
 
 ### 5.3 本地交互
 
-触摸、Boot 按键和摇晃继续保持最高的即时反馈优先级。
+触摸、拖动和摇晃继续保持最高的即时反馈优先级。Boot 按键不纳入 P1 情绪系统的必需交互，可以从宠物情绪路径中闲置出来。
 
 建议表现：
 
 - 短点按：沿用 `DONE` 或在 mood 较高时升级为 `HAPPY`。
-- 长按：沿用睡眠切换。
+- 长按：如果来自屏幕触摸长按，可沿用睡眠切换；如果来自 Boot 按键，P1 不接入。
 - 拖动：沿用 `JUMPING`。
 - 摇晃：沿用 `GIDDY`，并有 IMU 冷却。
 
-第一版不改变现有本地交互的直觉反馈，只让它们更新 mood 里的 `last_interaction_ms`、`energy` 和 `mood`。
+第一版不改变触摸、拖动、摇晃的直觉反馈，只让它们更新 mood 里的 `last_interaction_ms`、`energy` 和 `mood`。Boot 按键可以不再触发 mood，也不再作为验收条件。
 
 ### 5.4 语音与聊天
 
@@ -300,7 +301,7 @@ paopao_pet_trigger_dispatch(&trigger_ctx, suggestion.trigger, now_ms);
 ```mermaid
 flowchart LR
     Device["设备事实\n电量 / WiFi / 语音错误"] --> MoodInput["paopao_pet_mood_event_t"]
-    User["用户行为\n触摸 / 按键 / 拖动 / 摇晃"] --> MoodInput
+    User["用户行为\n触摸 / 拖动 / 摇晃"] --> MoodInput
     Service["服务端 emotion"] --> EmotionMap["paopao_pet_trigger_for_emotion"]
     EmotionMap --> MoodInput
     MoodInput --> Mood["paopao_pet_mood"]
@@ -325,14 +326,16 @@ flowchart LR
 
 不要在每次轮询都发送异常事件。mood 层处理边沿事件，持续状态由系统浮层和通知中心表达。
 
-### 9.2 触摸和按键
+### 9.2 触摸、拖动和摇晃
 
-现有触摸/按键仍可以直接派发 trigger，以保持即时性。与此同时调用 mood 更新分数：
+现有触摸、拖动和摇晃仍可以直接派发 trigger，以保持即时性。与此同时调用 mood 更新分数：
 
 - tap：提高 mood，刷新 `last_interaction_ms`。
 - drag：提高 energy，刷新 `last_interaction_ms`。
-- hold：不改变 mood 或轻微降低 energy，用于睡眠切换。
+- touch hold：不改变 mood 或轻微降低 energy，可用于睡眠切换。
 - shake：短期提高刺激感，但频繁摇晃降低 mood。
+
+Boot 按键不作为 P1 情绪系统输入。实现时可以保留现有 Boot 行为，也可以在后续实现阶段将其从宠物 mood/trigger 路径中移除；本规格不要求 Boot 按键触发任何情绪反馈。
 
 ### 9.3 语音和聊天
 
@@ -391,6 +394,7 @@ flowchart LR
 - WiFi 断开和恢复分别能触发一次合理反馈。
 - 语音识别失败能触发困惑或失败反馈，且不会刷屏。
 - 本地触摸、拖动、摇晃保持现有即时反馈。
+- Boot 按键不是 P1 验收项；移除或闲置 Boot 的宠物情绪触发不会影响本规格通过。
 - 语音监听、思考、说话状态不被普通 mood 建议打断。
 - 错误锁定状态仍由 `paopao_pet_trigger` 保护。
 - 新增 mood 单元测试通过，现有宠物 trigger/emotion/GIF 测试继续通过。
