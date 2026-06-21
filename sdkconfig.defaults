@@ -48,7 +48,7 @@ CONFIG_FLASH_DEFAULT_ASSETS=y
 
 # ── OTA URL (官方服务端) ─────────────────────────────────────
 # 固件从此检查更新并获取 WebSocket 服务器地址
-CONFIG_OTA_URL="https://api.tenclass.net/xiaozhi/ota/"
+CONFIG_OTA_URL="http://124.222.121.103:8003/xiaozhi/ota/"
 
 # ── FreeRTOS ──────────────────────────────────────────────────
 CONFIG_FREERTOS_HZ=1000
