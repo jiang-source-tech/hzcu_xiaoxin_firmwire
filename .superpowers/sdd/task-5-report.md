@@ -21,3 +21,7 @@ The testing note was also expanded to include `tests/paopao_pet_mood_test.c`.
 ## Notes
 
 This task was documentation-only. I did not run build or unit tests because the requested scope explicitly excluded code and test changes.
+
+## Review fix
+
+Removed Boot from the local interaction source list and from the `done.gif` and `sleeping.gif` trigger rows so the doc now matches the current BOOT reservation note.

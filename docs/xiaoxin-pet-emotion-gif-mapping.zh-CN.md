@@ -83,7 +83,7 @@
 
 - 设备/对话状态：由显示层 `SetStatus()` 和 `SetChatMessage()` 触发基础状态。
 - 服务端情绪：由 `SetEmotion()` 接收服务端 `llm.emotion` 后触发短反应。
-- 本地交互：由屏幕触摸、Boot 按键和 IMU 摇晃触发短反应。
+- 本地交互：由屏幕触摸和 IMU 摇晃触发短反应。
 - 状态机 tick：由空闲计时触发睡眠或空闲小动作。
 
 | GIF | 触发方式 |
@@ -92,8 +92,8 @@
 | `waiting.gif` | `SetStatus(listening)`；`PAOPAO_PET_TRIGGER_WAKE` |
 | `thinking.gif` | `SetStatus(thinking)`；`SetChatMessage(role=user)`；服务端 emotion 包含 `think`, `confused`, `curious` |
 | `speaking_fixed.gif` | `SetStatus(speaking)`；`SetChatMessage(role=assistant)` |
-| `done.gif` | 屏幕短点按；Boot 按键单击；`PAOPAO_PET_TRIGGER_TASK_DONE` |
-| `sleeping.gif` | idle 安静约 60 秒；屏幕或 Boot 按键长按切换睡眠；服务端 emotion 包含 `sleep`, `sleepy`, `sleeping` |
+| `done.gif` | 屏幕短点按；`PAOPAO_PET_TRIGGER_TASK_DONE` |
+| `sleeping.gif` | idle 安静约 60 秒；屏幕长按切换睡眠；服务端 emotion 包含 `sleep`, `sleepy`, `sleeping` |
 | `jumping.gif` | 屏幕横向拖动，左拖或右拖都会触发 |
 | `failed.gif` | `SetStatus(error)` 进入错误锁定状态；服务端 emotion 包含 `error`, `fail`, `shock` 时作为失败短反应 |
 | `giddy.gif` | IMU 检测到设备摇晃；服务端 `giddy` 当前不会触发 |
