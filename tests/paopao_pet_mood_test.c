@@ -48,7 +48,7 @@ static void low_battery_edge_triggers_tired_once_until_recovery(void) {
         send_event(&ctx, PAOPAO_PET_MOOD_EVENT_BATTERY_LOW, 1100);
     assert(first.has_trigger);
     assert(first.trigger == PAOPAO_PET_TRIGGER_SERVICE_TIRED);
-    assert(strcmp(first.text, "鏈夌偣娌＄數浜?") == 0);
+    assert(strcmp(first.text, "閺堝鍋ｅ▽锛勬暩娴?") == 0);
     assert(ctx.low_battery);
     assert(ctx.energy == 45);
 
@@ -61,7 +61,7 @@ static void low_battery_edge_triggers_tired_once_until_recovery(void) {
         send_event(&ctx, PAOPAO_PET_MOOD_EVENT_BATTERY_RECOVERED, 32000);
     assert(recovered.has_trigger);
     assert(recovered.trigger == PAOPAO_PET_TRIGGER_TASK_DONE);
-    assert(strcmp(recovered.text, "濂藉鍟?") == 0);
+    assert(strcmp(recovered.text, "婵傝棄顦块崯?") == 0);
     assert(!ctx.low_battery);
     assert(ctx.energy == 60);
 }
@@ -74,7 +74,7 @@ static void wifi_edges_trigger_anxious_and_done_with_cooldown(void) {
         send_event(&ctx, PAOPAO_PET_MOOD_EVENT_WIFI_DISCONNECTED, 1200);
     assert(disconnected.has_trigger);
     assert(disconnected.trigger == PAOPAO_PET_TRIGGER_SERVICE_ANXIOUS);
-    assert(strcmp(disconnected.text, "缃戠粶涓嶈浜?") == 0);
+    assert(strcmp(disconnected.text, "缂冩垹绮舵稉宥堫潌娴?") == 0);
     assert(!ctx.wifi_connected);
 
     paopao_pet_mood_suggestion_t repeated =
@@ -85,7 +85,7 @@ static void wifi_edges_trigger_anxious_and_done_with_cooldown(void) {
         send_event(&ctx, PAOPAO_PET_MOOD_EVENT_WIFI_CONNECTED, 25000);
     assert(connected.has_trigger);
     assert(connected.trigger == PAOPAO_PET_TRIGGER_TASK_DONE);
-    assert(strcmp(connected.text, "杩炰笂鍟?") == 0);
+    assert(strcmp(connected.text, "鏉╃偘绗傞崯?") == 0);
     assert(ctx.wifi_connected);
 }
 
@@ -97,7 +97,7 @@ static void voice_error_has_short_cooldown(void) {
         send_event(&ctx, PAOPAO_PET_MOOD_EVENT_VOICE_ERROR, 1200);
     assert(first.has_trigger);
     assert(first.trigger == PAOPAO_PET_TRIGGER_SERVICE_FAILING);
-    assert(strcmp(first.text, "鎴戝啀鎯虫兂") == 0);
+    assert(strcmp(first.text, "閹存垵鍟€閹櫕鍏?") == 0);
 
     paopao_pet_mood_suggestion_t suppressed =
         send_event(&ctx, PAOPAO_PET_MOOD_EVENT_VOICE_ERROR, 3000);
@@ -141,7 +141,7 @@ static void service_emotion_uses_existing_trigger_values_and_cooldown(void) {
         send_service(&ctx, PAOPAO_PET_TRIGGER_SERVICE_HAPPY, 1200);
     assert(happy.has_trigger);
     assert(happy.trigger == PAOPAO_PET_TRIGGER_SERVICE_HAPPY);
-    assert(strcmp(happy.text, "鏀跺埌") == 0);
+    assert(strcmp(happy.text, "閺€璺哄煂") == 0);
 
     paopao_pet_mood_suggestion_t suppressed =
         send_service(&ctx, PAOPAO_PET_TRIGGER_SERVICE_CRYING, 2000);
