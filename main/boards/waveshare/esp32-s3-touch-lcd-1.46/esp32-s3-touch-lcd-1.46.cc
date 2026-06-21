@@ -42,6 +42,7 @@
 
 extern "C" {
 #include "paopao_pet_emotion.h"
+#include "paopao_pet_mood.h"
 #include "paopao_pet_gif_assets.h"
 #include "paopao_pet_state.h"
 #include "paopao_pet_trigger.h"
@@ -92,6 +93,7 @@ static constexpr int16_t k_touch_drag_min_px = 42;
 static constexpr uint32_t k_touch_motion_suppress_ms = 600;
 static constexpr uint32_t k_touch_poll_ms = 16;
 static constexpr uint32_t k_pet_render_task_stack_bytes = 12 * 1024;
+static constexpr int k_pet_mood_low_battery_percent = 20;
 static constexpr uint32_t k_power_off_release_poll_ms = 20;
 static constexpr adc_channel_t k_battery_adc_channel = ADC_CHANNEL_7;
 static constexpr uint8_t k_battery_adc_samples = 10;
@@ -579,6 +581,7 @@ public:
 
         const uint32_t now_ms = NowMs();
         paopao_pet_trigger_init(&trigger_, now_ms);
+        paopao_pet_mood_init(&mood_, now_ms);
         xiaoxin_card_pager_init(&card_pager_, DISPLAY_HEIGHT);
         current_state_ = trigger_.displayed_state;
         PlayGifState(current_state_);
@@ -619,7 +622,7 @@ public:
                    Contains(status, "Standby") || Contains(status, "standby")) {
             DispatchPetTrigger(PAOPAO_PET_TRIGGER_IDLE);
         } else if (status_error) {
-            DispatchPetTrigger(PAOPAO_PET_TRIGGER_ERROR);
+            DispatchPetMoodEvent(PAOPAO_PET_MOOD_EVENT_VOICE_ERROR);
         } else if (IsBusyStatus(status)) {
             DispatchPetTrigger(PAOPAO_PET_TRIGGER_CONNECTING);
         }
@@ -637,7 +640,7 @@ public:
         if (event == PAOPAO_PET_TRIGGER_NONE) {
             return;
         }
-        DispatchPetTrigger(event);
+        DispatchPetMoodEvent(PAOPAO_PET_MOOD_EVENT_SERVICE_EMOTION, event);
     }
 
     virtual void SetChatMessage(const char* role, const char* content) override {
@@ -657,8 +660,10 @@ public:
         }
 
         if (std::strcmp(role, "user") == 0) {
+            DispatchPetMoodEvent(PAOPAO_PET_MOOD_EVENT_CHAT_STARTED);
             DispatchPetTrigger(PAOPAO_PET_TRIGGER_THINKING);
         } else if (std::strcmp(role, "assistant") == 0) {
+            DispatchPetMoodEvent(PAOPAO_PET_MOOD_EVENT_ASSISTANT_REPLY);
             DispatchPetTrigger(PAOPAO_PET_TRIGGER_SPEAKING);
         }
 
@@ -699,6 +704,7 @@ public:
             ApplySystemOverlayNetworkStyle();
             ApplyBatteryOverlayLevel(battery_level);
             SyncLowBatteryNotificationLocked(battery_level);
+            SyncPetMoodDeviceStateLocked(battery_level);
             RefreshOverviewPageIfVisible();
             RaiseOverlayObjects();
         }
@@ -710,8 +716,23 @@ public:
 
     void DispatchPetTrigger(paopao_pet_trigger_event_t event) {
         DisplayLockGuard lock(this);
-        paopao_pet_trigger_dispatch(&trigger_, event, NowMs());
-        ApplyPetStateIfChanged();
+        DispatchPetTriggerLocked(event, NowMs());
+    }
+
+    void DispatchPetMoodEvent(
+        paopao_pet_mood_event_t event,
+        paopao_pet_trigger_event_t service_trigger = PAOPAO_PET_TRIGGER_NONE
+    ) {
+        DisplayLockGuard lock(this);
+        DispatchPetMoodEventLocked(event, service_trigger, NowMs());
+    }
+
+    void DispatchLocalPetTrigger(
+        paopao_pet_trigger_event_t trigger_event,
+        paopao_pet_mood_event_t mood_event
+    ) {
+        DisplayLockGuard lock(this);
+        DispatchLocalPetTriggerLocked(trigger_event, mood_event, NowMs());
     }
 
     void PlayLocalReaction(paopao_pet_state_t state, uint32_t duration_ms) {
@@ -766,6 +787,7 @@ private:
     xiaoxin_card_pager_t card_pager_ = {};
     xiaoxin_overview_snapshot_t overview_snapshot_ = {};
     paopao_pet_trigger_context_t trigger_;
+    paopao_pet_mood_context_t mood_ = {};
     paopao_pet_state_t current_state_ = PAOPAO_PET_STATE_IDLE;
     bool touch_pressed_ = false;
     uint16_t touch_start_x_ = 0;
@@ -2068,6 +2090,32 @@ private:
         SyncNetworkNotificationLocked(network_state);
     }
 
+    void SyncPetMoodDeviceStateLocked(int battery_level) {
+        const uint32_t now_ms = NowMs();
+        const bool low_battery = battery_level <= k_pet_mood_low_battery_percent;
+        if (low_battery != mood_.low_battery) {
+            DispatchPetMoodEventLocked(
+                low_battery
+                    ? PAOPAO_PET_MOOD_EVENT_BATTERY_LOW
+                    : PAOPAO_PET_MOOD_EVENT_BATTERY_RECOVERED,
+                PAOPAO_PET_TRIGGER_NONE,
+                now_ms
+            );
+        }
+
+        const bool wifi_connected =
+            SystemOverlayNetworkState() == XIAOXIN_SYSTEM_OVERLAY_NETWORK_CONNECTED;
+        if (wifi_connected != mood_.wifi_connected) {
+            DispatchPetMoodEventLocked(
+                wifi_connected
+                    ? PAOPAO_PET_MOOD_EVENT_WIFI_CONNECTED
+                    : PAOPAO_PET_MOOD_EVENT_WIFI_DISCONNECTED,
+                PAOPAO_PET_TRIGGER_NONE,
+                now_ms
+            );
+        }
+    }
+
     void ApplyBatteryOverlayLevel(int level) {
         if (battery_overlay_fill_ == nullptr || battery_overlay_box_ == nullptr) {
             return;
@@ -2585,6 +2633,37 @@ private:
         ApplyPetStateIfChanged();
     }
 
+    void DispatchPetMoodInputLocked(const paopao_pet_mood_input_t& input, uint32_t now_ms) {
+        const paopao_pet_mood_suggestion_t suggestion =
+            paopao_pet_mood_handle_event(&mood_, &input, now_ms);
+        if (suggestion.has_trigger) {
+            paopao_pet_trigger_dispatch(&trigger_, suggestion.trigger, now_ms);
+            ApplyPetStateIfChanged();
+        }
+    }
+
+    void DispatchPetMoodEventLocked(
+        paopao_pet_mood_event_t event,
+        paopao_pet_trigger_event_t service_trigger,
+        uint32_t now_ms
+    ) {
+        const paopao_pet_mood_input_t input = {
+            .event = event,
+            .service_trigger = service_trigger,
+        };
+        DispatchPetMoodInputLocked(input, now_ms);
+    }
+
+    void DispatchLocalPetTriggerLocked(
+        paopao_pet_trigger_event_t trigger_event,
+        paopao_pet_mood_event_t mood_event,
+        uint32_t now_ms
+    ) {
+        DispatchPetMoodEventLocked(mood_event, PAOPAO_PET_TRIGGER_NONE, now_ms);
+        paopao_pet_trigger_dispatch(&trigger_, trigger_event, now_ms);
+        ApplyPetStateIfChanged();
+    }
+
     void HandleTouchRelease(uint32_t now_ms) {
         const bool was_card_dragging = xiaoxin_card_pager_is_dragging(&card_pager_);
         const xiaoxin_card_page_t release_current_page = xiaoxin_card_pager_current_page(&card_pager_);
@@ -2684,14 +2763,23 @@ private:
         }
 
         if (abs_dx >= k_touch_drag_min_px && abs_dx > abs_dy) {
-            DispatchPetTriggerLocked(
+            DispatchLocalPetTriggerLocked(
                 dx < 0 ? PAOPAO_PET_TRIGGER_LOCAL_DRAG_LEFT : PAOPAO_PET_TRIGGER_LOCAL_DRAG_RIGHT,
+                PAOPAO_PET_MOOD_EVENT_LOCAL_DRAG,
                 now_ms
             );
         } else if (now_ms - touch_start_ms_ >= k_touch_hold_ms) {
-            DispatchPetTriggerLocked(PAOPAO_PET_TRIGGER_LOCAL_HOLD, now_ms);
+            DispatchLocalPetTriggerLocked(
+                PAOPAO_PET_TRIGGER_LOCAL_HOLD,
+                PAOPAO_PET_MOOD_EVENT_LOCAL_HOLD,
+                now_ms
+            );
         } else {
-            DispatchPetTriggerLocked(PAOPAO_PET_TRIGGER_LOCAL_TAP, now_ms);
+            DispatchLocalPetTriggerLocked(
+                PAOPAO_PET_TRIGGER_LOCAL_TAP,
+                PAOPAO_PET_MOOD_EVENT_LOCAL_TAP,
+                now_ms
+            );
         }
     }
 
@@ -3207,7 +3295,7 @@ private:
                         now_ms - last_shake_ms >= k_shake_cooldown_ms) {
                         last_shake_ms = now_ms;
                         shake_sample_count = 0;
-                        static_cast<PaopaoPetDisplay*>(display_)->DispatchPetTrigger(PAOPAO_PET_TRIGGER_LOCAL_SHAKE);
+                        static_cast<PaopaoPetDisplay*>(display_)->DispatchLocalPetTrigger(PAOPAO_PET_TRIGGER_LOCAL_SHAKE, PAOPAO_PET_MOOD_EVENT_LOCAL_SHAKE);
                     }
                 }
 
@@ -3299,7 +3387,6 @@ private:
         iot_button_register_cb(boot_btn, BUTTON_SINGLE_CLICK, nullptr, [](void* button_handle, void* usr_data) {
             auto self = static_cast<CustomBoard*>(usr_data);
             auto& app = Application::GetInstance();
-            static_cast<PaopaoPetDisplay*>(self->display_)->DispatchPetTrigger(PAOPAO_PET_TRIGGER_LOCAL_TAP);
             if (app.GetDeviceState() == kDeviceStateStarting) {
                 self->EnterWifiConfigMode();
                 return;
@@ -3307,8 +3394,7 @@ private:
             app.ToggleChatState();
         }, this);
         iot_button_register_cb(boot_btn, BUTTON_LONG_PRESS_START, nullptr, [](void* button_handle, void* usr_data) {
-            auto self = static_cast<CustomBoard*>(usr_data);
-            static_cast<PaopaoPetDisplay*>(self->display_)->DispatchPetTrigger(PAOPAO_PET_TRIGGER_LOCAL_HOLD);
+            // BOOT long press is reserved for future system/settings behavior.
         }, this);
 
         // Power Button
