@@ -93,7 +93,7 @@ static paopao_pet_mood_suggestion_t handle_service_emotion(
     ctx->mood = clamp_score(ctx->mood - 4);
   }
 
-  return make_suggestion(ctx, trigger, "閺€璺哄煂", 40, k_service_emotion_cooldown_ms, now_ms);
+  return make_suggestion(ctx, trigger, "鏀跺埌", 40, k_service_emotion_cooldown_ms, now_ms);
 }
 
 void paopao_pet_mood_init(paopao_pet_mood_context_t *ctx, uint32_t now_ms) {
@@ -152,7 +152,7 @@ paopao_pet_mood_suggestion_t paopao_pet_mood_handle_event(
       return make_suggestion(
         ctx,
         PAOPAO_PET_TRIGGER_SERVICE_TIRED,
-        "閺堝鍋ｅ▽锛勬暩娴?",
+        "鏈夌偣娌＄數浜?",
         80,
         k_low_battery_cooldown_ms,
         now_ms
@@ -169,8 +169,8 @@ paopao_pet_mood_suggestion_t paopao_pet_mood_handle_event(
       ctx->low_battery_last_ms = now_ms;
       return make_suggestion(
         ctx,
-        PAOPAO_PET_TRIGGER_TASK_DONE,
-        "婵傝棄顦块崯?",
+        PAOPAO_PET_TRIGGER_SERVICE_HAPPY,
+        "濂藉鍟?",
         60,
         k_battery_recovered_cooldown_ms,
         now_ms
@@ -188,7 +188,7 @@ paopao_pet_mood_suggestion_t paopao_pet_mood_handle_event(
       return make_suggestion(
         ctx,
         PAOPAO_PET_TRIGGER_SERVICE_ANXIOUS,
-        "缂冩垹绮舵稉宥堫潌娴?",
+        "缃戠粶涓嶈浜?",
         70,
         k_wifi_alert_cooldown_ms,
         now_ms
@@ -205,8 +205,8 @@ paopao_pet_mood_suggestion_t paopao_pet_mood_handle_event(
       ctx->wifi_alert_last_ms = now_ms;
       return make_suggestion(
         ctx,
-        PAOPAO_PET_TRIGGER_TASK_DONE,
-        "鏉╃偘绗傞崯?",
+        PAOPAO_PET_TRIGGER_SERVICE_HAPPY,
+        "杩炰笂鍟?",
         55,
         k_wifi_recovered_cooldown_ms,
         now_ms
@@ -220,7 +220,7 @@ paopao_pet_mood_suggestion_t paopao_pet_mood_handle_event(
       return make_suggestion(
         ctx,
         PAOPAO_PET_TRIGGER_SERVICE_FAILING,
-        "閹存垵鍟€閹櫕鍏?",
+        "鎴戝啀鎯虫兂",
         75,
         k_voice_error_cooldown_ms,
         now_ms

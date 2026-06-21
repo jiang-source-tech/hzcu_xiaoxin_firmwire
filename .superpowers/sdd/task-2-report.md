@@ -82,3 +82,69 @@ Requested commit message:
 ```text
 feat: add paopao pet mood policy
 ```
+
+## Review fix
+
+### Files changed
+
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_mood.c`
+- `tests/paopao_pet_mood_test.c`
+- `.superpowers/sdd/task-2-report.md`
+
+### Notes
+
+- Changed battery recovered and Wi-Fi connected suggestions from `PAOPAO_PET_TRIGGER_TASK_DONE` to `PAOPAO_PET_TRIGGER_SERVICE_HAPPY` so recovery stays behind existing trigger protections without touching `paopao_pet_trigger`.
+- Restored the production and test text literals to the task-brief values, only supplying the missing closing quote implied by the broken brief snippet.
+- Kept the module returning existing `paopao_pet_trigger_event_t` values only.
+
+### Red step
+
+Command:
+
+```powershell
+& 'D:\msys64\usr\bin\bash.exe' -lc "export PATH=/ucrt64/bin:/usr/bin:$PATH; cd '/d/AI_Pet/hzcu_xiaoxin_firmwire/.worktrees/codex-xiaoxin-pet-mood-system'; /ucrt64/bin/gcc -std=c11 -Wall -Wextra -I. tests/paopao_pet_mood_test.c main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_mood.c -o build/paopao_pet_mood_test.exe && ./build/paopao_pet_mood_test.exe"
+```
+
+Exact output:
+
+```text
+Assertion failed: strcmp(first.text, "鏈夌偣娌＄數浜?") == 0, file tests/paopao_pet_mood_test.c, line 51
+```
+
+### Verification commands
+
+Command:
+
+```powershell
+& 'D:\msys64\usr\bin\bash.exe' -lc "export PATH=/ucrt64/bin:/usr/bin:$PATH; cd '/d/AI_Pet/hzcu_xiaoxin_firmwire/.worktrees/codex-xiaoxin-pet-mood-system'; /ucrt64/bin/gcc -std=c11 -Wall -Wextra -I. tests/paopao_pet_mood_test.c main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_mood.c -o build/paopao_pet_mood_test.exe && ./build/paopao_pet_mood_test.exe"
+```
+
+Exact output:
+
+```text
+paopao_pet_mood tests passed
+```
+
+Command:
+
+```powershell
+& 'D:\msys64\usr\bin\bash.exe' -lc "export PATH=/ucrt64/bin:/usr/bin:$PATH; cd '/d/AI_Pet/hzcu_xiaoxin_firmwire/.worktrees/codex-xiaoxin-pet-mood-system'; /ucrt64/bin/gcc -std=c11 -Wall -Wextra -I. tests/paopao_pet_trigger_test.c main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_trigger.c -o build/paopao_pet_trigger_test.exe && ./build/paopao_pet_trigger_test.exe"
+```
+
+Exact output:
+
+```text
+paopao_pet_trigger tests passed
+```
+
+Command:
+
+```powershell
+& 'D:\msys64\usr\bin\bash.exe' -lc "export PATH=/ucrt64/bin:/usr/bin:$PATH; cd '/d/AI_Pet/hzcu_xiaoxin_firmwire/.worktrees/codex-xiaoxin-pet-mood-system'; /ucrt64/bin/gcc -std=c11 -Wall -Wextra -I. tests/paopao_pet_emotion_test.c main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_emotion.c main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_trigger.c -o build/paopao_pet_emotion_test.exe && ./build/paopao_pet_emotion_test.exe"
+```
+
+Exact output:
+
+```text
+paopao pet emotion tests passed
+```
