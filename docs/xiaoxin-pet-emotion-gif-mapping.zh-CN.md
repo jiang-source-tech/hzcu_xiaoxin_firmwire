@@ -129,6 +129,20 @@
 
 如果后续服务端 emotion 频率变高，建议增加全局冷却：同类 emotion 在 1.5 到 2 秒内不重复触发，错误、低电量、用户本地交互除外。
 
+## 7.1 情绪策略层
+
+P1 情绪系统在 `paopao_pet_trigger` 之前增加了 `paopao_pet_mood` 策略层。这个层不直接选择 GIF 文件，而是把设备状态和用户事件归一为现有的 `paopao_pet_trigger_event_t`，再交给 trigger 层继续做状态机和 GIF 选择。
+
+- 低电量进入：建议 `PAOPAO_PET_TRIGGER_SERVICE_TIRED`，冷却 30 秒。
+- 电量恢复：建议 `PAOPAO_PET_TRIGGER_SERVICE_HAPPY`，冷却 10 秒。
+- WiFi 断开或配网中：建议 `PAOPAO_PET_TRIGGER_SERVICE_ANXIOUS`，冷却 20 秒。
+- WiFi 恢复：建议 `PAOPAO_PET_TRIGGER_SERVICE_HAPPY`，冷却 10 秒。
+- 语音错误：建议 `PAOPAO_PET_TRIGGER_SERVICE_FAILING`，冷却 3 秒。
+- 服务端 `emotion`：先经 `paopao_pet_trigger_for_emotion()` 归一，再由 mood 层做 1.8 秒冷却。
+- 触摸、拖动、摇晃：继续走本地即时 trigger，同时更新 mood 分数。
+
+BOOT 按键不作为 P1 情绪系统输入。当前实现里它保留为系统、调试、设置入口或后续产品决策使用，不纳入 mood 策略映射。
+
 ## 8. 缺失或待接入动画
 
 当前核心情绪已经有可用 GIF，不再强制需要新增：
@@ -153,6 +167,7 @@
 相关测试：
 
 - `tests/paopao_pet_emotion_test.c`：验证服务端 emotion 关键词归一，以及核心情绪触发到宠物状态的映射。
+- `tests/paopao_pet_mood_test.c`：验证情绪策略层的分数、冷却、低电量、WiFi、语音错误、本地交互和服务端 emotion 归一后的触发。
 - `tests/paopao_pet_trigger_test.c`：验证状态机行为、锁定状态、本地交互和核心情绪反应。
 - `tests/paopao_pet_gif_assets_test.c`：验证每个宠物状态对应的 GIF 文件名。
 - `tests/paopao_gif_probe_decode_test.c`：采样解码已接入状态机的 GIF，确认尺寸与基础可解码性。
