@@ -2633,10 +2633,23 @@ private:
         ApplyPetStateIfChanged();
     }
 
+    bool ShouldDispatchMoodSuggestionLocked() const {
+        switch (trigger_.base_state) {
+            case PAOPAO_PET_STATE_FAILING:
+            case PAOPAO_PET_STATE_SLEEPING:
+            case PAOPAO_PET_STATE_WAITING:
+            case PAOPAO_PET_STATE_THINKING:
+            case PAOPAO_PET_STATE_SPEAKING:
+                return false;
+            default:
+                return true;
+        }
+    }
+
     void DispatchPetMoodInputLocked(const paopao_pet_mood_input_t& input, uint32_t now_ms) {
         const paopao_pet_mood_suggestion_t suggestion =
             paopao_pet_mood_handle_event(&mood_, &input, now_ms);
-        if (suggestion.has_trigger) {
+        if (suggestion.has_trigger && ShouldDispatchMoodSuggestionLocked()) {
             paopao_pet_trigger_dispatch(&trigger_, suggestion.trigger, now_ms);
             ApplyPetStateIfChanged();
         }

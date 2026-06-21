@@ -70,3 +70,27 @@ def test_touch_and_motion_update_mood_but_boot_button_does_not():
     assert "DispatchPetTrigger" not in boot_section
     assert "PAOPAO_PET_TRIGGER_LOCAL_TAP" not in boot_section
     assert "PAOPAO_PET_TRIGGER_LOCAL_HOLD" not in boot_section
+
+
+def test_protected_state_helper_blocks_ordinary_mood_suggestions():
+    body = function_body(
+        source=read_source(),
+        signature="bool ShouldDispatchMoodSuggestionLocked() const"
+    )
+
+    assert "switch (trigger_.base_state)" in body
+    assert "case PAOPAO_PET_STATE_FAILING:" in body
+    assert "case PAOPAO_PET_STATE_SLEEPING:" in body
+    assert "case PAOPAO_PET_STATE_WAITING:" in body
+    assert "case PAOPAO_PET_STATE_THINKING:" in body
+    assert "case PAOPAO_PET_STATE_SPEAKING:" in body
+    assert "return false;" in body
+    assert "return true;" in body
+
+
+def test_dispatch_pet_mood_input_updates_context_before_guarding_trigger_dispatch():
+    body = function_body(source=read_source(), signature="void DispatchPetMoodInputLocked(const paopao_pet_mood_input_t& input, uint32_t now_ms)")
+
+    assert "paopao_pet_mood_handle_event(&mood_, &input, now_ms);" in body
+    assert "suggestion.has_trigger && ShouldDispatchMoodSuggestionLocked()" in body
+    assert "paopao_pet_trigger_dispatch(&trigger_, suggestion.trigger, now_ms);" in body
