@@ -8,6 +8,46 @@
 
 **Tech Stack:** ESP-IDF C/C++, LVGL, target-board C helper modules, existing local GCC C tests, existing pytest source-path tests.
 
+## Implementation Update
+
+**Status:** Implemented and reviewed on branch `codex/xiaoxin-boot-settings-page`.
+
+**Updated:** 2026-06-22
+
+**Implementation commits:**
+- `59acf04` - `feat: add xiaoxin settings model`
+- `1b8ac9f` - `test: tighten xiaoxin settings model coverage`
+- `941e25b` - `feat: add boot settings overlay skeleton`
+- `dedd23e` - `feat: add brightness and wifi settings actions`
+- `258c025` - `fix: harden settings action path guards`
+- `97abe0d` - `feat: gate settings power save with scheduler`
+- `4518f56` - `fix: harden power save settings gate`
+- `3474bfb` - `fix: avoid settings wifi lock reentry`
+- `f802d01` - `fix: defer touch power-save wake`
+
+**What shipped:**
+- Added the pure C Xiaoxin settings model and local C coverage.
+- Added `tests/xiaoxin_settings_path_test.py` source-path guards for BOOT routing, overlay behavior, brightness/Wi-Fi actions, about metadata, target capability gating, power-save scheduler truthfulness, and lock-safe deferred actions.
+- Implemented the LVGL settings overlay for the Waveshare ESP32-S3 Touch LCD 1.46 board.
+- Wired BOOT long press as the settings entry point, gated to `kDeviceStateIdle`.
+- Preserved BOOT short-click startup Wi-Fi config and chat-toggle behavior when settings is closed; when settings is open, BOOT short-click closes the overlay first.
+- Added brightness application through `Backlight::SetBrightness(clamped, true)`.
+- Added Wi-Fi reconfiguration through the existing `EnterWifiConfigMode()` path.
+- Added `PowerSaveTimer` integration and made power-save visibility depend on a real scheduler.
+- Fixed final-review lock re-entry risks by deferring Wi-Fi reconfiguration and touch-triggered power-save wake until after the display lock is released.
+
+**Verification completed:**
+- `xiaoxin_settings_model tests passed`
+- `python -m pytest tests/xiaoxin_settings_path_test.py -q` -> `13 passed`
+- `python -m pytest tests/xiaoxin_notification_visual_path_test.py tests/xiaoxin_pet_mood_integration_path_test.py -q` -> `27 passed`
+- `xiaoxin_card_pager tests passed`
+- `xiaoxin_system_overlay tests passed`
+- Final code review after fixes: ready to merge, no Critical or Important findings.
+
+**Verification limitations:**
+- `idf.py build` could not run in this environment because `idf.py` is not available in PATH.
+- `tests/wifi_config_status_path_test.py` was not present in this worktree. It existed only as an unrelated untracked file in the main checkout and was intentionally not copied or edited.
+
 ## Global Constraints
 
 - BOOT key long press is the settings entry point.
@@ -53,7 +93,7 @@
   - `uint8_t xiaoxin_settings_clamp_percent(int value)`
   - `const char* xiaoxin_settings_item_title(xiaoxin_settings_item_t item)`
 
-- [ ] **Step 1: Write the failing model test**
+- [x] **Step 1: Write the failing model test**
 
 Create `tests/xiaoxin_settings_model_test.c`:
 
@@ -177,7 +217,7 @@ int main(void) {
 }
 ```
 
-- [ ] **Step 2: Run the failing model test**
+- [x] **Step 2: Run the failing model test**
 
 Run:
 
@@ -188,7 +228,7 @@ gcc -std=c11 -Wall -Wextra -I. tests/xiaoxin_settings_model_test.c main/boards/w
 
 Expected: compile fails because `xiaoxin_settings_model.h` / `.c` do not exist.
 
-- [ ] **Step 3: Create the settings model header**
+- [x] **Step 3: Create the settings model header**
 
 Create `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_settings_model.h`:
 
@@ -248,7 +288,7 @@ const char* xiaoxin_settings_item_title(xiaoxin_settings_item_t item);
 #endif
 ```
 
-- [ ] **Step 4: Create the settings model implementation**
+- [x] **Step 4: Create the settings model implementation**
 
 Create `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_settings_model.c`:
 
@@ -330,7 +370,7 @@ const char* xiaoxin_settings_item_title(xiaoxin_settings_item_t item) {
 }
 ```
 
-- [ ] **Step 5: Run the model test**
+- [x] **Step 5: Run the model test**
 
 Run:
 
@@ -345,7 +385,7 @@ Expected:
 xiaoxin_settings_model tests passed
 ```
 
-- [ ] **Step 6: Add the model to firmware sources**
+- [x] **Step 6: Add the model to firmware sources**
 
 Modify `main/CMakeLists.txt` in the `if(CONFIG_BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_46)` block so the explicit helper list includes:
 
@@ -355,7 +395,7 @@ ${CMAKE_CURRENT_SOURCE_DIR}/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_set
 
 Place it next to `xiaoxin_power_control.c`, `xiaoxin_system_overlay.c`, and `xiaoxin_overview_model.c` in that same block.
 
-- [ ] **Step 7: Commit Task 1**
+- [x] **Step 7: Commit Task 1**
 
 ```powershell
 git add -- main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_settings_model.h main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_settings_model.c tests/xiaoxin_settings_model_test.c main/CMakeLists.txt
@@ -375,7 +415,7 @@ git commit -m "feat: add xiaoxin settings model"
   - `main/CMakeLists.txt` source text
 - Produces: pytest guards that later tasks must satisfy.
 
-- [ ] **Step 1: Create failing path tests**
+- [x] **Step 1: Create failing path tests**
 
 Create `tests/xiaoxin_settings_path_test.py`:
 
@@ -498,7 +538,7 @@ def test_about_page_uses_esp_app_description():
     assert "Waveshare ESP32-S3 Touch LCD 1.46" in body
 ```
 
-- [ ] **Step 2: Run path tests and verify they fail**
+- [x] **Step 2: Run path tests and verify they fail**
 
 Run:
 
@@ -508,7 +548,7 @@ python -m pytest tests/xiaoxin_settings_path_test.py -q
 
 Expected: failures for missing include, missing overlay methods, and missing BOOT routing changes.
 
-- [ ] **Step 3: Keep failing guards unstaged until Task 3 passes**
+- [x] **Step 3: Keep failing guards unstaged until Task 3 passes**
 
 Do not commit failing tests alone. Carry `tests/xiaoxin_settings_path_test.py` into Task 3 and commit it once the overlay skeleton makes the new guards pass.
 
@@ -531,7 +571,7 @@ Do not commit failing tests alone. Carry `tests/xiaoxin_settings_path_test.py` i
   - `void PaopaoPetDisplay::CloseSettingsOverlay()`
   - `void CustomBoard::OpenSettingsOverlayFromBootButton()`
 
-- [ ] **Step 1: Add required includes**
+- [x] **Step 1: Add required includes**
 
 In `esp32-s3-touch-lcd-1.46.cc`, add:
 
@@ -545,7 +585,7 @@ Inside the existing `extern "C"` block, add:
 #include "xiaoxin_settings_model.h"
 ```
 
-- [ ] **Step 2: Add settings constants near the other UI constants**
+- [x] **Step 2: Add settings constants near the other UI constants**
 
 Add:
 
@@ -566,7 +606,7 @@ static constexpr uint32_t k_settings_text_primary = 0xe8eaed;
 static constexpr uint32_t k_settings_text_secondary = 0x7d9cc6;
 ```
 
-- [ ] **Step 3: Add settings view enum and row struct**
+- [x] **Step 3: Add settings view enum and row struct**
 
 Near `NotificationGestureMode`, add:
 
@@ -586,7 +626,7 @@ struct SettingsRow {
 };
 ```
 
-- [ ] **Step 4: Add settings fields to `PaopaoPetDisplay`**
+- [x] **Step 4: Add settings fields to `PaopaoPetDisplay`**
 
 In the private fields block, add:
 
@@ -602,7 +642,7 @@ SettingsView settings_view_ = SettingsView::List;
 bool settings_open_ = false;
 ```
 
-- [ ] **Step 5: Add public overlay methods to `PaopaoPetDisplay`**
+- [x] **Step 5: Add public overlay methods to `PaopaoPetDisplay`**
 
 In the public section after `AttachTouch(...)`, add:
 
@@ -638,7 +678,7 @@ void CloseSettingsOverlay() {
 }
 ```
 
-- [ ] **Step 6: Add target settings capabilities**
+- [x] **Step 6: Add target settings capabilities**
 
 In the private section, add:
 
@@ -653,7 +693,7 @@ xiaoxin_settings_caps_t SettingsCaps() const {
 }
 ```
 
-- [ ] **Step 7: Add overlay creation and list rendering helpers**
+- [x] **Step 7: Add overlay creation and list rendering helpers**
 
 Add these methods to `PaopaoPetDisplay` private section:
 
@@ -735,7 +775,7 @@ void RenderSettingsListLocked() {
 }
 ```
 
-- [ ] **Step 8: Suppress card pager touch handling while settings is open**
+- [x] **Step 8: Suppress card pager touch handling while settings is open**
 
 At the top of `PollTouch(uint32_t now_ms)`, after touch reading has updated `pressed`, `x`, and `y`, but before notification/card pager gesture branches call `xiaoxin_card_pager_press`, add:
 
@@ -790,7 +830,7 @@ void OpenSettingsItemLocked(xiaoxin_settings_item_t item) {
 }
 ```
 
-- [ ] **Step 9: Add about page renderer**
+- [x] **Step 9: Add about page renderer**
 
 Add:
 
@@ -815,7 +855,7 @@ void RenderSettingsAboutPage() {
 }
 ```
 
-- [ ] **Step 10: Wire BOOT single click and long press**
+- [x] **Step 10: Wire BOOT single click and long press**
 
 In `InitializeButtons()`, update the BOOT single-click callback to:
 
@@ -893,7 +933,7 @@ static xiaoxin_settings_runtime_state_t SettingsRuntimeState(DeviceState state) 
 }
 ```
 
-- [ ] **Step 11: Run path and model tests**
+- [x] **Step 11: Run path and model tests**
 
 Run:
 
@@ -911,7 +951,7 @@ xiaoxin_settings_model tests passed
 
 and pytest reports all tests in `xiaoxin_settings_path_test.py` passing.
 
-- [ ] **Step 12: Commit Task 2 and Task 3 together**
+- [x] **Step 12: Commit Task 2 and Task 3 together**
 
 ```powershell
 git add -- main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc tests/xiaoxin_settings_path_test.py
@@ -935,7 +975,7 @@ git commit -m "feat: add boot settings overlay skeleton"
   - `void PaopaoPetDisplay::ApplySettingsBrightness(uint8_t brightness)`
   - `void CustomBoard::RequestSettingsWifiConfig()`
 
-- [ ] **Step 1: Extend path tests for brightness presets and Wi-Fi request**
+- [x] **Step 1: Extend path tests for brightness presets and Wi-Fi request**
 
 Add to `tests/xiaoxin_settings_path_test.py`:
 
@@ -958,7 +998,7 @@ def test_wifi_page_calls_board_reconfiguration_request():
     assert "CustomBoard::Instance()->RequestSettingsWifiConfig()" in body
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run:
 
@@ -968,7 +1008,7 @@ python -m pytest tests/xiaoxin_settings_path_test.py -q
 
 Expected: the two new tests fail because the render helpers are not implemented yet.
 
-- [ ] **Step 3: Implement brightness page and application helper**
+- [x] **Step 3: Implement brightness page and application helper**
 
 In `PaopaoPetDisplay`, add:
 
@@ -1001,7 +1041,7 @@ case XIAOXIN_SETTINGS_ITEM_BRIGHTNESS:
 
 For first implementation, tapping the brightness row applies 70 as the safe middle preset. A later UI refinement can add exact hit boxes for 30 / 70 / 100 if needed; the persistence path is already exercised through `Backlight::SetBrightness(..., true)`.
 
-- [ ] **Step 4: Implement Wi-Fi page and board request**
+- [x] **Step 4: Implement Wi-Fi page and board request**
 
 Add `CustomBoard::RequestSettingsWifiConfig()`:
 
@@ -1038,7 +1078,7 @@ case XIAOXIN_SETTINGS_ITEM_WIFI:
     break;
 ```
 
-- [ ] **Step 5: Run settings tests**
+- [x] **Step 5: Run settings tests**
 
 Run:
 
@@ -1050,7 +1090,7 @@ python -m pytest tests/xiaoxin_settings_path_test.py -q
 
 Expected: model test passes and path tests pass.
 
-- [ ] **Step 6: Commit Task 4**
+- [x] **Step 6: Commit Task 4**
 
 ```powershell
 git add -- main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc tests/xiaoxin_settings_path_test.py
@@ -1074,7 +1114,7 @@ git commit -m "feat: add brightness and wifi settings actions"
   - target-board `PowerSaveTimer* power_save_timer_`
   - `SettingsCaps().has_power_save_scheduler = true` only after timer is initialized.
 
-- [ ] **Step 1: Add failing path test for power-save scheduler truthfulness**
+- [x] **Step 1: Add failing path test for power-save scheduler truthfulness**
 
 Add to `tests/xiaoxin_settings_path_test.py`:
 
@@ -1091,7 +1131,7 @@ def test_power_save_setting_is_only_enabled_when_timer_is_initialized():
     assert "SetPowerSaveMode(false)" in source
 ```
 
-- [ ] **Step 2: Run the test to verify failure**
+- [x] **Step 2: Run the test to verify failure**
 
 Run:
 
@@ -1101,7 +1141,7 @@ python -m pytest tests/xiaoxin_settings_path_test.py::test_power_save_setting_is
 
 Expected: failure because target board has no `PowerSaveTimer` yet.
 
-- [ ] **Step 3: Include and add timer field**
+- [x] **Step 3: Include and add timer field**
 
 In `esp32-s3-touch-lcd-1.46.cc`, add:
 
@@ -1115,7 +1155,7 @@ In `CustomBoard` private fields, add:
 PowerSaveTimer* power_save_timer_ = nullptr;
 ```
 
-- [ ] **Step 4: Initialize timer with display power-save callbacks**
+- [x] **Step 4: Initialize timer with display power-save callbacks**
 
 Add:
 
@@ -1141,7 +1181,7 @@ Call it from `CustomBoard()` after `InitializeButtons();` and before `GetBacklig
 InitializePowerSaveTimer();
 ```
 
-- [ ] **Step 5: Make settings capabilities reflect real scheduler**
+- [x] **Step 5: Make settings capabilities reflect real scheduler**
 
 Expose a board helper on `CustomBoard`:
 
@@ -1165,7 +1205,7 @@ Keep:
 .has_vibration = false,
 ```
 
-- [ ] **Step 6: Run settings path tests**
+- [x] **Step 6: Run settings path tests**
 
 Run:
 
@@ -1175,7 +1215,7 @@ python -m pytest tests/xiaoxin_settings_path_test.py -q
 
 Expected: all settings path tests pass.
 
-- [ ] **Step 7: Commit Task 5**
+- [x] **Step 7: Commit Task 5**
 
 ```powershell
 git add -- main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc tests/xiaoxin_settings_path_test.py
@@ -1193,7 +1233,7 @@ git commit -m "feat: gate settings power save with scheduler"
 - Consumes all prior task outputs.
 - Produces verification evidence and a final commit if any small fixes are required.
 
-- [ ] **Step 1: Run pure C model tests**
+- [x] **Step 1: Run pure C model tests**
 
 Run:
 
@@ -1208,7 +1248,7 @@ Expected:
 xiaoxin_settings_model tests passed
 ```
 
-- [ ] **Step 2: Run settings path tests**
+- [x] **Step 2: Run settings path tests**
 
 Run:
 
@@ -1218,7 +1258,7 @@ python -m pytest tests/xiaoxin_settings_path_test.py -q
 
 Expected: all tests pass.
 
-- [ ] **Step 3: Run nearby regression path tests**
+- [x] **Step 3: Run nearby regression path tests**
 
 Run:
 
@@ -1228,7 +1268,7 @@ python -m pytest tests/xiaoxin_notification_visual_path_test.py tests/xiaoxin_pe
 
 Expected: all selected tests pass. If `tests/wifi_config_status_path_test.py` is still an uncommitted user file, do not edit it unless a failure directly comes from settings-page changes.
 
-- [ ] **Step 4: Run core local C regressions**
+- [x] **Step 4: Run core local C regressions**
 
 Run:
 
@@ -1246,7 +1286,7 @@ xiaoxin_card_pager tests passed
 xiaoxin_system_overlay tests passed
 ```
 
-- [ ] **Step 5: Attempt firmware build**
+- [x] **Step 5: Attempt firmware build**
 
 Run:
 
@@ -1256,7 +1296,7 @@ idf.py build
 
 Expected: firmware builds successfully for the currently selected sdkconfig. If `idf.py` is unavailable in the environment, record the exact shell error and rely on the local GCC/pytest checks above.
 
-- [ ] **Step 6: Commit any verification-only fixes**
+- [x] **Step 6: Commit any verification-only fixes**
 
 If verification required small fixes:
 
