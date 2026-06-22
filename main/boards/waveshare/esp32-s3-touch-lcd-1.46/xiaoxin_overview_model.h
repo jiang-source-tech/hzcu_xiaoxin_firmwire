@@ -23,6 +23,8 @@ typedef struct {
   uint8_t weekday;
   bool network_connected;
   xiaoxin_battery_state_t battery_state;
+  int battery_percent;
+  bool battery_known;
   bool weather_available;
   bool weather_configured;
   const char* weather_summary;
