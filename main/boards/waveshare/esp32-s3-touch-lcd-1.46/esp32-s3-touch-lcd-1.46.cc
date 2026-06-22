@@ -47,6 +47,7 @@ extern "C" {
 #include "paopao_pet_state.h"
 #include "paopao_pet_trigger.h"
 #include "xiaoxin_battery_level.h"
+#include "xiaoxin_battery_state.h"
 #include "xiaoxin_card_pager.h"
 #include "xiaoxin_overview_model.h"
 #include "xiaoxin_power_control.h"
@@ -79,6 +80,9 @@ extern const uint8_t assets_images_review_gif_start[] asm("_binary_review_gif_st
 extern const uint8_t assets_images_review_gif_end[] asm("_binary_review_gif_end");
 extern const uint8_t assets_images_happy_gif_start[] asm("_binary_happy_gif_start");
 extern const uint8_t assets_images_happy_gif_end[] asm("_binary_happy_gif_end");
+
+class CustomBoard;
+static int BoardBatteryVoltageMv();
 extern const uint8_t assets_images_crying_gif_start[] asm("_binary_crying_gif_start");
 extern const uint8_t assets_images_crying_gif_end[] asm("_binary_crying_gif_end");
 extern const uint8_t assets_images_anxiety_gif_start[] asm("_binary_anxiety_gif_start");
@@ -582,6 +586,8 @@ public:
         const uint32_t now_ms = NowMs();
         paopao_pet_trigger_init(&trigger_, now_ms);
         paopao_pet_mood_init(&mood_, now_ms);
+        xiaoxin_battery_state_init(&battery_context_, now_ms);
+        battery_snapshot_ = xiaoxin_battery_state_snapshot(&battery_context_);
         xiaoxin_card_pager_init(&card_pager_, DISPLAY_HEIGHT);
         current_state_ = trigger_.displayed_state;
         PlayGifState(current_state_);
@@ -700,12 +706,12 @@ public:
         LcdDisplay::UpdateStatusBar(update_all);
         {
             DisplayLockGuard lock(this);
-            const int battery_level = NotificationBatteryLevelPercent();
+            RefreshBatterySnapshotLocked();
             HideLegacyLowBatteryPopupLocked();
             ApplySystemOverlayNetworkStyle();
-            ApplyBatteryOverlayLevel(battery_level);
-            SyncLowBatteryNotificationLocked(battery_level);
-            SyncPetMoodDeviceStateLocked(battery_level);
+            ApplyBatteryOverlayLevel();
+            SyncLowBatteryNotificationLocked();
+            SyncPetMoodDeviceStateLocked();
             RefreshOverviewPageIfVisible();
             RaiseOverlayObjects();
         }
@@ -789,6 +795,8 @@ private:
     xiaoxin_overview_snapshot_t overview_snapshot_ = {};
     paopao_pet_trigger_context_t trigger_;
     paopao_pet_mood_context_t mood_ = {};
+    xiaoxin_battery_context_t battery_context_ = {};
+    xiaoxin_battery_snapshot_t battery_snapshot_ = {};
     paopao_pet_state_t current_state_ = PAOPAO_PET_STATE_IDLE;
     bool touch_pressed_ = false;
     uint16_t touch_start_x_ = 0;
@@ -868,32 +876,65 @@ private:
         }
     }
 
-    void SyncLowBatteryNotificationLocked(int level) {
-        const bool low = level <= 20;
+    xiaoxin_battery_load_t CurrentBatteryLoad() const {
+        const auto state = Application::GetInstance().GetDeviceState();
+        switch (state) {
+            case kDeviceStateListening:
+            case kDeviceStateSpeaking:
+                return XIAOXIN_BATTERY_LOAD_VOICE_ACTIVE;
+            default:
+                return XIAOXIN_BATTERY_LOAD_IDLE;
+        }
+    }
+
+    void RefreshBatterySnapshotLocked() {
+        int level = 0;
+        bool charging = false;
+        bool discharging = true;
+        const bool sample_valid = Board::GetInstance().GetBatteryLevel(level, charging, discharging);
+        const int voltage_mv = sample_valid ? BoardBatteryVoltageMv() : 0;
+        battery_snapshot_ = xiaoxin_battery_state_update(
+            &battery_context_,
+            voltage_mv,
+            sample_valid,
+            CurrentBatteryLoad(),
+            NowMs()
+        );
+    }
+
+    void SyncLowBatteryNotificationLocked() {
+        const bool low =
+            battery_snapshot_.state == XIAOXIN_BATTERY_STATE_LOW ||
+            battery_snapshot_.state == XIAOXIN_BATTERY_STATE_CRITICAL;
         if (!low) {
             if (low_battery_notification_active_) {
                 RemoveNotificationEventLocked(XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY);
             }
             low_battery_notification_active_ = false;
-            last_low_battery_notification_level_ = level;
+            last_low_battery_notification_level_ = battery_snapshot_.estimated_percent;
             return;
         }
 
-        if (low_battery_notification_active_) {
+        const char* body = battery_snapshot_.state == XIAOXIN_BATTERY_STATE_CRITICAL
+            ? "电量很低，请尽快充电"
+            : "电量偏低，请尽快充电";
+
+        if (low_battery_notification_active_ &&
+            last_low_battery_notification_level_ == battery_snapshot_.estimated_percent) {
             return;
         }
 
         const xiaoxin_notification_event_t event = {
             .type = XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY,
             .title = nullptr,
-            .body = "电量偏低，请尽快充电",
+            .body = body,
             .tag = nullptr,
             .priority = 0,
             .ttl_ms = 0,
         };
         UpsertNotificationEventLocked(event);
         low_battery_notification_active_ = true;
-        last_low_battery_notification_level_ = level;
+        last_low_battery_notification_level_ = battery_snapshot_.estimated_percent;
     }
 
     void SyncNetworkNotificationLocked(xiaoxin_system_overlay_network_state_t state) {
@@ -1230,7 +1271,7 @@ private:
         lv_obj_set_style_bg_opa(battery_overlay_cap_, LV_OPA_COVER, 0);
         lv_obj_align(battery_overlay_cap_, LV_ALIGN_RIGHT_MID, -1, 0);
         ApplySystemOverlayNetworkStyle();
-        ApplyBatteryOverlayLevel(NotificationBatteryLevelPercent());
+        ApplyBatteryOverlayLevel();
 
         card_layer_ = lv_obj_create(screen);
         lv_obj_remove_style_all(card_layer_);
@@ -2001,20 +2042,6 @@ private:
         lv_anim_start(&anim);
     }
 
-    int NotificationBatteryLevelPercent() {
-        int level = 25;
-        bool charging = false;
-        bool discharging = true;
-        if (Board::GetInstance().GetBatteryLevel(level, charging, discharging)) {
-            return std::min(100, std::max(0, level));
-        }
-
-        // The current notification list is static. Until this board wires real
-        // battery sampling into GetBatteryLevel(), keep the low-battery card
-        // visually honest instead of showing a misleading full meter.
-        return 25;
-    }
-
     static void PopulateOverviewTime(xiaoxin_overview_state_t& state) {
         time_t now = 0;
         time(&now);
@@ -2032,22 +2059,14 @@ private:
         }
     }
 
-    static bool ReadOverviewBattery(int& level) {
-        bool charging = false;
-        bool discharging = true;
-        if (!Board::GetInstance().GetBatteryLevel(level, charging, discharging)) {
-            return false;
-        }
-        level = std::min(100, std::max(0, level));
-        return true;
-    }
-
     xiaoxin_overview_state_t BuildOverviewState() {
         xiaoxin_overview_state_t state = {};
         PopulateOverviewTime(state);
 
         state.network_connected = SystemOverlayNetworkState() == XIAOXIN_SYSTEM_OVERLAY_NETWORK_CONNECTED;
-        state.battery_known = ReadOverviewBattery(state.battery_percent);
+        state.battery_state = battery_snapshot_.state;
+        state.battery_percent = battery_snapshot_.estimated_percent;
+        state.battery_known = battery_snapshot_.state != XIAOXIN_BATTERY_STATE_UNKNOWN;
 
         state.weather_configured = false;
         state.weather_available = false;
@@ -2082,7 +2101,7 @@ private:
         }
 
         const auto network_state = SystemOverlayNetworkState();
-        const auto style = xiaoxin_system_overlay_style(network_state, NotificationBatteryLevelPercent());
+        const auto style = xiaoxin_system_overlay_style(network_state, battery_snapshot_.state);
         lv_obj_set_style_text_color(network_label_, lv_color_hex(style.network_color), 0);
         lv_obj_set_style_text_opa(network_label_, style.network_opa, 0);
         lv_label_set_text(
@@ -2092,14 +2111,17 @@ private:
         SyncNetworkNotificationLocked(network_state);
     }
 
-    void SyncPetMoodDeviceStateLocked(int battery_level) {
+    void SyncPetMoodDeviceStateLocked() {
         const uint32_t now_ms = NowMs();
-        const bool low_battery = battery_level <= k_pet_mood_low_battery_percent;
-        if (low_battery != mood_.low_battery) {
+        if (battery_snapshot_.low_edge || battery_snapshot_.critical_edge) {
             DispatchPetMoodEventLocked(
-                low_battery
-                    ? PAOPAO_PET_MOOD_EVENT_BATTERY_LOW
-                    : PAOPAO_PET_MOOD_EVENT_BATTERY_RECOVERED,
+                PAOPAO_PET_MOOD_EVENT_BATTERY_LOW,
+                PAOPAO_PET_TRIGGER_NONE,
+                now_ms
+            );
+        } else if (battery_snapshot_.recovered_edge) {
+            DispatchPetMoodEventLocked(
+                PAOPAO_PET_MOOD_EVENT_BATTERY_RECOVERED,
                 PAOPAO_PET_TRIGGER_NONE,
                 now_ms
             );
@@ -2118,15 +2140,17 @@ private:
         }
     }
 
-    void ApplyBatteryOverlayLevel(int level) {
+    void ApplyBatteryOverlayLevel() {
         if (battery_overlay_fill_ == nullptr || battery_overlay_box_ == nullptr) {
             return;
         }
 
-        const int clamped = std::max(0, std::min(100, level));
-        const auto style = xiaoxin_system_overlay_style(SystemOverlayNetworkState(), clamped);
+        const int clamped = std::max(0, std::min(100, battery_snapshot_.estimated_percent));
+        const auto style = xiaoxin_system_overlay_style(SystemOverlayNetworkState(), battery_snapshot_.state);
         const int inner_w = k_system_battery_w - 4;
-        const int fill_w = std::max(3, (inner_w * clamped) / 100);
+        const int fill_w = battery_snapshot_.state == XIAOXIN_BATTERY_STATE_UNKNOWN
+            ? 3
+            : std::max(3, (inner_w * clamped) / 100);
         lv_obj_set_width(battery_overlay_fill_, fill_w);
         lv_obj_set_style_bg_color(
             battery_overlay_fill_,
@@ -2314,7 +2338,7 @@ private:
 
         lv_obj_remove_flag(card_layer_, LV_OBJ_FLAG_HIDDEN);
         ApplyPetAnimationForCardPager();
-        ApplyBatteryOverlayLevel(NotificationBatteryLevelPercent());
+        ApplyBatteryOverlayLevel();
 
         if (page == XIAOXIN_CARD_PAGE_NOTIFICATIONS) {
             RemoveFlagIfCreated(pull_indicator_, LV_OBJ_FLAG_HIDDEN);
@@ -3030,6 +3054,7 @@ private:
     adc_cali_handle_t battery_adc_cali_handle_ = nullptr;
     bool battery_adc_initialized_ = false;
     bool battery_adc_available_ = false;
+    int last_battery_voltage_mv_ = 0;
     button_handle_t boot_btn, pwr_btn;
     button_driver_t* boot_btn_driver_ = nullptr;
     button_driver_t* pwr_btn_driver_ = nullptr;
@@ -3444,6 +3469,10 @@ public:
         GetBacklight()->RestoreBrightness();
     }
 
+    static CustomBoard* Instance() {
+        return instance_;
+    }
+
     virtual AudioCodec* GetAudioCodec() override {
         static NoAudioCodecSimplex audio_codec(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
             AUDIO_I2S_SPK_GPIO_BCLK, AUDIO_I2S_SPK_GPIO_LRCK, AUDIO_I2S_SPK_GPIO_DOUT, I2S_STD_SLOT_LEFT, AUDIO_I2S_MIC_GPIO_SCK, AUDIO_I2S_MIC_GPIO_WS, AUDIO_I2S_MIC_GPIO_DIN, I2S_STD_SLOT_RIGHT); // I2S_STD_SLOT_LEFT / I2S_STD_SLOT_RIGHT / I2S_STD_SLOT_BOTH
@@ -3454,14 +3483,20 @@ public:
     virtual bool GetBatteryLevel(int& level, bool& charging, bool& discharging) override {
         const int voltage_mv = ReadBatteryVoltageMv();
         if (voltage_mv <= 0) {
+            last_battery_voltage_mv_ = 0;
             return false;
         }
 
+        last_battery_voltage_mv_ = voltage_mv;
         level = xiaoxin_battery_percent_from_mv(voltage_mv);
         charging = false;
         discharging = true;
         ESP_LOGI(TAG, "Battery voltage=%dmV level=%d%%", voltage_mv, level);
         return true;
+    }
+
+    int LastBatteryVoltageMv() const {
+        return last_battery_voltage_mv_;
     }
 
     virtual Display* GetDisplay() override {
@@ -3473,6 +3508,11 @@ public:
         return &backlight;
     }
 };
+
+static int BoardBatteryVoltageMv() {
+    CustomBoard* board = CustomBoard::Instance();
+    return board != nullptr ? board->LastBatteryVoltageMv() : 0;
+}
 
 DECLARE_BOARD(CustomBoard);
 

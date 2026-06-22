@@ -173,7 +173,18 @@ def test_legacy_low_battery_popup_is_suppressed_to_protect_subtitle():
 
 
 def test_low_battery_notification_uses_status_copy_without_percent():
-    body = function_body(read_source(), "void SyncLowBatteryNotificationLocked(int level)")
+    source = read_source()
+    status_body = function_body(source, "virtual void UpdateStatusBar(bool update_all = false) override")
+    overlay_body = function_body(source, "void ApplyBatteryOverlayLevel()")
+    notification_body = function_body(source, "void SyncLowBatteryNotificationLocked()")
 
-    assert "剩余 %d%%" not in body
-    assert "电量偏低，请尽快充电" in body
+    assert '#include "xiaoxin_battery_state.h"' in source
+    assert "xiaoxin_battery_context_t battery_context_ = {};" in source
+    assert "xiaoxin_battery_snapshot_t battery_snapshot_ = {};" in source
+    assert "RefreshBatterySnapshotLocked();" in status_body
+    assert "xiaoxin_system_overlay_style(SystemOverlayNetworkState(), battery_snapshot_.state)" in overlay_body
+    assert "battery_snapshot_.state == XIAOXIN_BATTERY_STATE_LOW" in notification_body
+    assert "battery_snapshot_.state == XIAOXIN_BATTERY_STATE_CRITICAL" in notification_body
+    assert "level <= 20" not in notification_body
+    assert "剩余 %d%%" not in notification_body
+    assert "电量偏低，请尽快充电" in notification_body
