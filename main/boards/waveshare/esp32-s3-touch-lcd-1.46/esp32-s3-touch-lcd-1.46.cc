@@ -11,6 +11,7 @@
 #include "assets/lang_config.h"
 
 #include <esp_check.h>
+#include <esp_app_desc.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_rom_sys.h>
@@ -51,6 +52,7 @@ extern "C" {
 #include "xiaoxin_card_pager.h"
 #include "xiaoxin_overview_model.h"
 #include "xiaoxin_power_control.h"
+#include "xiaoxin_settings_model.h"
 #include "xiaoxin_system_overlay.h"
 }
 
@@ -117,6 +119,20 @@ static constexpr uint8_t k_card_glass_count = XIAOXIN_CARD_NOTIFICATION_MAX;
 static constexpr uint8_t k_notification_indicator_dot_count = XIAOXIN_CARD_NOTIFICATION_MAX;
 static constexpr uint8_t k_overview_row_count = 4;
 static constexpr uint8_t k_overview_sep_count = 3;
+static constexpr uint8_t k_settings_item_max_count = 6;
+static constexpr int16_t k_settings_panel_w = 264;
+static constexpr int16_t k_settings_panel_h = 250;
+static constexpr int16_t k_settings_panel_radius = 28;
+static constexpr int16_t k_settings_title_y = 22;
+static constexpr int16_t k_settings_row_x = 22;
+static constexpr int16_t k_settings_row_y = 64;
+static constexpr int16_t k_settings_row_w = 220;
+static constexpr int16_t k_settings_row_h = 38;
+static constexpr int16_t k_settings_row_pitch = 42;
+static constexpr uint32_t k_settings_panel_bg = 0x111827;
+static constexpr uint32_t k_settings_panel_border = 0x4a9eff;
+static constexpr uint32_t k_settings_text_primary = 0xe8eaed;
+static constexpr uint32_t k_settings_text_secondary = 0x7d9cc6;
 static constexpr uint32_t k_card_layer_bg_color = 0xe9edf3;
 static constexpr lv_opa_t k_card_layer_bg_opa = static_cast<lv_opa_t>(18);
 static constexpr uint32_t k_page_title_color = 0x111111;
@@ -451,6 +467,20 @@ enum class NotificationGestureMode {
     ClearAllPress,
 };
 
+enum class SettingsView {
+    List,
+    Brightness,
+    Wifi,
+    About,
+};
+
+struct SettingsRow {
+    lv_obj_t* container = nullptr;
+    lv_obj_t* title = nullptr;
+    lv_obj_t* value = nullptr;
+    xiaoxin_settings_item_t item = XIAOXIN_SETTINGS_ITEM_ABOUT;
+};
+
 static PaopaoGifBinary PaopaoGifAssetForState(paopao_pet_state_t state) {
     switch (state) {
         case PAOPAO_PET_STATE_IDLE:
@@ -754,6 +784,36 @@ public:
         ESP_LOGI(TAG, "Touch reader attached: %s", touch_ != nullptr ? touch_->Name() : "none");
     }
 
+    bool IsSettingsOpen() {
+        DisplayLockGuard lock(this);
+        return settings_open_;
+    }
+
+    void OpenSettingsOverlay() {
+        DisplayLockGuard lock(this);
+        if (settings_open_) {
+            return;
+        }
+        EnsureSettingsOverlayLocked();
+        settings_view_ = SettingsView::List;
+        settings_open_ = true;
+        RenderSettingsListLocked();
+        lv_obj_remove_flag(settings_layer_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(settings_layer_);
+        RaiseOverlayObjects();
+    }
+
+    void CloseSettingsOverlay() {
+        DisplayLockGuard lock(this);
+        if (!settings_open_) {
+            return;
+        }
+        settings_open_ = false;
+        settings_view_ = SettingsView::List;
+        AddFlagIfCreated(settings_layer_, LV_OBJ_FLAG_HIDDEN);
+        RaiseOverlayObjects();
+    }
+
     bool IsTouchMotionSuppressed(uint32_t now_ms) {
         DisplayLockGuard lock(this);
         return touch_pressed_ ||
@@ -780,6 +840,15 @@ private:
     lv_obj_t* notification_empty_panel_ = nullptr;
     lv_obj_t* notification_empty_label_ = nullptr;
     lv_obj_t* notification_indicator_dots_[k_notification_indicator_dot_count] = {};
+    lv_obj_t* settings_layer_ = nullptr;
+    lv_obj_t* settings_panel_ = nullptr;
+    lv_obj_t* settings_title_label_ = nullptr;
+    lv_obj_t* settings_hint_label_ = nullptr;
+    SettingsRow settings_rows_[k_settings_item_max_count];
+    xiaoxin_settings_item_t settings_items_[k_settings_item_max_count] = {};
+    uint8_t settings_item_count_ = 0;
+    SettingsView settings_view_ = SettingsView::List;
+    bool settings_open_ = false;
     GlassCard glass_cards_[k_card_glass_count];
     OverviewRow overview_rows_[k_overview_row_count];
     lv_obj_t* overview_separators_[k_overview_sep_count] = {};
@@ -998,6 +1067,162 @@ private:
         return x >= coords.x1 && x <= coords.x2 && y >= coords.y1 && y <= coords.y2;
     }
 
+    xiaoxin_settings_caps_t SettingsCaps() const {
+        const xiaoxin_settings_caps_t caps = {
+            .has_audio_output = false,
+            .has_vibration = false,
+            .has_power_save_scheduler = false,
+        };
+        return caps;
+    }
+
+    void EnsureSettingsOverlayLocked() {
+        if (settings_layer_ != nullptr) {
+            return;
+        }
+        lv_obj_t* screen = lv_screen_active();
+        settings_layer_ = lv_obj_create(screen);
+        lv_obj_remove_style_all(settings_layer_);
+        lv_obj_set_size(settings_layer_, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+        lv_obj_set_style_bg_color(settings_layer_, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_bg_opa(settings_layer_, static_cast<lv_opa_t>(118), 0);
+        lv_obj_clear_flag(settings_layer_, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(settings_layer_, LV_OBJ_FLAG_HIDDEN);
+
+        settings_panel_ = lv_obj_create(settings_layer_);
+        lv_obj_remove_style_all(settings_panel_);
+        lv_obj_set_size(settings_panel_, k_settings_panel_w, k_settings_panel_h);
+        lv_obj_set_style_radius(settings_panel_, k_settings_panel_radius, 0);
+        lv_obj_set_style_bg_color(settings_panel_, lv_color_hex(k_settings_panel_bg), 0);
+        lv_obj_set_style_bg_opa(settings_panel_, static_cast<lv_opa_t>(220), 0);
+        lv_obj_set_style_border_width(settings_panel_, 1, 0);
+        lv_obj_set_style_border_color(settings_panel_, lv_color_hex(k_settings_panel_border), 0);
+        lv_obj_set_style_border_opa(settings_panel_, LV_OPA_70, 0);
+        lv_obj_clear_flag(settings_panel_, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_align(settings_panel_, LV_ALIGN_CENTER, 0, 0);
+
+        settings_title_label_ = lv_label_create(settings_panel_);
+        lv_obj_set_style_text_color(settings_title_label_, lv_color_hex(k_settings_text_primary), 0);
+        lv_obj_align(settings_title_label_, LV_ALIGN_TOP_MID, 0, k_settings_title_y);
+
+        settings_hint_label_ = lv_label_create(settings_panel_);
+        lv_obj_set_style_text_color(settings_hint_label_, lv_color_hex(k_settings_text_secondary), 0);
+        lv_obj_align(settings_hint_label_, LV_ALIGN_BOTTOM_MID, 0, -18);
+
+        for (uint8_t i = 0; i < k_settings_item_max_count; ++i) {
+            SettingsRow& row = settings_rows_[i];
+            row.container = lv_obj_create(settings_panel_);
+            lv_obj_remove_style_all(row.container);
+            lv_obj_set_size(row.container, k_settings_row_w, k_settings_row_h);
+            lv_obj_set_style_radius(row.container, 14, 0);
+            lv_obj_set_style_bg_color(row.container, lv_color_hex(0x1d3654), 0);
+            lv_obj_set_style_bg_opa(row.container, static_cast<lv_opa_t>(122), 0);
+            lv_obj_clear_flag(row.container, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_align(row.container, LV_ALIGN_TOP_LEFT, k_settings_row_x, k_settings_row_y + i * k_settings_row_pitch);
+
+            row.title = lv_label_create(row.container);
+            lv_obj_set_style_text_color(row.title, lv_color_hex(k_settings_text_primary), 0);
+            lv_obj_align(row.title, LV_ALIGN_LEFT_MID, 14, 0);
+
+            row.value = lv_label_create(row.container);
+            lv_obj_set_style_text_color(row.value, lv_color_hex(k_settings_text_secondary), 0);
+            lv_obj_align(row.value, LV_ALIGN_RIGHT_MID, -14, 0);
+        }
+    }
+
+    void HideSettingsRowsLocked() {
+        for (uint8_t i = 0; i < k_settings_item_max_count; ++i) {
+            AddFlagIfCreated(settings_rows_[i].container, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    void RenderSettingsListLocked() {
+        EnsureSettingsOverlayLocked();
+        settings_view_ = SettingsView::List;
+        lv_label_set_text(settings_title_label_, "璁剧疆");
+        lv_label_set_text(settings_hint_label_, "BOOT 杩斿洖");
+        settings_item_count_ = xiaoxin_settings_visible_items(SettingsCaps(), settings_items_, k_settings_item_max_count);
+        HideSettingsRowsLocked();
+        for (uint8_t i = 0; i < settings_item_count_; ++i) {
+            SettingsRow& row = settings_rows_[i];
+            row.item = settings_items_[i];
+            lv_label_set_text(row.title, xiaoxin_settings_item_title(row.item));
+            lv_label_set_text(row.value, "›");
+            lv_obj_remove_flag(row.container, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    void ApplySettingsBrightness(uint8_t brightness) {
+        const uint8_t clamped = xiaoxin_settings_clamp_percent(brightness);
+        Backlight* backlight = Board::GetInstance().GetBacklight();
+        if (backlight != nullptr) {
+            backlight->SetBrightness(clamped, true);
+        }
+    }
+
+    void RequestSettingsWifiConfig() {
+        CloseSettingsOverlay();
+        static_cast<WifiBoard&>(Board::GetInstance()).EnterWifiConfigMode();
+    }
+
+    void RenderSettingsAboutPage() {
+        settings_view_ = SettingsView::About;
+        EnsureSettingsOverlayLocked();
+        HideSettingsRowsLocked();
+        const esp_app_desc_t* app_desc = esp_app_get_description();
+        char text[160] = {};
+        std::snprintf(
+            text,
+            sizeof(text),
+            "鍥轰欢 %s\n%s\nWaveshare ESP32-S3 Touch LCD 1.46\n%s %s",
+            app_desc != nullptr ? app_desc->version : "-",
+            app_desc != nullptr ? app_desc->project_name : "ai_pet",
+            app_desc != nullptr ? app_desc->date : "-",
+            app_desc != nullptr ? app_desc->time : "-"
+        );
+        lv_label_set_text(settings_title_label_, "鍏充簬");
+        lv_label_set_text(settings_hint_label_, text);
+    }
+
+    void OpenSettingsItemLocked(xiaoxin_settings_item_t item) {
+        switch (item) {
+            case XIAOXIN_SETTINGS_ITEM_BRIGHTNESS:
+                settings_view_ = SettingsView::Brightness;
+                lv_label_set_text(settings_title_label_, "浜害");
+                lv_label_set_text(settings_hint_label_, "30  70  100");
+                HideSettingsRowsLocked();
+                break;
+            case XIAOXIN_SETTINGS_ITEM_WIFI:
+                settings_view_ = SettingsView::Wifi;
+                lv_label_set_text(settings_title_label_, "Wi-Fi");
+                lv_label_set_text(settings_hint_label_, "鐐瑰嚮閲嶆柊閰嶇綉");
+                HideSettingsRowsLocked();
+                break;
+            case XIAOXIN_SETTINGS_ITEM_ABOUT:
+                RenderSettingsAboutPage();
+                break;
+            default:
+                RenderSettingsListLocked();
+                break;
+        }
+    }
+
+    void HandleSettingsTouch(uint16_t x, uint16_t y, bool pressed) {
+        if (!pressed || touch_pressed_) {
+            return;
+        }
+        if (settings_view_ != SettingsView::List) {
+            RenderSettingsListLocked();
+            return;
+        }
+        for (uint8_t i = 0; i < settings_item_count_; ++i) {
+            if (PointInObj(settings_rows_[i].container, x, y)) {
+                OpenSettingsItemLocked(settings_rows_[i].item);
+                return;
+            }
+        }
+    }
+
     int8_t NotificationCardSlotAtPoint(uint16_t x, uint16_t y) const {
         const uint8_t total = xiaoxin_card_pager_notification_count(&card_pager_);
         const uint8_t active_slot = NotificationIndexForScroll(notification_scroll_y_, total);
@@ -1209,6 +1434,9 @@ private:
         }
         if (system_overlay_ != nullptr) {
             lv_obj_move_foreground(system_overlay_);
+        }
+        if (settings_open_ && settings_layer_ != nullptr) {
+            lv_obj_move_foreground(settings_layer_);
         }
     }
 
@@ -2866,6 +3094,12 @@ private:
             return;
         }
 
+        if (settings_open_) {
+            HandleSettingsTouch(x, y, pressed);
+            touch_pressed_ = pressed;
+            return;
+        }
+
         if (pressed) {
             if (!touch_pressed_) {
                 ESP_LOGI(TAG, "Touch point x=%u y=%u", x, y);
@@ -3431,6 +3665,51 @@ private:
         gpio_set_level(PWR_Control_PIN, xiaoxin_power_control_power_hold(&power_control_));
     }
 
+    static xiaoxin_settings_runtime_state_t SettingsRuntimeState(DeviceState state) {
+        switch (state) {
+            case kDeviceStateStarting:
+                return XIAOXIN_SETTINGS_RUNTIME_STARTING;
+            case kDeviceStateWifiConfiguring:
+                return XIAOXIN_SETTINGS_RUNTIME_WIFI_CONFIGURING;
+            case kDeviceStateIdle:
+                return XIAOXIN_SETTINGS_RUNTIME_IDLE;
+            case kDeviceStateConnecting:
+                return XIAOXIN_SETTINGS_RUNTIME_CONNECTING;
+            case kDeviceStateListening:
+                return XIAOXIN_SETTINGS_RUNTIME_LISTENING;
+            case kDeviceStateSpeaking:
+                return XIAOXIN_SETTINGS_RUNTIME_SPEAKING;
+            case kDeviceStateUpgrading:
+                return XIAOXIN_SETTINGS_RUNTIME_UPGRADING;
+            case kDeviceStateActivating:
+                return XIAOXIN_SETTINGS_RUNTIME_ACTIVATING;
+            case kDeviceStateAudioTesting:
+                return XIAOXIN_SETTINGS_RUNTIME_AUDIO_TESTING;
+            case kDeviceStateFatalError:
+                return XIAOXIN_SETTINGS_RUNTIME_FATAL_ERROR;
+            default:
+                return XIAOXIN_SETTINGS_RUNTIME_UNKNOWN;
+        }
+    }
+
+    void OpenSettingsOverlayFromBootButton() {
+        auto& app = Application::GetInstance();
+        const DeviceState device_state = app.GetDeviceState();
+        const xiaoxin_settings_runtime_state_t runtime = SettingsRuntimeState(device_state);
+        if (runtime != XIAOXIN_SETTINGS_RUNTIME_IDLE || !xiaoxin_settings_can_open(runtime)) {
+            if (app.GetDeviceState() == kDeviceStateConnecting ||
+                app.GetDeviceState() == kDeviceStateListening ||
+                app.GetDeviceState() == kDeviceStateSpeaking) {
+                GetDisplay()->ShowNotification("璇峰厛缁撴潫瀵硅瘽", 1600);
+            }
+            return;
+        }
+        auto* display = static_cast<PaopaoPetDisplay*>(display_);
+        if (display != nullptr) {
+            display->OpenSettingsOverlay();
+        }
+    }
+
     void InitializeButtons() {
         instance_ = this;
         InitializeButtonsCustom();
@@ -3448,6 +3727,11 @@ private:
         ESP_ERROR_CHECK(iot_button_create(&boot_btn_config, boot_btn_driver_, &boot_btn));
         iot_button_register_cb(boot_btn, BUTTON_SINGLE_CLICK, nullptr, [](void* button_handle, void* usr_data) {
             auto self = static_cast<CustomBoard*>(usr_data);
+            auto* display = static_cast<PaopaoPetDisplay*>(self->display_);
+            if (display != nullptr && display->IsSettingsOpen()) {
+                display->CloseSettingsOverlay();
+                return;
+            }
             auto& app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateStarting) {
                 self->EnterWifiConfigMode();
@@ -3456,7 +3740,8 @@ private:
             app.ToggleChatState();
         }, this);
         iot_button_register_cb(boot_btn, BUTTON_LONG_PRESS_START, nullptr, [](void* button_handle, void* usr_data) {
-            // BOOT long press is reserved for future system/settings behavior.
+            auto self = static_cast<CustomBoard*>(usr_data);
+            self->OpenSettingsOverlayFromBootButton();
         }, this);
 
         // Power Button
