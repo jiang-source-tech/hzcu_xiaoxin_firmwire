@@ -58,6 +58,9 @@ typedef struct {
   int trend_window_min_mv;
   int trend_window_max_mv;
   uint32_t trend_window_start_ms;
+  int discharge_window_min_mv;
+  int discharge_window_max_mv;
+  uint32_t discharge_window_start_ms;
   int rise_window_start_mv;
   uint32_t rise_window_start_ms;
   uint32_t steady_high_since_ms;
