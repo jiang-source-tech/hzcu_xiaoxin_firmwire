@@ -701,6 +701,7 @@ public:
         {
             DisplayLockGuard lock(this);
             const int battery_level = NotificationBatteryLevelPercent();
+            HideLegacyLowBatteryPopupLocked();
             ApplySystemOverlayNetworkStyle();
             ApplyBatteryOverlayLevel(battery_level);
             SyncLowBatteryNotificationLocked(battery_level);
@@ -1091,6 +1092,12 @@ private:
         }
     }
 
+    void HideLegacyLowBatteryPopupLocked() {
+        if (low_battery_popup_ != nullptr) {
+            lv_obj_add_flag(low_battery_popup_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
     bool IsCardLayerVisible() const {
         return card_layer_ != nullptr && !lv_obj_has_flag(card_layer_, LV_OBJ_FLAG_HIDDEN);
     }
@@ -1132,14 +1139,12 @@ private:
     }
 
     void RaiseOverlayObjects() {
+        HideLegacyLowBatteryPopupLocked();
         ApplySystemBarsForCardPager();
         if (IsCardLayerVisible()) {
             lv_obj_move_foreground(card_layer_);
             if (system_overlay_ != nullptr) {
                 lv_obj_move_foreground(system_overlay_);
-            }
-            if (low_battery_popup_ != nullptr) {
-                lv_obj_move_foreground(low_battery_popup_);
             }
             return;
         }
@@ -1152,9 +1157,6 @@ private:
         }
         if (bottom_bar_ != nullptr) {
             lv_obj_move_foreground(bottom_bar_);
-        }
-        if (low_battery_popup_ != nullptr) {
-            lv_obj_move_foreground(low_battery_popup_);
         }
         if (system_overlay_ != nullptr) {
             lv_obj_move_foreground(system_overlay_);

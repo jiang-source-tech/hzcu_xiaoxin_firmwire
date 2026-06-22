@@ -160,6 +160,18 @@ def test_assistant_chat_message_does_not_create_notification_card():
     assert "XIAOXIN_NOTIFICATION_EVENT_CHAT_REPLY" not in body
 
 
+def test_legacy_low_battery_popup_is_suppressed_to_protect_subtitle():
+    source = read_source()
+    helper_body = function_body(source, "void HideLegacyLowBatteryPopupLocked()")
+    status_body = function_body(source, "virtual void UpdateStatusBar(bool update_all = false) override")
+    raise_body = function_body(source, "void RaiseOverlayObjects()")
+
+    assert "lv_obj_add_flag(low_battery_popup_, LV_OBJ_FLAG_HIDDEN);" in helper_body
+    assert "HideLegacyLowBatteryPopupLocked();" in status_body
+    assert "HideLegacyLowBatteryPopupLocked();" in raise_body
+    assert "lv_obj_move_foreground(low_battery_popup_);" not in raise_body
+
+
 def test_low_battery_notification_uses_status_copy_without_percent():
     body = function_body(read_source(), "void SyncLowBatteryNotificationLocked(int level)")
 
