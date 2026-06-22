@@ -848,6 +848,7 @@ private:
     SettingsView settings_view_ = SettingsView::List;
     bool settings_open_ = false;
     bool settings_wifi_config_requested_ = false;
+    bool power_save_timer_wake_requested_ = false;
     GlassCard glass_cards_[k_card_glass_count];
     OverviewRow overview_rows_[k_overview_row_count];
     lv_obj_t* overview_separators_[k_overview_sep_count] = {};
@@ -1069,6 +1070,12 @@ private:
     bool ConsumeSettingsWifiConfigRequestLocked() {
         const bool requested = settings_wifi_config_requested_;
         settings_wifi_config_requested_ = false;
+        return requested;
+    }
+
+    bool ConsumePowerSaveTimerWakeRequestLocked() {
+        const bool requested = power_save_timer_wake_requested_;
+        power_save_timer_wake_requested_ = false;
         return requested;
     }
 
@@ -3084,7 +3091,7 @@ private:
         const esp_err_t touch_err = touch_->ReadPoint(x, y, pressed);
         if (touch_err != ESP_OK) {
             if (touch_pressed_) {
-                WakePowerSaveTimerFromTouch();
+                power_save_timer_wake_requested_ = true;
                 HandleTouchRelease(now_ms);
                 touch_last_active_ms_ = now_ms;
                 touch_pressed_ = false;
@@ -3097,7 +3104,7 @@ private:
         }
 
         if (pressed || touch_pressed_) {
-            WakePowerSaveTimerFromTouch();
+            power_save_timer_wake_requested_ = true;
         }
 
         if (settings_open_) {
@@ -3198,6 +3205,7 @@ private:
         while (true) {
             const int64_t perf_start_us = k_ui_perf_trace_enabled ? esp_timer_get_time() : 0;
             bool request_settings_wifi_config = false;
+            bool wake_power_save_timer = false;
             {
                 DisplayLockGuard lock(this);
                 const uint32_t now_ms = NowMs();
@@ -3206,6 +3214,10 @@ private:
                 ApplyPetStateIfChanged();
                 LogUiPerfSummary(now_ms);
                 request_settings_wifi_config = ConsumeSettingsWifiConfigRequestLocked();
+                wake_power_save_timer = ConsumePowerSaveTimerWakeRequestLocked();
+            }
+            if (wake_power_save_timer) {
+                WakePowerSaveTimerFromTouch();
             }
             if (request_settings_wifi_config) {
                 RequestSettingsWifiConfigFromSettingsPage();

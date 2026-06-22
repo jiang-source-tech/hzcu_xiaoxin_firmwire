@@ -162,6 +162,10 @@ def test_power_save_setting_is_only_enabled_when_timer_is_initialized():
 def test_power_save_timer_is_reset_by_local_button_and_touch_activity():
     source = read_source(BOARD_SOURCE)
     poll_body = strip_cpp_comments(function_body(source, "void PollTouch(uint32_t now_ms)"))
+    loop_body = strip_cpp_comments(function_body(source, "void RunRenderLoop()"))
+    lock_start = loop_body.index("DisplayLockGuard lock(this)")
+    lock_end = loop_body.index("}", lock_start)
+    wake_helper_call = loop_body.index("WakePowerSaveTimerFromTouch()")
     boot_section = strip_cpp_comments(section_between(source, "// Boot Button", "// Power Button"))
     power_section = strip_cpp_comments(section_between(source, "// Power Button", "public:"))
 
@@ -169,7 +173,10 @@ def test_power_save_timer_is_reset_by_local_button_and_touch_activity():
     assert "power_save_timer_->WakeUp()" in function_body(source, "void WakePowerSaveTimer()")
     assert boot_section.count("self->WakePowerSaveTimer();") >= 2
     assert power_section.count("self->WakePowerSaveTimer();") >= 2
-    assert "WakePowerSaveTimerFromTouch()" in poll_body
+    assert "power_save_timer_wake_requested_ = true" in poll_body
+    assert "WakePowerSaveTimerFromTouch()" not in poll_body
+    assert lock_start < loop_body.index("ConsumePowerSaveTimerWakeRequestLocked()") < lock_end
+    assert lock_end < wake_helper_call
 
 
 def test_about_page_uses_esp_app_description():
