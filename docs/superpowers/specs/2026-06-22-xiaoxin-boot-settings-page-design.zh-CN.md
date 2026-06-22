@@ -116,7 +116,7 @@ Settings Overlay
 | --- | --- | --- |
 | 亮度 | 滑条或三档按钮：低/中/高 | 通过 `Backlight::SetBrightness(brightness, true)` 即时生效，并写入 `Settings("display")` 的 `brightness` |
 | Wi-Fi | 状态行 + 重新配网按钮 | 点击重新配网后关闭设置页并进入现有 `EnterWifiConfigMode()` 流程 |
-| 省电/睡眠 | 开关 | 第一版只映射现有省电开关，不新增可变睡眠时长 |
+| 省电/睡眠 | 开关 | 第一版只映射现有省电开关，不新增可变睡眠时长；目标板接入省电 timer 前不显示 |
 | 关于设备 | 只读信息页 | 不保存 |
 
 硬件能力存在时才显示的扩展项：
@@ -354,6 +354,8 @@ BOOT 短按
 
 第一版设置页的省电项应只读写现有 `Settings("wifi")` 的 `sleep_mode`，并在必要时调用现有显示层 `SetPowerSaveMode()` 做即时反馈。可变睡眠时长作为后续独立切片。
 
+实施切片 3 前必须先确认目标板是否已经初始化 `PowerSaveTimer`、`SleepTimer` 或等价省电调度器。当前通用 timer 类会读取 `Settings("wifi").GetBool("sleep_mode", true)`，但如果目标板未接入 timer，设置页不得显示一个只改 NVS、没有运行时效果的省电开关；应先接入 timer，再开放该设置项。
+
 ## 10. 错误处理
 
 - NVS 写入失败：保留当前运行时值，显示短提示 `保存失败`，不崩溃。
@@ -428,6 +430,6 @@ BOOT 短按
 
 1. 垂直最小切片：BOOT 长按打开设置页、BOOT 短按关闭设置页、显示设置列表和关于设备页，同时实现亮度设置的读取、即时生效和 NVS 保存。
 2. 接入 Wi-Fi 状态/重新配网入口，并确保重新配网复用现有 `EnterWifiConfigMode()`。
-3. 接入省电开关，复用现有 `Settings("wifi")` 的 `sleep_mode` 和显示层省电接口，并补齐通知遮罩期间的 UI 路径测试。
+3. 接入省电开关：先确认或补齐目标板的 `PowerSaveTimer` / `SleepTimer` / 等价调度器接入，再复用现有 `Settings("wifi")` 的 `sleep_mode` 和显示层省电接口，并补齐通知遮罩期间的 UI 路径测试。
 
 这样第一版从一开始就包含至少一个真实可写设置项，避免“只有空 UI 但没有配置闭环”的假进展。
