@@ -8,6 +8,7 @@
 #include "application.h"
 #include "button.h"
 #include "config.h"
+#include "power_save_timer.h"
 #include "assets/lang_config.h"
 
 #include <esp_check.h>
@@ -85,6 +86,7 @@ extern const uint8_t assets_images_happy_gif_end[] asm("_binary_happy_gif_end");
 
 class CustomBoard;
 static int BoardBatteryVoltageMv();
+static bool TargetHasPowerSaveScheduler();
 extern const uint8_t assets_images_crying_gif_start[] asm("_binary_crying_gif_start");
 extern const uint8_t assets_images_crying_gif_end[] asm("_binary_crying_gif_end");
 extern const uint8_t assets_images_anxiety_gif_start[] asm("_binary_anxiety_gif_start");
@@ -1071,7 +1073,8 @@ private:
         const xiaoxin_settings_caps_t caps = {
             .has_audio_output = false,
             .has_vibration = false,
-            .has_power_save_scheduler = false,
+            // Path contract: .has_power_save_scheduler = power_save_timer_ != nullptr
+            .has_power_save_scheduler = TargetHasPowerSaveScheduler(),
         };
         return caps;
     }
@@ -3298,6 +3301,7 @@ private:
     Qmi8658Motion motion_;
     TaskHandle_t motion_task_ = nullptr;
     TaskHandle_t power_off_task_ = nullptr;
+    PowerSaveTimer* power_save_timer_ = nullptr;
     xiaoxin_power_control_t power_control_ = {};
     adc_oneshot_unit_handle_t battery_adc_handle_ = nullptr;
     adc_cali_handle_t battery_adc_cali_handle_ = nullptr;
@@ -3646,6 +3650,20 @@ private:
     static void PowerOffTask(void* arg) {
         static_cast<CustomBoard*>(arg)->WaitForPowerButtonReleaseAndSleep();
     }
+
+    void InitializePowerSaveTimer() {
+        power_save_timer_ = new PowerSaveTimer(-1, 60, 300);
+        power_save_timer_->OnEnterSleepMode([this]() {
+            GetDisplay()->SetPowerSaveMode(true);
+        });
+        power_save_timer_->OnExitSleepMode([this]() {
+            GetDisplay()->SetPowerSaveMode(false);
+        });
+        power_save_timer_->OnShutdownRequest([this]() {
+            RequestPowerOff();
+        });
+        power_save_timer_->SetEnabled(true);
+    }
  
     void InitializeButtonsCustom() {
         xiaoxin_power_control_init(&power_control_);
@@ -3765,12 +3783,17 @@ public:
         InitializeSpd2010Display();
         InitializeTouch();
         InitializeButtons();
+        InitializePowerSaveTimer();
         InitializeMotion();
         GetBacklight()->RestoreBrightness();
     }
 
     static CustomBoard* Instance() {
         return instance_;
+    }
+
+    bool HasPowerSaveScheduler() const {
+        return power_save_timer_ != nullptr;
     }
 
     void RequestSettingsWifiConfig() {
@@ -3852,6 +3875,11 @@ void PaopaoPetDisplay::RenderSettingsWifiPage() {
     if (CustomBoard::Instance() != nullptr) {
         CustomBoard::Instance()->RequestSettingsWifiConfig();
     }
+}
+
+static bool TargetHasPowerSaveScheduler() {
+    return CustomBoard::Instance() != nullptr &&
+        CustomBoard::Instance()->HasPowerSaveScheduler();
 }
 
 static int BoardBatteryVoltageMv() {

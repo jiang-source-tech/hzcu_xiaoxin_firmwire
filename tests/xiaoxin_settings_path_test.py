@@ -131,7 +131,18 @@ def test_target_settings_caps_do_not_enable_audio_or_power_save_initially():
 
     assert ".has_audio_output = false" in body
     assert ".has_vibration = false" in body
-    assert ".has_power_save_scheduler = false" in body
+
+
+def test_power_save_setting_is_only_enabled_when_timer_is_initialized():
+    source = read_source(BOARD_SOURCE)
+    caps_body = function_body(source, "xiaoxin_settings_caps_t SettingsCaps() const")
+
+    assert "PowerSaveTimer* power_save_timer_" in source
+    assert "InitializePowerSaveTimer()" in source
+    assert ".has_power_save_scheduler = power_save_timer_ != nullptr" in caps_body
+    assert "new PowerSaveTimer(-1, 60, 300)" in source
+    assert "SetPowerSaveMode(true)" in source
+    assert "SetPowerSaveMode(false)" in source
 
 
 def test_about_page_uses_esp_app_description():
