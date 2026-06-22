@@ -46,6 +46,14 @@ static void copy_text(char* dest, size_t dest_size, const char* text) {
   snprintf(dest, dest_size, "%s", text);
 }
 
+static bool notification_body_contains_percent(const char* body) {
+  if (body == NULL) {
+    return false;
+  }
+
+  return strchr(body, '%') != NULL || strstr(body, "％") != NULL;
+}
+
 static void notification_rebind_slot(xiaoxin_card_pager_t* pager, uint8_t slot) {
   if (pager == NULL || slot >= XIAOXIN_CARD_NOTIFICATION_MAX) {
     return;
@@ -365,9 +373,12 @@ bool xiaoxin_card_pager_notification_upsert_event(
   }
 
   const uint8_t index = (uint8_t)slot;
-  const char* body = event->body != NULL ? event->body : defaults->body;
-  if (event->type == XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY) {
-    body = defaults->body;
+  const char* body = defaults->body;
+  if (event->body != NULL && event->body[0] != '\0') {
+    if (event->type != XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY ||
+        !notification_body_contains_percent(event->body)) {
+      body = event->body;
+    }
   }
 
   pager->notification_types[index] = event->type;
