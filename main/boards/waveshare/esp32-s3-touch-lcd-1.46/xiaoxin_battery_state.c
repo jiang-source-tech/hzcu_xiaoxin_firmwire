@@ -58,8 +58,12 @@ static void reset_candidate(
 
 static bool is_plausible_sample(int voltage_mv, bool sample_valid) {
   return sample_valid &&
-         voltage_mv > 0 &&
+         voltage_mv >= 3300 &&
          voltage_mv <= k_max_plausible_mv;
+}
+
+static bool is_extreme_low_sample(int voltage_mv, bool sample_valid) {
+  return sample_valid && voltage_mv > 0 && voltage_mv < 3300;
 }
 
 static void update_smoothed_sample(xiaoxin_battery_context_t* ctx, int voltage_mv) {
@@ -74,10 +78,10 @@ static void update_smoothed_sample(xiaoxin_battery_context_t* ctx, int voltage_m
 
 static uint8_t display_level_for_percent(uint8_t current_level, int percent) {
   if (current_level >= 4) {
-    return percent < 70 ? 3 : 4;
+    return percent < 65 ? 3 : 4;
   }
   if (current_level == 3) {
-    if (percent >= 75) {
+    if (percent >= 70) {
       return 4;
     }
     return percent < 35 ? 2 : 3;
@@ -224,10 +228,17 @@ xiaoxin_battery_snapshot_t xiaoxin_battery_state_update(
   bool critical_edge = false;
   bool recovered_edge = false;
 
+  if (is_extreme_low_sample(voltage_mv, sample_valid)) {
+    ctx->last_snapshot = make_snapshot(ctx, false, false, false);
+    return ctx->last_snapshot;
+  }
+
   if (!is_plausible_sample(voltage_mv, sample_valid)) {
     ctx->state = XIAOXIN_BATTERY_STATE_UNKNOWN;
     ctx->power_source = XIAOXIN_BATTERY_POWER_UNKNOWN;
     ctx->percent_reliable = false;
+    ctx->display_percent = 0;
+    ctx->display_level = 0;
     ctx->has_sample = false;
     ctx->candidate_state = XIAOXIN_BATTERY_STATE_UNKNOWN;
     ctx->candidate_since_ms = now_ms;
@@ -239,11 +250,9 @@ xiaoxin_battery_snapshot_t xiaoxin_battery_state_update(
   ctx->power_source = XIAOXIN_BATTERY_POWER_BATTERY;
   ctx->percent_reliable = true;
   ctx->display_percent = ctx->estimated_percent;
-  // Keep the icon a little conservative so it does not stick at full bars
-  // when the underlying EMA is still settling near a boundary.
   ctx->display_level = display_level_for_percent(
     ctx->display_level,
-    ctx->display_percent > 6 ? ctx->display_percent - 6 : 0
+    ctx->display_percent
   );
 
   const xiaoxin_battery_state_t desired = desired_state_for(ctx);
