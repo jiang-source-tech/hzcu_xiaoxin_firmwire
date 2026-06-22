@@ -1,5 +1,81 @@
 ﻿# Update
 
+## 2026-06-22 00:00:00 +08:00
+
+### Waveshare ESP32-S3 Touch LCD 1.46 BOOT 长按设置页
+
+#### 背景
+
+前一轮已经把 BOOT 按键从宠物动画触发职责中释放出来，后续需要把它作为设备系统入口使用。本轮将 BOOT 长按落地为小芯设置页入口，优先覆盖亮度、Wi-Fi 重新配网、关于设备和受调度器能力保护的省电设置。
+
+设置页必须满足几个边界：只在设备空闲态打开，不打断连接、聆听、说话、配网、升级、激活、音频测试或错误状态；不能把设置页做成第四个卡片分页；目标板默认不暴露音量、静音、提示音和震动设置；省电项只有在目标板真的接入 `PowerSaveTimer` / `SleepTimer` 等调度器后才显示。
+
+#### 修改内容
+
+- 新增纯 C 设置模型：
+  - 新增 `xiaoxin_settings_model.h/.c`。
+  - 提供设置项枚举、目标能力描述、运行态开关门禁、亮度百分比 clamp 和短标题映射。
+  - 默认目标能力只显示亮度、Wi-Fi、关于；音频、震动和省电项按能力开关显示。
+- 新增设置模型测试：
+  - 覆盖默认项过滤、音频/震动/省电能力门禁、输出容量截断、仅 idle 可打开设置和亮度百分比 clamp。
+- 新增设置页 source-path 守卫：
+  - 覆盖 BOOT 长按入口、BOOT 短按关闭设置优先级、idle-only 门禁、overlay 而不是第四分页、设置触摸阻断卡片分页手势、亮度 API、Wi-Fi 入口复用、关于页元信息、音频/震动隐藏、省电调度器真实性。
+  - 后续 review 中补充了对注释欺骗 path test 的防护：关键断言会去掉 C/C++ 注释后再检查。
+  - 新增 Wi-Fi 请求和触摸唤醒的延迟执行守卫，避免在 `DisplayLockGuard` 内同步触发可能重入显示锁的逻辑。
+- 在 `PaopaoPetDisplay` 中新增 LVGL 设置 overlay：
+  - 设置页挂在当前屏幕 overlay 层，不新增 `xiaoxin_card_page_t` 页面。
+  - 长按 BOOT 时从 idle 进入设置列表。
+  - 设置打开时，触摸事件先交给设置页处理，不再传给卡片分页拖拽。
+  - 设置打开时，BOOT 短按先关闭设置页。
+- BOOT 按键行为调整：
+  - BOOT 长按调用 `OpenSettingsOverlayFromBootButton()`。
+  - 只有 `kDeviceStateIdle` 可打开设置。
+  - 连接、聆听和说话状态下长按会提示先结束对话。
+  - BOOT 短按在设置关闭时仍保留启动阶段进入 Wi-Fi 配网、其他状态切换聊天的既有语义。
+- 新增亮度设置动作：
+  - 通过 `xiaoxin_settings_clamp_percent()` 保护输入。
+  - 使用 `Board::GetInstance().GetBacklight()->SetBrightness(clamped, true)`，继续走已有显示亮度持久化路径。
+  - 当前亮度页先应用中间安全预设，后续可继续做 30 / 70 / 100 的精确触摸命中区域。
+- 新增 Wi-Fi 重新配网动作：
+  - 通过 `CustomBoard::RequestSettingsWifiConfig()` 复用既有 `EnterWifiConfigMode()`。
+  - 最终实现中 Wi-Fi 设置页只设置延迟请求标记，`RunRenderLoop()` 在释放显示锁后再调用板级 Wi-Fi 配网入口，避免显示锁重入。
+- 新增关于页：
+  - 使用 `esp_app_get_description()` 展示固件版本、项目名、构建日期时间和目标板名称。
+- 新增省电调度器接入：
+  - 目标板新增 `PowerSaveTimer(-1, 60, 300)`。
+  - 进入 sleep 时调用 `Display::SetPowerSaveMode(true)`。
+  - 退出 sleep 时调用 `Display::SetPowerSaveMode(false)`。
+  - shutdown 请求走现有电源关闭路径。
+  - 设置页是否显示省电项由真实 `PowerSaveTimer*` 是否存在决定。
+- 补齐本地活动唤醒：
+  - BOOT 单击、BOOT 长按、PWR 单击、PWR 长按都会唤醒/重置 `PowerSaveTimer`。
+  - 触摸活动只在显示锁内记录唤醒请求，真正 `WakeUp()` 延迟到显示锁释放后执行，避免 `PowerSaveTimer::WakeUp()` 同步触发显示回调造成锁重入。
+- 更新实现计划文档：
+  - `docs/superpowers/plans/2026-06-22-xiaoxin-boot-settings-page.md` 增加 `Implementation Update`。
+  - 同步任务 checkbox 进度、实现提交、验证结果和环境限制。
+
+#### 涉及文件
+
+- `main/CMakeLists.txt`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_settings_model.h`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_settings_model.c`
+- `tests/xiaoxin_settings_model_test.c`
+- `tests/xiaoxin_settings_path_test.py`
+- `docs/superpowers/plans/2026-06-22-xiaoxin-boot-settings-page.md`
+- `docs/update.md`
+
+#### 验证结果
+
+- `xiaoxin_settings_model_test`：通过，输出 `xiaoxin_settings_model tests passed`。
+- `python -m pytest tests/xiaoxin_settings_path_test.py -q`：通过，13 passed。
+- `python -m pytest tests/xiaoxin_notification_visual_path_test.py tests/xiaoxin_pet_mood_integration_path_test.py -q`：通过，27 passed。
+- `xiaoxin_card_pager_test`：通过。
+- `xiaoxin_system_overlay_test`：通过。
+- 最终代码审查通过：Wi-Fi 配网和触摸唤醒都已改为显示锁外延迟执行，未发现 Critical / Important 问题。
+- 当前 shell 中未找到 `idf.py`，因此本轮未执行完整 ESP-IDF 固件构建。
+- `tests/wifi_config_status_path_test.py` 在本 worktree 中不存在；它只存在于 main checkout 的未跟踪用户文件中，本轮按要求未复制、未编辑。
+
 ## 2026-06-21 21:22:40 +08:00
 
 ### Waveshare ESP32-S3 Touch LCD 1.46 BOOT 按键宠物动画触发释放
