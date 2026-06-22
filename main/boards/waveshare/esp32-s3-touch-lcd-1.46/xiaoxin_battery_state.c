@@ -212,17 +212,12 @@ static void propose_power_source(
   }
 }
 
-static void confirm_power_source(
+static void reset_power_source_candidate(
   xiaoxin_battery_context_t* ctx,
-  xiaoxin_battery_power_source_t source,
-  uint32_t now_ms
+  xiaoxin_battery_power_source_t source
 ) {
   ctx->candidate_power_source = source;
-  ctx->candidate_power_count = 3;
-  if (ctx->power_source != source) {
-    ctx->power_source = source;
-    ctx->power_source_since_ms = now_ms;
-  }
+  ctx->candidate_power_count = 0;
 }
 
 void xiaoxin_battery_state_init(
@@ -330,20 +325,6 @@ xiaoxin_battery_snapshot_t xiaoxin_battery_state_update(
       ctx->display_percent
     );
 
-    if (ctx->trend_window_start_ms == 0 ||
-        (uint32_t)(now_ms - ctx->trend_window_start_ms) > 60000) {
-      ctx->trend_window_start_ms = now_ms;
-      ctx->trend_window_min_mv = ctx->smoothed_voltage_mv;
-      ctx->trend_window_max_mv = ctx->smoothed_voltage_mv;
-    } else {
-      if (ctx->smoothed_voltage_mv < ctx->trend_window_min_mv) {
-        ctx->trend_window_min_mv = ctx->smoothed_voltage_mv;
-      }
-      if (ctx->smoothed_voltage_mv > ctx->trend_window_max_mv) {
-        ctx->trend_window_max_mv = ctx->smoothed_voltage_mv;
-      }
-    }
-
     if (ctx->rise_window_start_mv == 0 ||
         (uint32_t)(now_ms - ctx->rise_window_start_ms) > 60000) {
       ctx->rise_window_start_ms = now_ms;
@@ -353,9 +334,22 @@ xiaoxin_battery_snapshot_t xiaoxin_battery_state_update(
     if (ctx->smoothed_voltage_mv > 4080) {
       if (ctx->steady_high_since_ms == 0) {
         ctx->steady_high_since_ms = now_ms;
+        ctx->trend_window_start_ms = now_ms;
+        ctx->trend_window_min_mv = voltage_mv;
+        ctx->trend_window_max_mv = voltage_mv;
+      } else {
+        if (voltage_mv < ctx->trend_window_min_mv) {
+          ctx->trend_window_min_mv = voltage_mv;
+        }
+        if (voltage_mv > ctx->trend_window_max_mv) {
+          ctx->trend_window_max_mv = voltage_mv;
+        }
       }
     } else {
       ctx->steady_high_since_ms = 0;
+      ctx->trend_window_start_ms = 0;
+      ctx->trend_window_min_mv = 0;
+      ctx->trend_window_max_mv = 0;
     }
   }
 
@@ -373,10 +367,10 @@ xiaoxin_battery_snapshot_t xiaoxin_battery_state_update(
     ctx->trend_window_max_mv - ctx->trend_window_min_mv < 50;
   const bool condition_d = ctx->alternating_sample_count >= 3;
 
-  if (condition_a || condition_b || condition_c) {
-    confirm_power_source(ctx, XIAOXIN_BATTERY_POWER_EXTERNAL, now_ms);
-  } else if (condition_d) {
+  if (condition_a || condition_b || condition_c || condition_d) {
     propose_power_source(ctx, XIAOXIN_BATTERY_POWER_EXTERNAL, now_ms);
+  } else if (ctx->candidate_power_source == XIAOXIN_BATTERY_POWER_EXTERNAL) {
+    reset_power_source_candidate(ctx, ctx->power_source);
   }
 
   if (ctx->power_source == XIAOXIN_BATTERY_POWER_EXTERNAL) {
