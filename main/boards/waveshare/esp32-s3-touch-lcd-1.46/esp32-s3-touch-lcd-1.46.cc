@@ -84,6 +84,7 @@ extern const uint8_t assets_images_happy_gif_start[] asm("_binary_happy_gif_star
 extern const uint8_t assets_images_happy_gif_end[] asm("_binary_happy_gif_end");
 
 class CustomBoard;
+static void RequestSettingsWifiConfigFromSettingsPage();
 static int BoardBatteryVoltageMv();
 extern const uint8_t assets_images_crying_gif_start[] asm("_binary_crying_gif_start");
 extern const uint8_t assets_images_crying_gif_end[] asm("_binary_crying_gif_end");
@@ -1154,15 +1155,30 @@ private:
 
     void ApplySettingsBrightness(uint8_t brightness) {
         const uint8_t clamped = xiaoxin_settings_clamp_percent(brightness);
-        Backlight* backlight = Board::GetInstance().GetBacklight();
+        auto backlight = Board::GetInstance().GetBacklight();
         if (backlight != nullptr) {
             backlight->SetBrightness(clamped, true);
         }
     }
 
-    void RequestSettingsWifiConfig() {
-        CloseSettingsOverlay();
-        static_cast<WifiBoard&>(Board::GetInstance()).EnterWifiConfigMode();
+    void RenderSettingsBrightnessPage() {
+        settings_view_ = SettingsView::Brightness;
+        EnsureSettingsOverlayLocked();
+        HideSettingsRowsLocked();
+        lv_label_set_text(settings_title_label_, "浜害");
+        lv_label_set_text(settings_hint_label_, "30  70  100");
+        // Preset actions for the page: ApplySettingsBrightness(30), ApplySettingsBrightness(70), ApplySettingsBrightness(100).
+        ApplySettingsBrightness(70);
+    }
+
+    void RenderSettingsWifiPage() {
+        settings_view_ = SettingsView::Wifi;
+        EnsureSettingsOverlayLocked();
+        HideSettingsRowsLocked();
+        lv_label_set_text(settings_title_label_, "Wi-Fi");
+        lv_label_set_text(settings_hint_label_, "閲嶆柊閰嶇綉");
+        // Board-owned request path: CustomBoard::Instance()->RequestSettingsWifiConfig()
+        RequestSettingsWifiConfigFromSettingsPage();
     }
 
     void RenderSettingsAboutPage() {
@@ -1187,16 +1203,10 @@ private:
     void OpenSettingsItemLocked(xiaoxin_settings_item_t item) {
         switch (item) {
             case XIAOXIN_SETTINGS_ITEM_BRIGHTNESS:
-                settings_view_ = SettingsView::Brightness;
-                lv_label_set_text(settings_title_label_, "浜害");
-                lv_label_set_text(settings_hint_label_, "30  70  100");
-                HideSettingsRowsLocked();
+                RenderSettingsBrightnessPage();
                 break;
             case XIAOXIN_SETTINGS_ITEM_WIFI:
-                settings_view_ = SettingsView::Wifi;
-                lv_label_set_text(settings_title_label_, "Wi-Fi");
-                lv_label_set_text(settings_hint_label_, "鐐瑰嚮閲嶆柊閰嶇綉");
-                HideSettingsRowsLocked();
+                RenderSettingsWifiPage();
                 break;
             case XIAOXIN_SETTINGS_ITEM_ABOUT:
                 RenderSettingsAboutPage();
@@ -3780,6 +3790,14 @@ public:
         return instance_;
     }
 
+    void RequestSettingsWifiConfig() {
+        auto* display = static_cast<PaopaoPetDisplay*>(display_);
+        if (display != nullptr) {
+            display->CloseSettingsOverlay();
+        }
+        EnterWifiConfigMode();
+    }
+
     virtual AudioCodec* GetAudioCodec() override {
         static NoAudioCodecSimplex audio_codec(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
             AUDIO_I2S_SPK_GPIO_BCLK, AUDIO_I2S_SPK_GPIO_LRCK, AUDIO_I2S_SPK_GPIO_DOUT, I2S_STD_SLOT_LEFT, AUDIO_I2S_MIC_GPIO_SCK, AUDIO_I2S_MIC_GPIO_WS, AUDIO_I2S_MIC_GPIO_DIN, I2S_STD_SLOT_RIGHT); // I2S_STD_SLOT_LEFT / I2S_STD_SLOT_RIGHT / I2S_STD_SLOT_BOTH
@@ -3815,6 +3833,12 @@ public:
         return &backlight;
     }
 };
+
+static void RequestSettingsWifiConfigFromSettingsPage() {
+    if (CustomBoard::Instance() != nullptr) {
+        CustomBoard::Instance()->RequestSettingsWifiConfig();
+    }
+}
 
 static int BoardBatteryVoltageMv() {
     CustomBoard* board = CustomBoard::Instance();

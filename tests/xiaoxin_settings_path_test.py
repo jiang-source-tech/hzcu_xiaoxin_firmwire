@@ -91,12 +91,30 @@ def test_brightness_setting_uses_backlight_api_not_direct_settings_write():
     assert 'Settings("display"' not in body
 
 
+def test_brightness_page_exposes_three_presets():
+    body = function_body(read_source(BOARD_SOURCE), "void RenderSettingsBrightnessPage()")
+
+    assert "30" in body
+    assert "70" in body
+    assert "100" in body
+    assert "ApplySettingsBrightness(30)" in body
+    assert "ApplySettingsBrightness(70)" in body
+    assert "ApplySettingsBrightness(100)" in body
+
+
 def test_wifi_reconfiguration_reuses_existing_entrypoint():
     source = read_source(BOARD_SOURCE)
     body = function_body(source, "void RequestSettingsWifiConfig()")
 
     assert "CloseSettingsOverlay()" in body
     assert "EnterWifiConfigMode()" in body
+
+
+def test_wifi_page_calls_board_reconfiguration_request():
+    body = function_body(read_source(BOARD_SOURCE), "void RenderSettingsWifiPage()")
+
+    assert "閲嶆柊閰嶇綉" in body
+    assert "CustomBoard::Instance()->RequestSettingsWifiConfig()" in body
 
 
 def test_target_settings_caps_do_not_enable_audio_or_power_save_initially():
