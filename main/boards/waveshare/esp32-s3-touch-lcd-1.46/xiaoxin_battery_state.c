@@ -28,7 +28,11 @@ static xiaoxin_battery_snapshot_t make_snapshot(
 ) {
   xiaoxin_battery_snapshot_t snapshot = {
     .state = ctx->state,
+    .power_source = ctx->power_source,
     .estimated_percent = ctx->estimated_percent,
+    .display_percent = ctx->display_percent,
+    .display_level = ctx->display_level,
+    .percent_reliable = ctx->percent_reliable,
     .smoothed_voltage_mv = ctx->smoothed_voltage_mv,
     .low_edge = low_edge,
     .critical_edge = critical_edge,
@@ -66,6 +70,37 @@ static void update_smoothed_sample(xiaoxin_battery_context_t* ctx, int voltage_m
     ctx->smoothed_voltage_mv = (ctx->smoothed_voltage_mv * 85 + voltage_mv * 15 + 50) / 100;
   }
   ctx->estimated_percent = xiaoxin_battery_percent_from_mv(ctx->smoothed_voltage_mv);
+}
+
+static uint8_t display_level_for_percent(uint8_t current_level, int percent) {
+  if (current_level >= 4) {
+    return percent < 70 ? 3 : 4;
+  }
+  if (current_level == 3) {
+    if (percent >= 75) {
+      return 4;
+    }
+    return percent < 35 ? 2 : 3;
+  }
+  if (current_level == 2) {
+    if (percent >= 40) {
+      return 3;
+    }
+    return percent < 10 ? 1 : 2;
+  }
+  if (current_level == 1) {
+    return percent >= 20 ? 2 : 1;
+  }
+  if (percent >= 70) {
+    return 4;
+  }
+  if (percent >= 40) {
+    return 3;
+  }
+  if (percent >= 15) {
+    return 2;
+  }
+  return 1;
 }
 
 static uint32_t required_ms_for(
@@ -149,7 +184,11 @@ void xiaoxin_battery_state_init(
     return;
   }
   ctx->state = XIAOXIN_BATTERY_STATE_UNKNOWN;
+  ctx->power_source = XIAOXIN_BATTERY_POWER_UNKNOWN;
   ctx->estimated_percent = 0;
+  ctx->display_percent = 0;
+  ctx->display_level = 0;
+  ctx->percent_reliable = false;
   ctx->smoothed_voltage_mv = 0;
   ctx->has_sample = false;
   ctx->candidate_since_ms = now_ms;
@@ -187,6 +226,8 @@ xiaoxin_battery_snapshot_t xiaoxin_battery_state_update(
 
   if (!is_plausible_sample(voltage_mv, sample_valid)) {
     ctx->state = XIAOXIN_BATTERY_STATE_UNKNOWN;
+    ctx->power_source = XIAOXIN_BATTERY_POWER_UNKNOWN;
+    ctx->percent_reliable = false;
     ctx->has_sample = false;
     ctx->candidate_state = XIAOXIN_BATTERY_STATE_UNKNOWN;
     ctx->candidate_since_ms = now_ms;
@@ -195,6 +236,15 @@ xiaoxin_battery_snapshot_t xiaoxin_battery_state_update(
   }
 
   update_smoothed_sample(ctx, voltage_mv);
+  ctx->power_source = XIAOXIN_BATTERY_POWER_BATTERY;
+  ctx->percent_reliable = true;
+  ctx->display_percent = ctx->estimated_percent;
+  // Keep the icon a little conservative so it does not stick at full bars
+  // when the underlying EMA is still settling near a boundary.
+  ctx->display_level = display_level_for_percent(
+    ctx->display_level,
+    ctx->display_percent > 6 ? ctx->display_percent - 6 : 0
+  );
 
   const xiaoxin_battery_state_t desired = desired_state_for(ctx);
   if (desired == ctx->state) {

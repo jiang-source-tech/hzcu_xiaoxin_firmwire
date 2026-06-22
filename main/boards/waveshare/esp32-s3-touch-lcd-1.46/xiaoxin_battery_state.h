@@ -15,13 +15,23 @@ typedef enum {
 } xiaoxin_battery_state_t;
 
 typedef enum {
+  XIAOXIN_BATTERY_POWER_BATTERY = 0,
+  XIAOXIN_BATTERY_POWER_EXTERNAL,
+  XIAOXIN_BATTERY_POWER_UNKNOWN,
+} xiaoxin_battery_power_source_t;
+
+typedef enum {
   XIAOXIN_BATTERY_LOAD_IDLE = 0,
   XIAOXIN_BATTERY_LOAD_VOICE_ACTIVE,
 } xiaoxin_battery_load_t;
 
 typedef struct {
   xiaoxin_battery_state_t state;
+  xiaoxin_battery_power_source_t power_source;
   int estimated_percent;
+  int display_percent;
+  uint8_t display_level;
+  bool percent_reliable;
   int smoothed_voltage_mv;
   bool low_edge;
   bool critical_edge;
@@ -30,7 +40,11 @@ typedef struct {
 
 typedef struct {
   xiaoxin_battery_state_t state;
+  xiaoxin_battery_power_source_t power_source;
   int estimated_percent;
+  int display_percent;
+  uint8_t display_level;
+  bool percent_reliable;
   int smoothed_voltage_mv;
   bool has_sample;
   uint32_t candidate_since_ms;

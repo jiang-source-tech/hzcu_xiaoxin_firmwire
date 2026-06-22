@@ -19,6 +19,10 @@ static void init_starts_unknown(void) {
   xiaoxin_battery_state_init(&ctx, 1000);
   xiaoxin_battery_snapshot_t snapshot = xiaoxin_battery_state_snapshot(&ctx);
   assert(snapshot.state == XIAOXIN_BATTERY_STATE_UNKNOWN);
+  assert(snapshot.power_source == XIAOXIN_BATTERY_POWER_UNKNOWN);
+  assert(snapshot.display_percent == 0);
+  assert(snapshot.display_level == 0);
+  assert(!snapshot.percent_reliable);
   assert(!snapshot.low_edge);
   assert(!snapshot.critical_edge);
   assert(!snapshot.recovered_edge);
@@ -180,8 +184,38 @@ static void invalid_and_nonpositive_samples_become_unknown_without_recovery(void
   assert(!snapshot.recovered_edge);
 }
 
+static void init_snapshot_has_display_fields(void) {
+  xiaoxin_battery_context_t ctx;
+  xiaoxin_battery_state_init(&ctx, 1000);
+  xiaoxin_battery_snapshot_t snapshot = xiaoxin_battery_state_snapshot(&ctx);
+  assert(snapshot.power_source == XIAOXIN_BATTERY_POWER_UNKNOWN);
+  assert(snapshot.display_percent == 0);
+  assert(snapshot.display_level == 0);
+  assert(!snapshot.percent_reliable);
+}
+
+static void display_level_has_hysteresis(void) {
+  xiaoxin_battery_context_t ctx;
+  xiaoxin_battery_state_init(&ctx, 0);
+
+  xiaoxin_battery_snapshot_t snapshot =
+    feed(&ctx, 4050, XIAOXIN_BATTERY_LOAD_IDLE, 1000);
+  snapshot = feed(&ctx, 4050, XIAOXIN_BATTERY_LOAD_IDLE, 6000);
+  assert(snapshot.power_source == XIAOXIN_BATTERY_POWER_BATTERY);
+  assert(snapshot.display_level == 4);
+
+  snapshot = feed(&ctx, 3950, XIAOXIN_BATTERY_LOAD_IDLE, 11000);
+  assert(snapshot.display_level == 4);
+
+  for (uint32_t now_ms = 16000; now_ms <= 70000; now_ms += 5000) {
+    snapshot = feed(&ctx, 3850, XIAOXIN_BATTERY_LOAD_IDLE, now_ms);
+  }
+  assert(snapshot.display_level == 3);
+}
+
 int main(void) {
   init_starts_unknown();
+  init_snapshot_has_display_fields();
   valid_samples_become_normal_after_confirmation();
   one_low_sample_does_not_turn_low();
   sustained_low_enters_low_once();
@@ -191,6 +225,7 @@ int main(void) {
   startup_sustained_critical_enters_critical();
   voice_active_extends_low_confirmation();
   invalid_and_nonpositive_samples_become_unknown_without_recovery();
+  display_level_has_hysteresis();
   puts("xiaoxin_battery_state tests passed");
   return 0;
 }
