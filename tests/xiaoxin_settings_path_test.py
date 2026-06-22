@@ -117,16 +117,25 @@ def test_wifi_reconfiguration_reuses_existing_entrypoint():
     assert "EnterWifiConfigMode()" in body
 
 
-def test_wifi_page_calls_board_reconfiguration_request():
+def test_wifi_page_defers_board_reconfiguration_until_after_display_lock():
+    source = read_source(BOARD_SOURCE)
     body = strip_cpp_comments(
-        function_body(read_source(BOARD_SOURCE), "void PaopaoPetDisplay::RenderSettingsWifiPage()")
+        function_body(source, "void PaopaoPetDisplay::RenderSettingsWifiPage()")
     )
+    loop_body = strip_cpp_comments(function_body(source, "void RunRenderLoop()"))
+    lock_start = loop_body.index("DisplayLockGuard lock(this)")
+    lock_end = loop_body.index("}", lock_start)
+    helper_call = loop_body.index("RequestSettingsWifiConfigFromSettingsPage()")
 
-    assert "閲嶆柊閰嶇綉" in body
-    assert "CustomBoard::Instance()->RequestSettingsWifiConfig()" in body
+    assert "settings_wifi_config_requested_ = true" in body
+    assert "CustomBoard::Instance()->RequestSettingsWifiConfig()" not in body
+    assert lock_start < loop_body.index("ConsumeSettingsWifiConfigRequestLocked()") < lock_end
+    assert lock_end < helper_call
+    assert "void CloseSettingsOverlayLocked()" in source
+    assert "static void RequestSettingsWifiConfigFromSettingsPage()" in source
 
 
-def test_target_settings_caps_do_not_enable_audio_or_power_save_initially():
+def test_target_settings_caps_do_not_enable_audio_or_vibration_initially():
     body = function_body(
         read_source(BOARD_SOURCE),
         "xiaoxin_settings_caps_t PaopaoPetDisplay::SettingsCaps() const",
@@ -148,6 +157,19 @@ def test_power_save_setting_is_only_enabled_when_timer_is_initialized():
     assert "new PowerSaveTimer(-1, 60, 300)" in source
     assert "SetPowerSaveMode(true)" in source
     assert "SetPowerSaveMode(false)" in source
+
+
+def test_power_save_timer_is_reset_by_local_button_and_touch_activity():
+    source = read_source(BOARD_SOURCE)
+    poll_body = strip_cpp_comments(function_body(source, "void PollTouch(uint32_t now_ms)"))
+    boot_section = strip_cpp_comments(section_between(source, "// Boot Button", "// Power Button"))
+    power_section = strip_cpp_comments(section_between(source, "// Power Button", "public:"))
+
+    assert "void WakePowerSaveTimer()" in source
+    assert "power_save_timer_->WakeUp()" in function_body(source, "void WakePowerSaveTimer()")
+    assert boot_section.count("self->WakePowerSaveTimer();") >= 2
+    assert power_section.count("self->WakePowerSaveTimer();") >= 2
+    assert "WakePowerSaveTimerFromTouch()" in poll_body
 
 
 def test_about_page_uses_esp_app_description():

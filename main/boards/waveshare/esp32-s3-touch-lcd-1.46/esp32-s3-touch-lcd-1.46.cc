@@ -87,6 +87,8 @@ extern const uint8_t assets_images_happy_gif_end[] asm("_binary_happy_gif_end");
 class CustomBoard;
 static int BoardBatteryVoltageMv();
 static PowerSaveTimer* TargetPowerSaveTimer();
+static void WakePowerSaveTimerFromTouch();
+static void RequestSettingsWifiConfigFromSettingsPage();
 extern const uint8_t assets_images_crying_gif_start[] asm("_binary_crying_gif_start");
 extern const uint8_t assets_images_crying_gif_end[] asm("_binary_crying_gif_end");
 extern const uint8_t assets_images_anxiety_gif_start[] asm("_binary_anxiety_gif_start");
@@ -807,13 +809,7 @@ public:
 
     void CloseSettingsOverlay() {
         DisplayLockGuard lock(this);
-        if (!settings_open_) {
-            return;
-        }
-        settings_open_ = false;
-        settings_view_ = SettingsView::List;
-        AddFlagIfCreated(settings_layer_, LV_OBJ_FLAG_HIDDEN);
-        RaiseOverlayObjects();
+        CloseSettingsOverlayLocked();
     }
 
     bool IsTouchMotionSuppressed(uint32_t now_ms) {
@@ -851,6 +847,7 @@ private:
     uint8_t settings_item_count_ = 0;
     SettingsView settings_view_ = SettingsView::List;
     bool settings_open_ = false;
+    bool settings_wifi_config_requested_ = false;
     GlassCard glass_cards_[k_card_glass_count];
     OverviewRow overview_rows_[k_overview_row_count];
     lv_obj_t* overview_separators_[k_overview_sep_count] = {};
@@ -1067,6 +1064,22 @@ private:
         lv_area_t coords;
         lv_obj_get_coords(obj, &coords);
         return x >= coords.x1 && x <= coords.x2 && y >= coords.y1 && y <= coords.y2;
+    }
+
+    bool ConsumeSettingsWifiConfigRequestLocked() {
+        const bool requested = settings_wifi_config_requested_;
+        settings_wifi_config_requested_ = false;
+        return requested;
+    }
+
+    void CloseSettingsOverlayLocked() {
+        if (!settings_open_) {
+            return;
+        }
+        settings_open_ = false;
+        settings_view_ = SettingsView::List;
+        AddFlagIfCreated(settings_layer_, LV_OBJ_FLAG_HIDDEN);
+        RaiseOverlayObjects();
     }
 
     xiaoxin_settings_caps_t SettingsCaps() const;
@@ -3071,6 +3084,7 @@ private:
         const esp_err_t touch_err = touch_->ReadPoint(x, y, pressed);
         if (touch_err != ESP_OK) {
             if (touch_pressed_) {
+                WakePowerSaveTimerFromTouch();
                 HandleTouchRelease(now_ms);
                 touch_last_active_ms_ = now_ms;
                 touch_pressed_ = false;
@@ -3080,6 +3094,10 @@ private:
                 ESP_LOGW(TAG, "Touch read failed: %s", esp_err_to_name(touch_err));
             }
             return;
+        }
+
+        if (pressed || touch_pressed_) {
+            WakePowerSaveTimerFromTouch();
         }
 
         if (settings_open_) {
@@ -3179,6 +3197,7 @@ private:
     void RunRenderLoop() {
         while (true) {
             const int64_t perf_start_us = k_ui_perf_trace_enabled ? esp_timer_get_time() : 0;
+            bool request_settings_wifi_config = false;
             {
                 DisplayLockGuard lock(this);
                 const uint32_t now_ms = NowMs();
@@ -3186,6 +3205,10 @@ private:
                 paopao_pet_trigger_tick(&trigger_, now_ms);
                 ApplyPetStateIfChanged();
                 LogUiPerfSummary(now_ms);
+                request_settings_wifi_config = ConsumeSettingsWifiConfigRequestLocked();
+            }
+            if (request_settings_wifi_config) {
+                RequestSettingsWifiConfigFromSettingsPage();
             }
             if (k_ui_perf_trace_enabled) {
                 AddUiPerfSample(
@@ -3730,6 +3753,7 @@ private:
         ESP_ERROR_CHECK(iot_button_create(&boot_btn_config, boot_btn_driver_, &boot_btn));
         iot_button_register_cb(boot_btn, BUTTON_SINGLE_CLICK, nullptr, [](void* button_handle, void* usr_data) {
             auto self = static_cast<CustomBoard*>(usr_data);
+            self->WakePowerSaveTimer();
             auto* display = static_cast<PaopaoPetDisplay*>(self->display_);
             if (display != nullptr && display->IsSettingsOpen()) {
                 display->CloseSettingsOverlay();
@@ -3744,6 +3768,7 @@ private:
         }, this);
         iot_button_register_cb(boot_btn, BUTTON_LONG_PRESS_START, nullptr, [](void* button_handle, void* usr_data) {
             auto self = static_cast<CustomBoard*>(usr_data);
+            self->WakePowerSaveTimer();
             self->OpenSettingsOverlayFromBootButton();
         }, this);
 
@@ -3759,10 +3784,13 @@ private:
         };
         ESP_ERROR_CHECK(iot_button_create(&pwr_btn_config, pwr_btn_driver_, &pwr_btn));
         iot_button_register_cb(pwr_btn, BUTTON_SINGLE_CLICK, nullptr, [](void* button_handle, void* usr_data) {
+            auto self = static_cast<CustomBoard*>(usr_data);
+            self->WakePowerSaveTimer();
             // 短按无处理
         }, this);
         iot_button_register_cb(pwr_btn, BUTTON_LONG_PRESS_START, nullptr, [](void* button_handle, void* usr_data) {
             auto self = static_cast<CustomBoard*>(usr_data);
+            self->WakePowerSaveTimer();
             self->RequestPowerOff();
         }, this);
     }
@@ -3790,6 +3818,12 @@ public:
 
     PowerSaveTimer* PowerSaveTimerForSettings() const {
         return power_save_timer_;
+    }
+
+    void WakePowerSaveTimer() {
+        if (power_save_timer_ != nullptr) {
+            power_save_timer_->WakeUp();
+        }
     }
 
     void RequestSettingsWifiConfig() {
@@ -3878,15 +3912,27 @@ void PaopaoPetDisplay::RenderSettingsWifiPage() {
     HideSettingsRowsLocked();
     lv_label_set_text(settings_title_label_, "Wi-Fi");
     lv_label_set_text(settings_hint_label_, "閲嶆柊閰嶇綉");
-    if (CustomBoard::Instance() != nullptr) {
-        CustomBoard::Instance()->RequestSettingsWifiConfig();
-    }
+    settings_wifi_config_requested_ = true;
+    CloseSettingsOverlayLocked();
 }
 
 static PowerSaveTimer* TargetPowerSaveTimer() {
     return CustomBoard::Instance() != nullptr
         ? CustomBoard::Instance()->PowerSaveTimerForSettings()
         : nullptr;
+}
+
+static void WakePowerSaveTimerFromTouch() {
+    PowerSaveTimer* power_save_timer = TargetPowerSaveTimer();
+    if (power_save_timer != nullptr) {
+        power_save_timer->WakeUp();
+    }
+}
+
+static void RequestSettingsWifiConfigFromSettingsPage() {
+    if (CustomBoard::Instance() != nullptr) {
+        CustomBoard::Instance()->RequestSettingsWifiConfig();
+    }
 }
 
 static int BoardBatteryVoltageMv() {
