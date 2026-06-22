@@ -17,7 +17,6 @@ enum {
   k_low_to_critical_idle_ms = 10000,
   k_low_to_critical_voice_ms = 30000,
   k_critical_to_low_ms = 15000,
-  k_min_plausible_mv = 3000,
   k_max_plausible_mv = 4400,
 };
 
@@ -55,7 +54,7 @@ static void reset_candidate(
 
 static bool is_plausible_sample(int voltage_mv, bool sample_valid) {
   return sample_valid &&
-         voltage_mv >= k_min_plausible_mv &&
+         voltage_mv > 0 &&
          voltage_mv <= k_max_plausible_mv;
 }
 
@@ -76,6 +75,16 @@ static uint32_t required_ms_for(
 ) {
   if (from == XIAOXIN_BATTERY_STATE_UNKNOWN && to == XIAOXIN_BATTERY_STATE_NORMAL) {
     return k_unknown_to_normal_ms;
+  }
+  if (from == XIAOXIN_BATTERY_STATE_UNKNOWN && to == XIAOXIN_BATTERY_STATE_LOW) {
+    return load == XIAOXIN_BATTERY_LOAD_VOICE_ACTIVE
+      ? k_normal_to_low_voice_ms
+      : k_normal_to_low_idle_ms;
+  }
+  if (from == XIAOXIN_BATTERY_STATE_UNKNOWN && to == XIAOXIN_BATTERY_STATE_CRITICAL) {
+    return load == XIAOXIN_BATTERY_LOAD_VOICE_ACTIVE
+      ? k_low_to_critical_voice_ms
+      : k_low_to_critical_idle_ms;
   }
   if (from == XIAOXIN_BATTERY_STATE_NORMAL && to == XIAOXIN_BATTERY_STATE_LOW) {
     return load == XIAOXIN_BATTERY_LOAD_VOICE_ACTIVE
@@ -102,9 +111,16 @@ static xiaoxin_battery_state_t desired_state_for(
   const int percent = ctx->estimated_percent;
   switch (ctx->state) {
     case XIAOXIN_BATTERY_STATE_UNKNOWN:
-      return percent >= k_unknown_to_normal_percent
-        ? XIAOXIN_BATTERY_STATE_NORMAL
-        : XIAOXIN_BATTERY_STATE_UNKNOWN;
+      if (percent <= k_low_to_critical_percent) {
+        return XIAOXIN_BATTERY_STATE_CRITICAL;
+      }
+      if (percent <= k_normal_to_low_percent) {
+        return XIAOXIN_BATTERY_STATE_LOW;
+      }
+      if (percent >= k_unknown_to_normal_percent) {
+        return XIAOXIN_BATTERY_STATE_NORMAL;
+      }
+      return XIAOXIN_BATTERY_STATE_UNKNOWN;
     case XIAOXIN_BATTERY_STATE_NORMAL:
       return percent <= k_normal_to_low_percent
         ? XIAOXIN_BATTERY_STATE_LOW
@@ -170,12 +186,11 @@ xiaoxin_battery_snapshot_t xiaoxin_battery_state_update(
   bool recovered_edge = false;
 
   if (!is_plausible_sample(voltage_mv, sample_valid)) {
-    const bool changed = ctx->state != XIAOXIN_BATTERY_STATE_UNKNOWN;
     ctx->state = XIAOXIN_BATTERY_STATE_UNKNOWN;
     ctx->has_sample = false;
     ctx->candidate_state = XIAOXIN_BATTERY_STATE_UNKNOWN;
     ctx->candidate_since_ms = now_ms;
-    ctx->last_snapshot = make_snapshot(ctx, false, false, changed);
+    ctx->last_snapshot = make_snapshot(ctx, false, false, false);
     return ctx->last_snapshot;
   }
 
@@ -196,8 +211,8 @@ xiaoxin_battery_snapshot_t xiaoxin_battery_state_update(
     ctx->state = desired;
     ctx->candidate_state = desired;
     ctx->candidate_since_ms = now_ms;
-    low_edge = previous == XIAOXIN_BATTERY_STATE_NORMAL &&
-               desired == XIAOXIN_BATTERY_STATE_LOW;
+    low_edge = desired == XIAOXIN_BATTERY_STATE_LOW &&
+               previous != XIAOXIN_BATTERY_STATE_LOW;
     critical_edge = desired == XIAOXIN_BATTERY_STATE_CRITICAL &&
                     previous != XIAOXIN_BATTERY_STATE_CRITICAL;
     recovered_edge =
