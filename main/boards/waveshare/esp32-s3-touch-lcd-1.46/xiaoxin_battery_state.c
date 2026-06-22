@@ -157,6 +157,17 @@ static uint8_t display_level_for_percent(uint8_t current_level, int percent) {
   return 1;
 }
 
+static void enforce_fixed_battery_display_level(xiaoxin_battery_context_t* ctx) {
+  if (ctx->power_source != XIAOXIN_BATTERY_POWER_BATTERY) {
+    return;
+  }
+  if (ctx->state == XIAOXIN_BATTERY_STATE_LOW) {
+    ctx->display_level = 1;
+  } else if (ctx->state == XIAOXIN_BATTERY_STATE_CRITICAL) {
+    ctx->display_level = 0;
+  }
+}
+
 static uint32_t required_ms_for(
   xiaoxin_battery_state_t from,
   xiaoxin_battery_state_t to,
@@ -520,6 +531,7 @@ xiaoxin_battery_snapshot_t xiaoxin_battery_state_update(
     }
     ctx->candidate_state = ctx->state;
     ctx->candidate_since_ms = now_ms;
+    enforce_fixed_battery_display_level(ctx);
     ctx->last_snapshot = make_snapshot(ctx, false, false, false);
     return ctx->last_snapshot;
   }
@@ -527,6 +539,7 @@ xiaoxin_battery_snapshot_t xiaoxin_battery_state_update(
   if (ctx->power_source != XIAOXIN_BATTERY_POWER_BATTERY) {
     ctx->candidate_state = ctx->state;
     ctx->candidate_since_ms = now_ms;
+    enforce_fixed_battery_display_level(ctx);
     ctx->last_snapshot = make_snapshot(ctx, false, false, false);
     return ctx->last_snapshot;
   }
@@ -538,6 +551,7 @@ xiaoxin_battery_snapshot_t xiaoxin_battery_state_update(
     if (ctx->state_edges_suppressed_until_reconfirmed) {
       ctx->state_edges_suppressed_until_reconfirmed = false;
     }
+    enforce_fixed_battery_display_level(ctx);
     ctx->last_snapshot = make_snapshot(ctx, false, false, false);
     return ctx->last_snapshot;
   }
@@ -570,13 +584,7 @@ xiaoxin_battery_snapshot_t xiaoxin_battery_state_update(
     recovered_edge = false;
   }
 
-  if (ctx->power_source == XIAOXIN_BATTERY_POWER_BATTERY) {
-    if (ctx->state == XIAOXIN_BATTERY_STATE_LOW) {
-      ctx->display_level = 1;
-    } else if (ctx->state == XIAOXIN_BATTERY_STATE_CRITICAL) {
-      ctx->display_level = 0;
-    }
-  }
+  enforce_fixed_battery_display_level(ctx);
 
   ctx->last_snapshot = make_snapshot(ctx, low_edge, critical_edge, recovered_edge);
   return ctx->last_snapshot;

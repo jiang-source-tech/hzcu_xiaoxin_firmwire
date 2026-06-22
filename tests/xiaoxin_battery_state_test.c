@@ -711,6 +711,11 @@ static void confirmed_battery_low_state_uses_display_level_one(void) {
   assert(snapshot.power_source == XIAOXIN_BATTERY_POWER_BATTERY);
   assert(snapshot.state == XIAOXIN_BATTERY_STATE_LOW);
   assert(snapshot.display_level == 1);
+
+  snapshot = feed(&ctx, 3800, XIAOXIN_BATTERY_LOAD_IDLE, now_ms + 5000);
+  assert(snapshot.power_source == XIAOXIN_BATTERY_POWER_BATTERY);
+  assert(snapshot.state == XIAOXIN_BATTERY_STATE_LOW);
+  assert(snapshot.display_level == 1);
 }
 
 static void confirmed_battery_critical_state_uses_display_level_zero(void) {
@@ -729,6 +734,11 @@ static void confirmed_battery_critical_state_uses_display_level_zero(void) {
     snapshot = feed(&ctx, 3450, XIAOXIN_BATTERY_LOAD_IDLE, now_ms);
   }
 
+  assert(snapshot.power_source == XIAOXIN_BATTERY_POWER_BATTERY);
+  assert(snapshot.state == XIAOXIN_BATTERY_STATE_CRITICAL);
+  assert(snapshot.display_level == 0);
+
+  snapshot = feed(&ctx, 3600, XIAOXIN_BATTERY_LOAD_IDLE, now_ms + 5000);
   assert(snapshot.power_source == XIAOXIN_BATTERY_POWER_BATTERY);
   assert(snapshot.state == XIAOXIN_BATTERY_STATE_CRITICAL);
   assert(snapshot.display_level == 0);
