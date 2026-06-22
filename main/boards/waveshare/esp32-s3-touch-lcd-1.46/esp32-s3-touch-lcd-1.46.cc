@@ -2106,7 +2106,11 @@ private:
         }
 
         const auto network_state = SystemOverlayNetworkState();
-        const auto style = xiaoxin_system_overlay_style(network_state, battery_snapshot_.state);
+        const auto style = xiaoxin_system_overlay_style(
+            network_state,
+            battery_snapshot_.state,
+            battery_snapshot_.power_source
+        );
         lv_obj_set_style_text_color(network_label_, lv_color_hex(style.network_color), 0);
         lv_obj_set_style_text_opa(network_label_, style.network_opa, 0);
         lv_label_set_text(
@@ -2150,12 +2154,18 @@ private:
             return;
         }
 
-        const int clamped = std::max(0, std::min(100, battery_snapshot_.estimated_percent));
-        const auto style = xiaoxin_system_overlay_style(SystemOverlayNetworkState(), battery_snapshot_.state);
+        const int level = std::max(0, std::min(4, (int)battery_snapshot_.display_level));
+        const auto style = xiaoxin_system_overlay_style(
+            SystemOverlayNetworkState(),
+            battery_snapshot_.state,
+            battery_snapshot_.power_source
+        );
         const int inner_w = k_system_battery_w - 4;
-        const int fill_w = battery_snapshot_.state == XIAOXIN_BATTERY_STATE_UNKNOWN
-            ? 3
-            : std::max(3, (inner_w * clamped) / 100);
+        const int fill_w =
+            battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_UNKNOWN &&
+            battery_snapshot_.display_level == 0
+                ? 3
+                : std::max(3, (inner_w * level) / 4);
         lv_obj_set_width(battery_overlay_fill_, fill_w);
         lv_obj_set_style_bg_color(
             battery_overlay_fill_,

@@ -31,7 +31,8 @@ typedef struct {
 
 xiaoxin_system_overlay_style_t xiaoxin_system_overlay_style(
   xiaoxin_system_overlay_network_state_t network_state,
-  xiaoxin_battery_state_t battery_state
+  xiaoxin_battery_state_t battery_state,
+  xiaoxin_battery_power_source_t power_source
 );
 
 #ifdef __cplusplus

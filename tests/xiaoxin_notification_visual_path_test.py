@@ -182,7 +182,10 @@ def test_low_battery_notification_uses_status_copy_without_percent():
     assert "xiaoxin_battery_context_t battery_context_ = {};" in source
     assert "xiaoxin_battery_snapshot_t battery_snapshot_ = {};" in source
     assert "RefreshBatterySnapshotLocked();" in status_body
-    assert "xiaoxin_system_overlay_style(SystemOverlayNetworkState(), battery_snapshot_.state)" in overlay_body
+    assert "xiaoxin_system_overlay_style(" in overlay_body
+    assert "SystemOverlayNetworkState()," in overlay_body
+    assert "battery_snapshot_.state," in overlay_body
+    assert "battery_snapshot_.power_source" in overlay_body
     assert "battery_snapshot_.state == XIAOXIN_BATTERY_STATE_LOW" in notification_body
     assert "battery_snapshot_.state == XIAOXIN_BATTERY_STATE_CRITICAL" in notification_body
     assert "level <= 20" not in notification_body
@@ -198,3 +201,14 @@ def test_low_battery_notification_reacts_to_state_changes_at_same_percent():
     assert "last_low_battery_notification_state_ = battery_snapshot_.state" in notification_body
     assert "last_low_battery_notification_state_ == battery_snapshot_.state" in notification_body
     assert "last_low_battery_notification_level_ == battery_snapshot_.estimated_percent" in notification_body
+
+
+def test_battery_overlay_uses_stable_display_level():
+    source = read_source()
+    start = source.index("void ApplyBatteryOverlayLevel()")
+    end = source.index("static uint32_t OverviewIconBgColorForTag", start)
+    body = source[start:end]
+
+    assert "battery_snapshot_.display_level" in body
+    assert "battery_snapshot_.estimated_percent" not in body
+    assert "battery_snapshot_.power_source" in body
