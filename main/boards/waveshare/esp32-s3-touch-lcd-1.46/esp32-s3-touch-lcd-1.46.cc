@@ -2073,6 +2073,7 @@ private:
 
         state.network_connected = SystemOverlayNetworkState() == XIAOXIN_SYSTEM_OVERLAY_NETWORK_CONNECTED;
         state.battery_state = battery_snapshot_.state;
+        state.battery_power_source = battery_snapshot_.power_source;
         state.battery_percent = battery_snapshot_.estimated_percent;
         state.battery_known = battery_snapshot_.state != XIAOXIN_BATTERY_STATE_UNKNOWN;
 

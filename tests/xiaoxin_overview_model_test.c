@@ -18,6 +18,7 @@ static void build_device_snapshot(
     xiaoxin_overview_state_t state = {
         .network_connected = true,
         .battery_state = battery_state,
+        .battery_power_source = XIAOXIN_BATTERY_POWER_BATTERY,
     };
 
     xiaoxin_overview_model_build(&state, snapshot);
@@ -62,6 +63,7 @@ static void assert_standard_card_headers(const xiaoxin_overview_snapshot_t* snap
 static void offline_defaults(void) {
     const xiaoxin_overview_state_t state = {
         .battery_state = XIAOXIN_BATTERY_STATE_NORMAL,
+        .battery_power_source = XIAOXIN_BATTERY_POWER_BATTERY,
     };
     xiaoxin_overview_snapshot_t snapshot;
 
@@ -80,6 +82,7 @@ static void connected_without_weather_location(void) {
     const xiaoxin_overview_state_t state = {
         .network_connected = true,
         .battery_state = XIAOXIN_BATTERY_STATE_NORMAL,
+        .battery_power_source = XIAOXIN_BATTERY_POWER_BATTERY,
     };
     xiaoxin_overview_snapshot_t snapshot;
 
@@ -99,6 +102,7 @@ static void rich_injected_sources(void) {
         .weekday = 5,
         .network_connected = true,
         .battery_state = XIAOXIN_BATTERY_STATE_NORMAL,
+        .battery_power_source = XIAOXIN_BATTERY_POWER_BATTERY,
         .weather_available = true,
         .weather_configured = true,
         .weather_summary = "多云 26C",
@@ -139,10 +143,37 @@ static void battery_state_uses_qualitative_status(void) {
     assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "WiFi 已连接", "请尽快充电");
 }
 
+static void external_power_source_uses_external_detail(void) {
+    const xiaoxin_overview_state_t state = {
+        .network_connected = true,
+        .battery_state = XIAOXIN_BATTERY_STATE_NORMAL,
+        .battery_power_source = XIAOXIN_BATTERY_POWER_EXTERNAL,
+    };
+    xiaoxin_overview_snapshot_t snapshot;
+
+    xiaoxin_overview_model_build(&state, &snapshot);
+
+    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "WiFi 已连接", "外接电源中");
+}
+
+static void unknown_power_source_uses_unknown_detail(void) {
+    const xiaoxin_overview_state_t state = {
+        .network_connected = true,
+        .battery_state = XIAOXIN_BATTERY_STATE_NORMAL,
+        .battery_power_source = XIAOXIN_BATTERY_POWER_UNKNOWN,
+    };
+    xiaoxin_overview_snapshot_t snapshot;
+
+    xiaoxin_overview_model_build(&state, &snapshot);
+
+    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "WiFi 已连接", "电量状态未知");
+}
+
 static void legacy_percent_fields_do_not_drive_device_detail(void) {
     const xiaoxin_overview_state_t state = {
         .network_connected = true,
         .battery_state = XIAOXIN_BATTERY_STATE_NORMAL,
+        .battery_power_source = XIAOXIN_BATTERY_POWER_BATTERY,
         .battery_percent = 0,
         .battery_known = false,
     };
@@ -162,6 +193,7 @@ static void body_and_detail_are_owned_by_snapshot(void) {
     const xiaoxin_overview_state_t state = {
         .network_connected = true,
         .battery_state = XIAOXIN_BATTERY_STATE_NORMAL,
+        .battery_power_source = XIAOXIN_BATTERY_POWER_BATTERY,
         .weather_available = true,
         .weather_configured = true,
         .weather_summary = weather_summary,
@@ -196,8 +228,11 @@ static void body_and_detail_are_owned_by_snapshot(void) {
 
 static void null_state_uses_safe_defaults(void) {
     xiaoxin_overview_snapshot_t snapshot;
+    xiaoxin_overview_state_t state = {
+        .battery_power_source = XIAOXIN_BATTERY_POWER_BATTERY,
+    };
 
-    xiaoxin_overview_model_build(NULL, &snapshot);
+    xiaoxin_overview_model_build(&state, &snapshot);
     xiaoxin_overview_model_build(NULL, NULL);
 
     assert(strcmp(snapshot.time_text, "--:--") == 0);
@@ -213,6 +248,8 @@ int main(void) {
     connected_without_weather_location();
     rich_injected_sources();
     battery_state_uses_qualitative_status();
+    external_power_source_uses_external_detail();
+    unknown_power_source_uses_unknown_detail();
     legacy_percent_fields_do_not_drive_device_detail();
     body_and_detail_are_owned_by_snapshot();
     null_state_uses_safe_defaults();

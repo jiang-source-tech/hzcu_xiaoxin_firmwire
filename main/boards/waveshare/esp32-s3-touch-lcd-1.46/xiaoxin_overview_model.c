@@ -22,7 +22,17 @@ static void copy_detail(xiaoxin_overview_snapshot_t* snapshot, uint8_t index, co
   snprintf(snapshot->detail_storage[index], XIAOXIN_OVERVIEW_DETAIL_MAX, "%s", text);
 }
 
-static const char* battery_status_text(xiaoxin_battery_state_t state) {
+static const char* battery_status_text(
+  xiaoxin_battery_state_t state,
+  xiaoxin_battery_power_source_t power_source
+) {
+  if (power_source == XIAOXIN_BATTERY_POWER_EXTERNAL) {
+    return "外接电源中";
+  }
+  if (power_source == XIAOXIN_BATTERY_POWER_UNKNOWN) {
+    return "电量状态未知";
+  }
+
   switch (state) {
     case XIAOXIN_BATTERY_STATE_NORMAL:
       return "电量正常";
@@ -183,6 +193,10 @@ static void build_device_item(
   xiaoxin_overview_snapshot_t* snapshot
 ) {
   const bool network_connected = state != NULL && state->network_connected;
+  const xiaoxin_battery_power_source_t power_source =
+    state != NULL ? state->battery_power_source : XIAOXIN_BATTERY_POWER_UNKNOWN;
+  const xiaoxin_battery_state_t battery_state =
+    state != NULL ? state->battery_state : XIAOXIN_BATTERY_STATE_UNKNOWN;
 
   copy_body(
     snapshot,
@@ -193,7 +207,7 @@ static void build_device_item(
   copy_detail(
     snapshot,
     XIAOXIN_OVERVIEW_DEVICE_INDEX,
-    battery_status_text(state != NULL ? state->battery_state : XIAOXIN_BATTERY_STATE_UNKNOWN)
+    battery_status_text(battery_state, power_source)
   );
 }
 
