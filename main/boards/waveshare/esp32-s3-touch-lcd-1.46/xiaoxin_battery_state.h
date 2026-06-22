@@ -52,6 +52,8 @@ typedef struct {
   uint8_t candidate_power_count;
   uint32_t power_source_since_ms;
   uint8_t invalid_sample_count;
+  uint32_t unknown_since_ms;
+  uint32_t battery_candidate_since_ms;
   uint8_t high_sample_count;
   int trend_window_min_mv;
   int trend_window_max_mv;
@@ -62,6 +64,7 @@ typedef struct {
   uint32_t alternation_window_start_ms;
   uint8_t alternating_sample_count;
   uint8_t last_sample_quality;
+  bool state_edges_suppressed_until_reconfirmed;
   xiaoxin_battery_state_t candidate_state;
   xiaoxin_battery_snapshot_t last_snapshot;
 } xiaoxin_battery_context_t;
