@@ -86,7 +86,7 @@ extern const uint8_t assets_images_happy_gif_end[] asm("_binary_happy_gif_end");
 
 class CustomBoard;
 static int BoardBatteryVoltageMv();
-static bool TargetHasPowerSaveScheduler();
+static PowerSaveTimer* TargetPowerSaveTimer();
 extern const uint8_t assets_images_crying_gif_start[] asm("_binary_crying_gif_start");
 extern const uint8_t assets_images_crying_gif_end[] asm("_binary_crying_gif_end");
 extern const uint8_t assets_images_anxiety_gif_start[] asm("_binary_anxiety_gif_start");
@@ -1069,15 +1069,7 @@ private:
         return x >= coords.x1 && x <= coords.x2 && y >= coords.y1 && y <= coords.y2;
     }
 
-    xiaoxin_settings_caps_t SettingsCaps() const {
-        const xiaoxin_settings_caps_t caps = {
-            .has_audio_output = false,
-            .has_vibration = false,
-            // Path contract: .has_power_save_scheduler = power_save_timer_ != nullptr
-            .has_power_save_scheduler = TargetHasPowerSaveScheduler(),
-        };
-        return caps;
-    }
+    xiaoxin_settings_caps_t SettingsCaps() const;
 
     void EnsureSettingsOverlayLocked() {
         if (settings_layer_ != nullptr) {
@@ -3796,6 +3788,10 @@ public:
         return power_save_timer_ != nullptr;
     }
 
+    PowerSaveTimer* PowerSaveTimerForSettings() const {
+        return power_save_timer_;
+    }
+
     void RequestSettingsWifiConfig() {
         auto* display = static_cast<PaopaoPetDisplay*>(display_);
         if (display != nullptr) {
@@ -3840,6 +3836,16 @@ public:
     }
 };
 
+xiaoxin_settings_caps_t PaopaoPetDisplay::SettingsCaps() const {
+    PowerSaveTimer* power_save_timer_ = TargetPowerSaveTimer();
+    const xiaoxin_settings_caps_t caps = {
+        .has_audio_output = false,
+        .has_vibration = false,
+        .has_power_save_scheduler = power_save_timer_ != nullptr,
+    };
+    return caps;
+}
+
 void PaopaoPetDisplay::RenderSettingsBrightnessPage() {
     settings_view_ = SettingsView::Brightness;
     EnsureSettingsOverlayLocked();
@@ -3877,9 +3883,10 @@ void PaopaoPetDisplay::RenderSettingsWifiPage() {
     }
 }
 
-static bool TargetHasPowerSaveScheduler() {
-    return CustomBoard::Instance() != nullptr &&
-        CustomBoard::Instance()->HasPowerSaveScheduler();
+static PowerSaveTimer* TargetPowerSaveTimer() {
+    return CustomBoard::Instance() != nullptr
+        ? CustomBoard::Instance()->PowerSaveTimerForSettings()
+        : nullptr;
 }
 
 static int BoardBatteryVoltageMv() {

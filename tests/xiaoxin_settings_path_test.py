@@ -127,7 +127,10 @@ def test_wifi_page_calls_board_reconfiguration_request():
 
 
 def test_target_settings_caps_do_not_enable_audio_or_power_save_initially():
-    body = function_body(read_source(BOARD_SOURCE), "xiaoxin_settings_caps_t SettingsCaps() const")
+    body = function_body(
+        read_source(BOARD_SOURCE),
+        "xiaoxin_settings_caps_t PaopaoPetDisplay::SettingsCaps() const",
+    )
 
     assert ".has_audio_output = false" in body
     assert ".has_vibration = false" in body
@@ -135,7 +138,9 @@ def test_target_settings_caps_do_not_enable_audio_or_power_save_initially():
 
 def test_power_save_setting_is_only_enabled_when_timer_is_initialized():
     source = read_source(BOARD_SOURCE)
-    caps_body = function_body(source, "xiaoxin_settings_caps_t SettingsCaps() const")
+    caps_body = strip_cpp_comments(
+        function_body(source, "xiaoxin_settings_caps_t PaopaoPetDisplay::SettingsCaps() const")
+    )
 
     assert "PowerSaveTimer* power_save_timer_" in source
     assert "InitializePowerSaveTimer()" in source
