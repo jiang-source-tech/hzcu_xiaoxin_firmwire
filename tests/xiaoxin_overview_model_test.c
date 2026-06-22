@@ -228,11 +228,8 @@ static void body_and_detail_are_owned_by_snapshot(void) {
 
 static void null_state_uses_safe_defaults(void) {
     xiaoxin_overview_snapshot_t snapshot;
-    xiaoxin_overview_state_t state = {
-        .battery_power_source = XIAOXIN_BATTERY_POWER_BATTERY,
-    };
 
-    xiaoxin_overview_model_build(&state, &snapshot);
+    xiaoxin_overview_model_build(NULL, &snapshot);
     xiaoxin_overview_model_build(NULL, NULL);
 
     assert(strcmp(snapshot.time_text, "--:--") == 0);
@@ -240,7 +237,7 @@ static void null_state_uses_safe_defaults(void) {
     assert_card(&snapshot, WEATHER_INDEX, "天气", "天气", 1, "天气未同步", "连接网络后更新");
     assert_card(&snapshot, COURSE_INDEX, "下一节课", "课程", 2, "暂无课程", "在配置中添加课表");
     assert_card(&snapshot, TODO_INDEX, "今日待办", "待办", 3, "暂无待办", "添加提醒后显示");
-    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "离线模式", "电量未知");
+    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "离线模式", "电量状态未知");
 }
 
 int main(void) {
