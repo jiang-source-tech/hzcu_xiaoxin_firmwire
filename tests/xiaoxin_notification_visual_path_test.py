@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 SOURCE = Path(
@@ -24,6 +25,10 @@ def function_body(source: str, signature: str) -> str:
             if depth == 0:
                 return source[brace + 1 : index]
     raise AssertionError(f"function body not found: {signature}")
+
+
+def normalize_whitespace(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def test_notification_scroll_animation_uses_lightweight_visual_path():
@@ -207,8 +212,11 @@ def test_battery_overlay_uses_stable_display_level():
     source = read_source()
     start = source.index("void ApplyBatteryOverlayLevel()")
     end = source.index("static uint32_t OverviewIconBgColorForTag", start)
-    body = source[start:end]
+    body = normalize_whitespace(source[start:end])
 
     assert "battery_snapshot_.display_level" in body
     assert "battery_snapshot_.estimated_percent" not in body
     assert "battery_snapshot_.power_source" in body
+    assert "const int level = std::max(0, std::min(4, (int)battery_snapshot_.display_level));" in body
+    assert "const int inner_w = k_system_battery_w - 4;" in body
+    assert "battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_UNKNOWN && battery_snapshot_.display_level == 0 ? 3 : std::max(3, (inner_w * level) / 4);" in body
