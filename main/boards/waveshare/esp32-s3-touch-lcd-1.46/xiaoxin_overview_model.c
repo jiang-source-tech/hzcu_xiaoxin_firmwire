@@ -22,28 +22,18 @@ static void copy_detail(xiaoxin_overview_snapshot_t* snapshot, uint8_t index, co
   snprintf(snapshot->detail_storage[index], XIAOXIN_OVERVIEW_DETAIL_MAX, "%s", text);
 }
 
-static int clamp_battery_percent(int percent) {
-  if (percent < 0) {
-    return 0;
+static const char* battery_status_text(xiaoxin_battery_state_t state) {
+  switch (state) {
+    case XIAOXIN_BATTERY_STATE_NORMAL:
+      return "电量正常";
+    case XIAOXIN_BATTERY_STATE_LOW:
+      return "电量偏低";
+    case XIAOXIN_BATTERY_STATE_CRITICAL:
+      return "请尽快充电";
+    case XIAOXIN_BATTERY_STATE_UNKNOWN:
+    default:
+      return "电量未知";
   }
-  if (percent > 100) {
-    return 100;
-  }
-  return percent;
-}
-
-static const char* battery_status_text(int percent) {
-  const int clamped = clamp_battery_percent(percent);
-  if (clamped >= 60) {
-    return "电量充足";
-  }
-  if (clamped >= 30) {
-    return "电量正常";
-  }
-  if (clamped >= 15) {
-    return "电量偏低";
-  }
-  return "请尽快充电";
 }
 
 static int clamp_two_digit(int value) {
@@ -200,12 +190,11 @@ static void build_device_item(
     network_connected ? "WiFi 已连接" : "离线模式"
   );
 
-  if (state != NULL && state->battery_known) {
-    copy_detail(snapshot, XIAOXIN_OVERVIEW_DEVICE_INDEX, battery_status_text(state->battery_percent));
-    return;
-  }
-
-  copy_detail(snapshot, XIAOXIN_OVERVIEW_DEVICE_INDEX, "电量未知");
+  copy_detail(
+    snapshot,
+    XIAOXIN_OVERVIEW_DEVICE_INDEX,
+    battery_status_text(state != NULL ? state->battery_state : XIAOXIN_BATTERY_STATE_UNKNOWN)
+  );
 }
 
 void xiaoxin_overview_model_build(

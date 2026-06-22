@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "xiaoxin_battery_state.h"
 #include "xiaoxin_card_pager.h"
 
 #ifdef __cplusplus
@@ -21,8 +22,7 @@ typedef struct {
   int day;
   uint8_t weekday;
   bool network_connected;
-  int battery_percent;
-  bool battery_known;
+  xiaoxin_battery_state_t battery_state;
   bool weather_available;
   bool weather_configured;
   const char* weather_summary;
