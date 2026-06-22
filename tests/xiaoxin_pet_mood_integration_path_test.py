@@ -64,6 +64,18 @@ def test_pet_mood_uses_battery_state_edges_not_percent_thresholds():
     assert "battery_level <=" not in body
 
 
+def test_pet_mood_battery_edges_require_battery_power_source():
+    source = read_source()
+    start = source.index("void SyncPetMoodDeviceStateLocked()")
+    end = source.index("void ApplyBatteryOverlayLevel()", start)
+    body = source[start:end]
+
+    assert "battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_BATTERY" in body
+    assert "battery_snapshot_.low_edge" in body
+    assert "battery_snapshot_.critical_edge" in body
+    assert "battery_snapshot_.recovered_edge" in body
+
+
 def test_touch_and_motion_update_mood_but_boot_button_does_not():
     source = read_source()
 

@@ -905,9 +905,12 @@ private:
     }
 
     void SyncLowBatteryNotificationLocked() {
+        const bool battery_powered =
+            battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_BATTERY;
         const bool low =
-            battery_snapshot_.state == XIAOXIN_BATTERY_STATE_LOW ||
-            battery_snapshot_.state == XIAOXIN_BATTERY_STATE_CRITICAL;
+            battery_powered &&
+            (battery_snapshot_.state == XIAOXIN_BATTERY_STATE_LOW ||
+             battery_snapshot_.state == XIAOXIN_BATTERY_STATE_CRITICAL);
         if (!low) {
             if (low_battery_notification_active_) {
                 RemoveNotificationEventLocked(XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY);
@@ -2122,13 +2125,16 @@ private:
 
     void SyncPetMoodDeviceStateLocked() {
         const uint32_t now_ms = NowMs();
-        if (battery_snapshot_.low_edge || battery_snapshot_.critical_edge) {
+        const bool battery_powered =
+            battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_BATTERY;
+        if (battery_powered &&
+            (battery_snapshot_.low_edge || battery_snapshot_.critical_edge)) {
             DispatchPetMoodEventLocked(
                 PAOPAO_PET_MOOD_EVENT_BATTERY_LOW,
                 PAOPAO_PET_TRIGGER_NONE,
                 now_ms
             );
-        } else if (battery_snapshot_.recovered_edge) {
+        } else if (battery_powered && battery_snapshot_.recovered_edge) {
             DispatchPetMoodEventLocked(
                 PAOPAO_PET_MOOD_EVENT_BATTERY_RECOVERED,
                 PAOPAO_PET_TRIGGER_NONE,

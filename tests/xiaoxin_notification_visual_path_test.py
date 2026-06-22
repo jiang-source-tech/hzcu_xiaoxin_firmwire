@@ -198,6 +198,16 @@ def test_low_battery_notification_uses_status_copy_without_percent():
     assert "电量偏低，请尽快充电" in notification_body
 
 
+def test_low_battery_notification_requires_battery_power_source():
+    source = read_source()
+    start = source.index("void SyncLowBatteryNotificationLocked()")
+    end = source.index("void ApplySystemOverlayNetworkStyle()", start)
+    body = source[start:end]
+
+    assert "battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_BATTERY" in body
+    assert "battery_snapshot_.estimated_percent <= 20" not in body
+
+
 def test_low_battery_notification_reacts_to_state_changes_at_same_percent():
     source = read_source()
     notification_body = function_body(source, "void SyncLowBatteryNotificationLocked()")
