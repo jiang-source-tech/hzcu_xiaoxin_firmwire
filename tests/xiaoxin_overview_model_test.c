@@ -11,6 +11,19 @@ enum {
     DEVICE_INDEX = 3,
 };
 
+static void build_device_snapshot(
+    xiaoxin_battery_state_t battery_state,
+    xiaoxin_overview_snapshot_t* snapshot
+) {
+    xiaoxin_overview_state_t state = {
+        .network_connected = true,
+        .battery_state = battery_state,
+        .battery_power_source = XIAOXIN_BATTERY_POWER_BATTERY,
+    };
+
+    xiaoxin_overview_model_build(&state, snapshot);
+}
+
 static void assert_card(
     const xiaoxin_overview_snapshot_t* snapshot,
     uint8_t index,
@@ -49,8 +62,8 @@ static void assert_standard_card_headers(const xiaoxin_overview_snapshot_t* snap
 
 static void offline_defaults(void) {
     const xiaoxin_overview_state_t state = {
-        .battery_percent = 78,
-        .battery_known = true,
+        .battery_state = XIAOXIN_BATTERY_STATE_NORMAL,
+        .battery_power_source = XIAOXIN_BATTERY_POWER_BATTERY,
     };
     xiaoxin_overview_snapshot_t snapshot;
 
@@ -62,14 +75,14 @@ static void offline_defaults(void) {
     assert_card(&snapshot, WEATHER_INDEX, "天气", "天气", 1, "天气未同步", "连接网络后更新");
     assert_card(&snapshot, COURSE_INDEX, "下一节课", "课程", 2, "暂无课程", "在配置中添加课表");
     assert_card(&snapshot, TODO_INDEX, "今日待办", "待办", 3, "暂无待办", "添加提醒后显示");
-    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "离线模式", "电量充足");
+    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "离线模式", "电量正常");
 }
 
 static void connected_without_weather_location(void) {
     const xiaoxin_overview_state_t state = {
         .network_connected = true,
-        .battery_percent = 55,
-        .battery_known = true,
+        .battery_state = XIAOXIN_BATTERY_STATE_NORMAL,
+        .battery_power_source = XIAOXIN_BATTERY_POWER_BATTERY,
     };
     xiaoxin_overview_snapshot_t snapshot;
 
@@ -88,8 +101,8 @@ static void rich_injected_sources(void) {
         .day = 19,
         .weekday = 5,
         .network_connected = true,
-        .battery_percent = 78,
-        .battery_known = true,
+        .battery_state = XIAOXIN_BATTERY_STATE_NORMAL,
+        .battery_power_source = XIAOXIN_BATTERY_POWER_BATTERY,
         .weather_available = true,
         .weather_configured = true,
         .weather_summary = "多云 26C",
@@ -111,41 +124,64 @@ static void rich_injected_sources(void) {
     assert_card(&snapshot, WEATHER_INDEX, "天气", "天气", 1, "多云 26C", "湿度72% · 东风2级");
     assert_card(&snapshot, COURSE_INDEX, "下一节课", "课程", 2, "高数 10:10", "教2-301 · 还有24分");
     assert_card(&snapshot, TODO_INDEX, "今日待办", "待办", 3, "2 项待办", "实验报告 · 晚自习");
-    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "WiFi 已连接", "电量充足");
+    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "WiFi 已连接", "电量正常");
 }
 
-static void unknown_battery(void) {
+static void battery_state_uses_qualitative_status(void) {
+    xiaoxin_overview_snapshot_t snapshot;
+
+    build_device_snapshot(XIAOXIN_BATTERY_STATE_UNKNOWN, &snapshot);
+    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "WiFi 已连接", "电量未知");
+
+    build_device_snapshot(XIAOXIN_BATTERY_STATE_NORMAL, &snapshot);
+    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "WiFi 已连接", "电量正常");
+
+    build_device_snapshot(XIAOXIN_BATTERY_STATE_LOW, &snapshot);
+    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "WiFi 已连接", "电量偏低");
+
+    build_device_snapshot(XIAOXIN_BATTERY_STATE_CRITICAL, &snapshot);
+    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "WiFi 已连接", "请尽快充电");
+}
+
+static void external_power_source_uses_external_detail(void) {
     const xiaoxin_overview_state_t state = {
         .network_connected = true,
+        .battery_state = XIAOXIN_BATTERY_STATE_NORMAL,
+        .battery_power_source = XIAOXIN_BATTERY_POWER_EXTERNAL,
     };
     xiaoxin_overview_snapshot_t snapshot;
 
     xiaoxin_overview_model_build(&state, &snapshot);
 
-    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "WiFi 已连接", "电量未知");
+    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "WiFi 已连接", "外接电源中");
 }
 
-static void known_battery_uses_qualitative_status_bands(void) {
-    xiaoxin_overview_state_t state = {
-        .battery_known = true,
-        .battery_percent = 120,
+static void unknown_power_source_uses_unknown_detail(void) {
+    const xiaoxin_overview_state_t state = {
+        .network_connected = true,
+        .battery_state = XIAOXIN_BATTERY_STATE_NORMAL,
+        .battery_power_source = XIAOXIN_BATTERY_POWER_UNKNOWN,
     };
     xiaoxin_overview_snapshot_t snapshot;
 
     xiaoxin_overview_model_build(&state, &snapshot);
-    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "离线模式", "电量充足");
 
-    state.battery_percent = 55;
-    xiaoxin_overview_model_build(&state, &snapshot);
-    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "离线模式", "电量正常");
+    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "WiFi 已连接", "电量状态未知");
+}
 
-    state.battery_percent = 20;
-    xiaoxin_overview_model_build(&state, &snapshot);
-    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "离线模式", "电量偏低");
+static void legacy_percent_fields_do_not_drive_device_detail(void) {
+    const xiaoxin_overview_state_t state = {
+        .network_connected = true,
+        .battery_state = XIAOXIN_BATTERY_STATE_NORMAL,
+        .battery_power_source = XIAOXIN_BATTERY_POWER_BATTERY,
+        .battery_percent = 0,
+        .battery_known = false,
+    };
+    xiaoxin_overview_snapshot_t snapshot;
 
-    state.battery_percent = -20;
     xiaoxin_overview_model_build(&state, &snapshot);
-    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "离线模式", "请尽快充电");
+
+    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "WiFi 已连接", "电量正常");
 }
 
 static void body_and_detail_are_owned_by_snapshot(void) {
@@ -156,8 +192,8 @@ static void body_and_detail_are_owned_by_snapshot(void) {
     char todo_detail[] = "带校卡";
     const xiaoxin_overview_state_t state = {
         .network_connected = true,
-        .battery_percent = 66,
-        .battery_known = true,
+        .battery_state = XIAOXIN_BATTERY_STATE_NORMAL,
+        .battery_power_source = XIAOXIN_BATTERY_POWER_BATTERY,
         .weather_available = true,
         .weather_configured = true,
         .weather_summary = weather_summary,
@@ -201,15 +237,17 @@ static void null_state_uses_safe_defaults(void) {
     assert_card(&snapshot, WEATHER_INDEX, "天气", "天气", 1, "天气未同步", "连接网络后更新");
     assert_card(&snapshot, COURSE_INDEX, "下一节课", "课程", 2, "暂无课程", "在配置中添加课表");
     assert_card(&snapshot, TODO_INDEX, "今日待办", "待办", 3, "暂无待办", "添加提醒后显示");
-    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "离线模式", "电量未知");
+    assert_card(&snapshot, DEVICE_INDEX, "设备状态", "设备", 4, "离线模式", "电量状态未知");
 }
 
 int main(void) {
     offline_defaults();
     connected_without_weather_location();
     rich_injected_sources();
-    unknown_battery();
-    known_battery_uses_qualitative_status_bands();
+    battery_state_uses_qualitative_status();
+    external_power_source_uses_external_detail();
+    unknown_power_source_uses_unknown_detail();
+    legacy_percent_fields_do_not_drive_device_detail();
     body_and_detail_are_owned_by_snapshot();
     null_state_uses_safe_defaults();
     puts("xiaoxin_overview_model tests passed");

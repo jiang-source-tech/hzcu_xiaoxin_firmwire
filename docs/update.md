@@ -1,5 +1,43 @@
 ﻿# Update
 
+## 2026-06-21 21:22:40 +08:00
+
+### Waveshare ESP32-S3 Touch LCD 1.46 BOOT 按键宠物动画触发释放
+
+#### 背景
+
+P1 宠物情绪系统接入后，BOOT 按键需要从宠物情绪和宠物动画触发路径中闲置出来，避免它继续承担屏幕触摸之外的宠物交互职责。该按键后续可保留给系统、调试、设置入口或产品层面的独立决策。
+
+#### 修改内容
+
+- BOOT 单击不再触发宠物本地点击动画：
+  - 不再派发 `PAOPAO_PET_TRIGGER_LOCAL_TAP`。
+  - 不再播放 `done.gif` 作为 BOOT 单击反馈。
+- BOOT 长按不再触发宠物本地长按动画：
+  - 不再派发 `PAOPAO_PET_TRIGGER_LOCAL_HOLD`。
+  - 不再通过 BOOT 长按切换 `sleeping.gif`。
+- BOOT 单击保留既有系统行为：
+  - 启动阶段仍可进入 WiFi 配置。
+  - 其他状态仍可切换聊天状态。
+- BOOT 长按当前预留给未来系统、设置或调试入口。
+- 宠物本地即时反馈继续由屏幕触摸、拖动和 IMU 摇晃触发。
+
+#### 涉及文件
+
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `tests/xiaoxin_pet_mood_integration_path_test.py`
+- `docs/xiaoxin-pet-emotion-gif-mapping.zh-CN.md`
+- `docs/superpowers/specs/2026-06-21-xiaoxin-pet-mood-system-design.zh-CN.md`
+- `docs/update.md`
+
+#### 验证结果
+
+- `tests/xiaoxin_pet_mood_integration_path_test.py` 已覆盖 BOOT 区段不包含 `DispatchPetTrigger`、`PAOPAO_PET_TRIGGER_LOCAL_TAP` 和 `PAOPAO_PET_TRIGGER_LOCAL_HOLD`。
+- 当前实现中 BOOT 不作为 `paopao_pet_mood` 输入，也不直接触发宠物 GIF 切换。
+- `python -m pytest tests/xiaoxin_pet_mood_integration_path_test.py tests/xiaoxin_notification_visual_path_test.py -q`：通过，21 passed。
+- `paopao_pet_mood_test`、`paopao_pet_trigger_test`、`paopao_pet_emotion_test`、`paopao_pet_gif_assets_test`：均已通过 host C 测试。
+- 当前 shell 未找到 `idf.py`，因此本轮未执行完整 ESP-IDF 固件构建。
+
 ## 2026-06-19 00:00:00 +08:00
 
 ### Waveshare ESP32-S3 Touch LCD 1.46 宠物核心情绪 GIF 映射

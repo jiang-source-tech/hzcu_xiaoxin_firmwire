@@ -198,6 +198,30 @@ static void notification_event_injection_adds_real_notifications(void) {
     assert(current->priority == 2);
 }
 
+static void notification_low_battery_copy_respects_safe_critical_body(void) {
+    xiaoxin_card_pager_t pager;
+    xiaoxin_card_pager_init(&pager, 412);
+
+    const xiaoxin_notification_event_t critical_low_battery = {
+        .type = XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY,
+        .body = "电量很低，请尽快充电",
+    };
+    const xiaoxin_notification_event_t percent_low_battery = {
+        .type = XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY,
+        .body = "剩余 18%",
+    };
+
+    assert(xiaoxin_card_pager_notification_upsert_event(&pager, &critical_low_battery));
+    const xiaoxin_card_item_t* current = xiaoxin_card_pager_current_notification(&pager);
+    assert(current != NULL);
+    assert(strcmp(current->body, "电量很低，请尽快充电") == 0);
+
+    assert(xiaoxin_card_pager_notification_upsert_event(&pager, &percent_low_battery));
+    current = xiaoxin_card_pager_current_notification(&pager);
+    assert(current != NULL);
+    assert(strcmp(current->body, "电量偏低，请尽快充电") == 0);
+}
+
 static void notification_event_upsert_replaces_existing_source(void) {
     xiaoxin_card_pager_t pager;
     xiaoxin_card_pager_init(&pager, 412);
@@ -452,6 +476,7 @@ int main(void) {
     overview_items_are_owned_by_overview_model();
     notification_center_starts_empty_until_events_arrive();
     notification_event_injection_adds_real_notifications();
+    notification_low_battery_copy_respects_safe_critical_body();
     notification_event_upsert_replaces_existing_source();
     chat_reply_events_are_ignored_by_notification_center();
     course_reminder_helper_injects_class_notification_once_in_window();
