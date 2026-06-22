@@ -234,7 +234,18 @@ static void display_level_has_hysteresis(void) {
   for (uint32_t now_ms = 16000; now_ms <= 70000; now_ms += 5000) {
     snapshot = feed(&ctx, 3800, XIAOXIN_BATTERY_LOAD_IDLE, now_ms);
   }
+  assert(snapshot.display_level == 4);
+  assert(snapshot.display_percent >= 65);
+
+  for (
+    uint32_t now_ms = 75000;
+    snapshot.display_level != 3 && now_ms <= 200000;
+    now_ms += 5000
+  ) {
+    snapshot = feed(&ctx, 3800, XIAOXIN_BATTERY_LOAD_IDLE, now_ms);
+  }
   assert(snapshot.display_level == 3);
+  assert(snapshot.display_percent < 65);
 }
 
 static void high_untrusted_samples_do_not_show_full_battery(void) {
