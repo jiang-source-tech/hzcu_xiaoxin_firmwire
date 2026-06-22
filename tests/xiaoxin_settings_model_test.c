@@ -33,6 +33,8 @@ static void default_target_items_exclude_audio_and_power_save(void) {
   assert(items[2] == XIAOXIN_SETTINGS_ITEM_ABOUT);
   assert(!contains_item(items, count, XIAOXIN_SETTINGS_ITEM_VOLUME));
   assert(!contains_item(items, count, XIAOXIN_SETTINGS_ITEM_MUTE));
+  assert(!contains_item(items, count, XIAOXIN_SETTINGS_ITEM_PROMPT_SOUND));
+  assert(!contains_item(items, count, XIAOXIN_SETTINGS_ITEM_VIBRATION));
   assert(!contains_item(items, count, XIAOXIN_SETTINGS_ITEM_POWER_SAVE));
 }
 
@@ -78,6 +80,7 @@ static void item_count_is_clamped_to_output_capacity(void) {
 
 static void only_idle_runtime_state_can_open_settings(void) {
   assert(xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_IDLE));
+  assert(!xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_UNKNOWN));
   assert(!xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_STARTING));
   assert(!xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_CONNECTING));
   assert(!xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_LISTENING));
