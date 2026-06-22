@@ -188,3 +188,13 @@ def test_low_battery_notification_uses_status_copy_without_percent():
     assert "level <= 20" not in notification_body
     assert "剩余 %d%%" not in notification_body
     assert "电量偏低，请尽快充电" in notification_body
+
+
+def test_low_battery_notification_reacts_to_state_changes_at_same_percent():
+    source = read_source()
+    notification_body = function_body(source, "void SyncLowBatteryNotificationLocked()")
+
+    assert "last_low_battery_notification_state_" in source
+    assert "last_low_battery_notification_state_ = battery_snapshot_.state" in notification_body
+    assert "last_low_battery_notification_state_ == battery_snapshot_.state" in notification_body
+    assert "last_low_battery_notification_level_ == battery_snapshot_.estimated_percent" in notification_body

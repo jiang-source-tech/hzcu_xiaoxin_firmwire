@@ -833,6 +833,8 @@ private:
     uint8_t notification_animating_visible_index_ = 0xff;
     bool low_battery_notification_active_ = false;
     int last_low_battery_notification_level_ = -1;
+    xiaoxin_battery_state_t last_low_battery_notification_state_ =
+        XIAOXIN_BATTERY_STATE_UNKNOWN;
     bool network_notification_active_ = false;
     xiaoxin_system_overlay_network_state_t last_network_notification_state_ =
         XIAOXIN_SYSTEM_OVERLAY_NETWORK_CONNECTED;
@@ -912,6 +914,7 @@ private:
             }
             low_battery_notification_active_ = false;
             last_low_battery_notification_level_ = battery_snapshot_.estimated_percent;
+            last_low_battery_notification_state_ = battery_snapshot_.state;
             return;
         }
 
@@ -920,7 +923,8 @@ private:
             : "电量偏低，请尽快充电";
 
         if (low_battery_notification_active_ &&
-            last_low_battery_notification_level_ == battery_snapshot_.estimated_percent) {
+            last_low_battery_notification_level_ == battery_snapshot_.estimated_percent &&
+            last_low_battery_notification_state_ == battery_snapshot_.state) {
             return;
         }
 
@@ -935,6 +939,7 @@ private:
         UpsertNotificationEventLocked(event);
         low_battery_notification_active_ = true;
         last_low_battery_notification_level_ = battery_snapshot_.estimated_percent;
+        last_low_battery_notification_state_ = battery_snapshot_.state;
     }
 
     void SyncNetworkNotificationLocked(xiaoxin_system_overlay_network_state_t state) {
