@@ -103,11 +103,14 @@ ADC 样本
 
 将单次输入分为：
 
-- 有效电池样本：`3000mV <= voltage_mv <= 4400mV`。
+- 有效电池样本：`3300mV <= voltage_mv <= 4400mV`。下界对齐 `xiaoxin_battery_percent_from_mv()` 的 0% 映射点（3300mV），低于此值在百分比曲线上已无区分度。
+- 极低电压样本：`0mV < voltage_mv < 3300mV`。可能是严重过放的电池或 ADC 噪声，不直接当作正常放电电池使用，但也不清空状态。
 - 高压不可信样本：`voltage_mv > 4400mV`。
-- 无效样本：读取失败、`voltage_mv <= 0`，或明显低于可用电池范围。
+- 无效样本：读取失败或 `voltage_mv <= 0`。
 
 高压不可信样本不表示满电；它更可能表示 USB/充电路径影响了 ADC 节点。
+
+**关键认知**：USB 稳态充电时 Li-Po 电池节点电压通常在 4100–4300mV，这落在"有效电池样本"范围内。因此**不能仅靠 `> 4400mV` 检测外接供电**，必须结合电压变化趋势和持续时间（见下一节）。
 
 有效电池样本继续进入 EMA 平滑：
 
@@ -115,26 +118,50 @@ ADC 样本
 smoothed = smoothed * 0.85 + raw * 0.15
 ```
 
-无效或高压样本不清空最近稳定显示值，只更新样本质量计数和供电来源推断。
+高压、极低、无效样本不更新 EMA，不进入状态机，只更新样本质量计数和供电来源推断。
 
 ## 供电来源推断
 
-在没有真实 VBUS/CHG 信号时，使用保守启发式：
+在没有真实 VBUS/CHG 信号时，使用保守启发式。所有推断都需要**确认计数**（连续满足条件 N 次后才切换），进入和退出同样谨慎。
 
-- 连续或频繁出现 `voltage_mv > 4400mV`：进入 `EXTERNAL`。
-- 有效样本与高压/无效样本在短时间内交替：进入 `EXTERNAL` 或 `UNKNOWN`。
-- 电压短时间从低/中电压快速升到接近满电或超过可信范围：进入 `EXTERNAL`。
-- ADC 长时间完全不可读：进入 `UNKNOWN`。
+### 进入 EXTERNAL 的条件（满足任一 + 确认计数 ≥ 3 次）
 
-状态保持策略：
+**条件 A — 高压持续**：连续 3 次采样 `voltage_mv > 4400mV`，每次间隔约 1 秒。
 
-- `EXTERNAL` 至少保持 30 秒，避免 USB 接触或充电波动导致闪烁。
-- 从 `EXTERNAL` 回到 `BATTERY` 需要连续稳定有效电池样本，例如 20 秒。
-- `UNKNOWN` 回到 `BATTERY` 也需要连续稳定有效样本。
+**条件 B — 快速上升**：在 60 秒窗口内，`smoothed_voltage_mv` 上升超过 **300mV**，且最终值 **> 4050mV**。这捕获 USB 插入瞬间的充电爬升——电压从 3700mV 跳到 4200mV 的过程。
+
+**条件 C — 稳态高电压**：`smoothed_voltage_mv` 持续 **> 4080mV** 超过 **120 秒**，且期间未见正常的放电波动（峰值-谷值 < 50mV 意味着没有真实负载变化，更像外接供电维持的高平台）。
+
+**条件 D — 样本交替**：在 10 秒窗口内，有效/高压/无效样本类型交替 ≥ **3 次**。这表示 ADC 节点被充电路径干扰。
+
+### 进入 UNKNOWN 的条件
+
+- ADC 连续 **10 次**读取失败或返回 `voltage_mv <= 0`（约 10 秒无有效数据）。
+- 或 `power_source == EXTERNAL` 状态下，所有样本类型（高压/有效/无效）在 30 秒内都无法形成稳定判断。
+
+### 退出到 BATTERY 的条件
+
+- `power_source == EXTERNAL`：需要连续 **20 秒**的有效电池样本（`3300–4400mV`），且 `smoothed_voltage_mv < 4080mV`，且电压波动正常（峰值-谷值 ≥ 50mV / 60s 窗口）。
+- `power_source == UNKNOWN`：需要连续 **10 秒**的有效电池样本，且满足上述正常放电特征。
+
+### 状态保持与防抖
+
+- **进入确认**：任何 `BATTERY → EXTERNAL` 或 `BATTERY → UNKNOWN` 的候选条件需要连续满足 **3 次**采样（约 3 秒）才执行切换。
+- **最小保持**：`EXTERNAL` 至少保持 **30 秒**，避免 USB 接触或充电波动导致闪烁。
+- **UNKNOWN 显示保持**：进入 `UNKNOWN` 后的前 **10 秒**，`display_level` 维持上一个已知值；超时后才降为灰色 0/1 档，避免短暂 ADC 噪声引起视觉闪烁。
+
+### 边沿事件约束
+
+供电来源从 `EXTERNAL` 或 `UNKNOWN` 回到 `BATTERY` 时：
+- `display_level` 可以**立即**反映当前真实电池状态（因为确实已经回到电池供电）。
+- `low_edge` / `critical_edge` / `recovered_edge` 必须**重新满足状态机的持续确认规则**后才能触发，不能因为拔掉 USB 瞬间的电压跌落而误触发。
+- 低电通知同样需要重新确认。
+
+### 硬件信号 fallback
 
 如果未来接入真实硬件信号：
 
-- VBUS 存在时直接进入 `EXTERNAL`。
+- VBUS 存在时直接进入 `EXTERNAL`（无需确认计数）。
 - CHG/PMIC 可用时可进一步区分充电中、满电、外接无电池。
 - 软件推断只作为硬件信号缺失时的 fallback。
 
@@ -158,23 +185,28 @@ smoothed = smoothed * 0.85 + raw * 0.15
 
 ## 显示快照
 
-`display_level` 由模块统一生成：
+`display_level` 由模块统一生成，**含滞回防止边界抖动**：
 
 ```text
 BATTERY + NORMAL:
-  根据稳定 display_percent 映射到 2/3/4 档。
+  display_percent >= 70%  → level 4  （降到 65% 才回 level 3）
+  display_percent >= 40%  → level 3  （降到 35% 才回 level 2）
+  display_percent >= 15%  → level 2  （降到 10% 才回 level 1）
+  display_percent <  15%  → level 1  （升到 20% 才回 level 2）
 
 BATTERY + LOW:
   固定为 1 档，警告色。
 
 BATTERY + CRITICAL:
-  固定为 0 或 1 档，严重警告色。
+  固定为 0 档，严重警告色。
 
 EXTERNAL:
-  固定为 3 或 4 档，正常色，可配合充电/插电图标。
+  固定为 4 档，正常色，可配合充电/插电图标。
+  （如果后续有充电图标资源，改为 level 4 + 闪电符号）
 
 UNKNOWN:
-  固定为 0 或 1 档，灰色，不用红色。
+  进入 UNKNOWN 的前 10 秒保持上一个 display_level（避免短暂噪声闪灰）。
+  10 秒后固定为 0 档，灰色，不使用红色/警告色。
 ```
 
 右上角浮层优先使用 `display_level`，而不是每次按 `estimated_percent` 计算连续宽度。这样即便内部估算百分比有小幅变化，图标也不会横跳。
@@ -230,13 +262,31 @@ UNKNOWN:            电量状态未知
 
 新增或扩展 `xiaoxin_battery_state_test.c`：
 
-- `4500mV` 高压样本不映射为 100% 满电。
+**样本质量与供电来源推断**：
+- `4500mV` 高压样本不更新 EMA，不映射为 100% 满电。
+- `2000mV` 极低样本不更新 EMA，不进入状态机。
 - `3900 -> 4500 -> 4100 -> 4500` 不导致 `display_level` 来回跳。
+- 连续 3 次 `> 4400mV` 进入 `EXTERNAL`（确认计数生效）。
+- 单次 `> 4400mV` 尖峰不进入 `EXTERNAL`（确认计数拦截噪声）。
+- 60 秒内从 3700mV 升至 4200mV（上升 500mV）进入 `EXTERNAL`（快速上升检测）。
+- `smoothed_voltage_mv` 持续 > 4080mV 超过 120 秒进入 `EXTERNAL`（稳态高电压检测）。
+- 4200mV 稳态（USB 充电典型值）不误判为 `BATTERY + NORMAL` 满电。
+
+**状态保持与防抖**：
 - 外接供电状态下不产生 `low_edge` / `critical_edge` / `recovered_edge`。
 - 外接供电状态下低电通知应被移除或保持不显示。
-- 从外接供电回到电池供电需要连续稳定有效样本。
+- 从外接供电回到电池供电需要连续 20 秒有效样本 + 正常放电特征。
+- 从 `UNKNOWN` 回到 `BATTERY` 需要连续 10 秒有效样本。
+- `EXTERNAL` 最小保持 30 秒，即使条件消失也不提前退出。
+
+**边沿事件时机**：
+- 拔掉 USB 后 `display_level` 可以立即反映电池实际状态。
+- 拔掉 USB 后 `low_edge` / `critical_edge` 必须重新满足持续确认才触发。
 - 真实低电池样本持续存在时仍能进入 `LOW`。
-- `UNKNOWN` 显示灰色状态，不使用低电红色。
+
+**显示快照**：
+- `display_percent >= 70%` → `display_level = 4`，跌到 65% 才降为 3（滞回生效）。
+- `UNKNOWN` 前 10 秒保持上一个 `display_level`，超时才降为 0 档灰色。
 
 保留路径测试：
 
@@ -264,11 +314,45 @@ UNKNOWN:            电量状态未知
 - 如果存在，新增板级电源状态读取 adapter。
 - 让电量状态模块优先使用真实硬件状态，软件推断作为 fallback。
 
+## 实现进度（2026-06-22）
+
+当前分支：`codex/xiaoxin-pet-mood-system`
+
+本版已经完成：
+
+- 电量快照扩展：新增 `power_source`、`display_percent`、`display_level`、`percent_reliable`。
+- 样本质量判断：有效样本、极低电压、无效样本、高压不可信样本分流处理；不可信样本不进入 EMA 和电池状态机。
+- USB/外接供电推断：支持高压持续、快速上升、稳态高电压低波动、样本类型交替，并统一使用确认计数。
+- `UNKNOWN` 和 `EXTERNAL` 状态管理：包含 UNKNOWN 显示保持、EXTERNAL 30 秒最小保持、连续有效样本退出确认。
+- 正常放电特征收口为 60 秒窗口，避免旧的峰谷差长期残留导致误退出外接供电。
+- UI 接入：右上角电量浮层使用稳定 `display_level`；外接供电使用正常色，未知状态使用灰色。
+- 低电量通知和宠物情绪：只在确认 `BATTERY` 供电时响应低电/恢复边沿。
+- 总览页：增加外接供电和未知电量状态的定性文案。
+- LOW/CRITICAL 显示规则：确认 `BATTERY + LOW` 固定为 level 1，确认 `BATTERY + CRITICAL` 固定为 level 0，包含 steady-state 更新路径。
+
+本版验证结果：
+
+- `xiaoxin_battery_level_test`：通过。
+- `xiaoxin_battery_state_test`：通过。
+- `xiaoxin_system_overlay_test`：通过。
+- `xiaoxin_overview_model_test`：通过。
+- Python 路径测试：`28 passed`。
+- `rg` 审计确认：
+  - `ApplyBatteryOverlayLevel()` 使用 `display_level`。
+  - `SyncLowBatteryNotificationLocked()` 和 `SyncPetMoodDeviceStateLocked()` 检查 `power_source == XIAOXIN_BATTERY_POWER_BATTERY`。
+  - Xiaoxin UI 路径没有继续用 `estimated_percent <= 20` 或 `level <= 20` 作为低电来源。
+
+当前限制：
+
+- 当前 shell 中没有 `idf.py`，因此本地尚未运行 ESP-IDF 固件构建；需要在加载 ESP-IDF 环境后补跑 `idf.py build`。
+
 ## 成功标准
 
-- 插 USB 后右上角电量不再在多档之间横跳。
+- 插 USB 后右上角电量不再在多档之间横跳（包括稳态充电电压 4100–4300mV 场景）。
 - USB 供电时不会误弹低电通知。
 - USB 供电时不会触发宠物低电情绪。
-- ADC 高压样本不会被显示为满电。
-- 拔掉 USB 后，电池显示需要稳定确认后才恢复。
+- ADC 高压样本（> 4400mV）和稳态高电压（> 4080mV 持续）都不会被显示为普通满电。
+- ADC 偶发噪声尖峰不会导致供电来源切换（确认计数拦截）。
+- 拔掉 USB 后，`display_level` 立即反映真实电量；低电通知和情绪需重新确认后才触发。
 - 真实低电池仍能被识别并进入低电状态。
+- `display_level` 在各档位边界处不发生抖动（滞回生效）。
