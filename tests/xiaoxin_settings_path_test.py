@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 BOARD_SOURCE = Path("main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc")
@@ -22,6 +23,10 @@ def function_body(source: str, signature: str) -> str:
             if depth == 0:
                 return source[brace + 1:index]
     raise AssertionError(f"function body not found: {signature}")
+
+
+def strip_cpp_comments(source: str) -> str:
+    return re.sub(r"//.*?$|/\*.*?\*/", "", source, flags=re.MULTILINE | re.DOTALL)
 
 
 def section_between(source: str, start_marker: str, end_marker: str) -> str:
@@ -92,7 +97,9 @@ def test_brightness_setting_uses_backlight_api_not_direct_settings_write():
 
 
 def test_brightness_page_exposes_three_presets():
-    body = function_body(read_source(BOARD_SOURCE), "void RenderSettingsBrightnessPage()")
+    body = strip_cpp_comments(
+        function_body(read_source(BOARD_SOURCE), "void PaopaoPetDisplay::RenderSettingsBrightnessPage()")
+    )
 
     assert "30" in body
     assert "70" in body
@@ -111,7 +118,9 @@ def test_wifi_reconfiguration_reuses_existing_entrypoint():
 
 
 def test_wifi_page_calls_board_reconfiguration_request():
-    body = function_body(read_source(BOARD_SOURCE), "void RenderSettingsWifiPage()")
+    body = strip_cpp_comments(
+        function_body(read_source(BOARD_SOURCE), "void PaopaoPetDisplay::RenderSettingsWifiPage()")
+    )
 
     assert "閲嶆柊閰嶇綉" in body
     assert "CustomBoard::Instance()->RequestSettingsWifiConfig()" in body

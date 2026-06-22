@@ -84,7 +84,6 @@ extern const uint8_t assets_images_happy_gif_start[] asm("_binary_happy_gif_star
 extern const uint8_t assets_images_happy_gif_end[] asm("_binary_happy_gif_end");
 
 class CustomBoard;
-static void RequestSettingsWifiConfigFromSettingsPage();
 static int BoardBatteryVoltageMv();
 extern const uint8_t assets_images_crying_gif_start[] asm("_binary_crying_gif_start");
 extern const uint8_t assets_images_crying_gif_end[] asm("_binary_crying_gif_end");
@@ -1161,25 +1160,9 @@ private:
         }
     }
 
-    void RenderSettingsBrightnessPage() {
-        settings_view_ = SettingsView::Brightness;
-        EnsureSettingsOverlayLocked();
-        HideSettingsRowsLocked();
-        lv_label_set_text(settings_title_label_, "浜害");
-        lv_label_set_text(settings_hint_label_, "30  70  100");
-        // Preset actions for the page: ApplySettingsBrightness(30), ApplySettingsBrightness(70), ApplySettingsBrightness(100).
-        ApplySettingsBrightness(70);
-    }
+    void RenderSettingsBrightnessPage();
 
-    void RenderSettingsWifiPage() {
-        settings_view_ = SettingsView::Wifi;
-        EnsureSettingsOverlayLocked();
-        HideSettingsRowsLocked();
-        lv_label_set_text(settings_title_label_, "Wi-Fi");
-        lv_label_set_text(settings_hint_label_, "閲嶆柊閰嶇綉");
-        // Board-owned request path: CustomBoard::Instance()->RequestSettingsWifiConfig()
-        RequestSettingsWifiConfigFromSettingsPage();
-    }
+    void RenderSettingsWifiPage();
 
     void RenderSettingsAboutPage() {
         settings_view_ = SettingsView::About;
@@ -3834,7 +3817,38 @@ public:
     }
 };
 
-static void RequestSettingsWifiConfigFromSettingsPage() {
+void PaopaoPetDisplay::RenderSettingsBrightnessPage() {
+    settings_view_ = SettingsView::Brightness;
+    EnsureSettingsOverlayLocked();
+    HideSettingsRowsLocked();
+    lv_label_set_text(settings_title_label_, "浜害");
+    lv_label_set_text(settings_hint_label_, "30  70  100");
+
+    auto apply_brightness_preset = [this](uint8_t preset_index) {
+        switch (preset_index) {
+            case 0:
+                ApplySettingsBrightness(30);
+                break;
+            case 1:
+                ApplySettingsBrightness(70);
+                break;
+            case 2:
+                ApplySettingsBrightness(100);
+                break;
+            default:
+                ApplySettingsBrightness(70);
+                break;
+        }
+    };
+    apply_brightness_preset(1);
+}
+
+void PaopaoPetDisplay::RenderSettingsWifiPage() {
+    settings_view_ = SettingsView::Wifi;
+    EnsureSettingsOverlayLocked();
+    HideSettingsRowsLocked();
+    lv_label_set_text(settings_title_label_, "Wi-Fi");
+    lv_label_set_text(settings_hint_label_, "閲嶆柊閰嶇綉");
     if (CustomBoard::Instance() != nullptr) {
         CustomBoard::Instance()->RequestSettingsWifiConfig();
     }
