@@ -39,6 +39,8 @@ def test_low_power_clock_enters_with_dim_backlight_and_exits_with_restore():
     source = read_source()
     assert "ShowLowPowerClockScreen()" in source
     assert "HideLowPowerClockScreen()" in source
+    assert "StartLowPowerClockRefreshTimer();" in source
+    assert "StopLowPowerClockRefreshTimer();" in source
     assert "backlight->SetBrightness(low_power_clock_snapshot_.brightness_percent, false);" in source
     assert "backlight->RestoreBrightness();" in source
 
@@ -73,7 +75,10 @@ def test_low_power_clock_refresh_uses_dedicated_timer_with_display_lock():
     assert "esp_timer_handle_t low_power_clock_timer_ = nullptr;" in source
     assert "InitializeLowPowerClockRefreshTimer();" in source
     assert ".name = \"low_power_clock\"" in source
+    assert "void StartLowPowerClockRefreshTimer()" in source
+    assert "void StopLowPowerClockRefreshTimer()" in source
     assert "esp_timer_start_periodic(low_power_clock_timer_, 10 * 1000 * 1000)" in source
+    assert "esp_timer_stop(low_power_clock_timer_)" in source
 
     timer_refresh_section = source[
         source.index("void RefreshLowPowerClockScreenFromTimer()"):
@@ -82,6 +87,18 @@ def test_low_power_clock_refresh_uses_dedicated_timer_with_display_lock():
     assert "DisplayLockGuard lock(this);" in timer_refresh_section
     assert "if (!low_power_clock_visible_)" in timer_refresh_section
     assert "RefreshLowPowerClockScreenLocked(false);" in timer_refresh_section
+
+    init_section = source[
+        source.index("void InitializeLowPowerClockRefreshTimer()"):
+        source.index("void StartLowPowerClockRefreshTimer()")
+    ]
+    assert "esp_timer_start_periodic" not in init_section
+
+
+def test_backlight_transition_timer_is_not_restarted_while_active():
+    source = Path("main/boards/common/backlight.cc").read_text(encoding="utf-8")
+    assert "esp_timer_is_active(transition_timer_)" in source
+    assert "if (!esp_timer_is_active(transition_timer_))" in source
 
 
 def test_low_power_clock_refresh_is_not_in_hot_render_loop():

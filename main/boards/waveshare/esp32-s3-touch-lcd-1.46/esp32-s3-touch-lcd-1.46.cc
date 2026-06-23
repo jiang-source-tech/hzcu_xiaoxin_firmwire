@@ -842,6 +842,7 @@ public:
             lv_obj_remove_flag(low_power_clock_layer_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_move_foreground(low_power_clock_layer_);
         }
+        StartLowPowerClockRefreshTimer();
 
         auto backlight = Board::GetInstance().GetBacklight();
         if (backlight != nullptr) {
@@ -856,6 +857,7 @@ public:
         if (low_power_clock_layer_ != nullptr) {
             lv_obj_add_flag(low_power_clock_layer_, LV_OBJ_FLAG_HIDDEN);
         }
+        StopLowPowerClockRefreshTimer();
 
         auto backlight = Board::GetInstance().GetBacklight();
         if (backlight != nullptr) {
@@ -1068,7 +1070,18 @@ private:
             .skip_unhandled_events = true,
         };
         ESP_ERROR_CHECK(esp_timer_create(&low_power_clock_timer_args, &low_power_clock_timer_));
-        ESP_ERROR_CHECK(esp_timer_start_periodic(low_power_clock_timer_, 10 * 1000 * 1000));
+    }
+
+    void StartLowPowerClockRefreshTimer() {
+        if (low_power_clock_timer_ != nullptr && !esp_timer_is_active(low_power_clock_timer_)) {
+            ESP_ERROR_CHECK(esp_timer_start_periodic(low_power_clock_timer_, 10 * 1000 * 1000));
+        }
+    }
+
+    void StopLowPowerClockRefreshTimer() {
+        if (low_power_clock_timer_ != nullptr && esp_timer_is_active(low_power_clock_timer_)) {
+            ESP_ERROR_CHECK(esp_timer_stop(low_power_clock_timer_));
+        }
     }
 
     void RefreshNotificationPageIfVisibleLocked() {
