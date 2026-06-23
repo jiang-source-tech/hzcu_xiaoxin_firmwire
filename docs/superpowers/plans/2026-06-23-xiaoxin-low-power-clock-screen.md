@@ -28,8 +28,8 @@
   - Owns pure data structures and formatting helpers for the low-power clock screen.
 - Create `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_low_power_clock_model.c`
   - Formats `HH:MM`, returns icon/hint strings, and decides minute-based refresh.
-- Modify `main/CMakeLists.txt`
-  - Adds the new model source to the board build.
+- Leave `main/CMakeLists.txt` unchanged unless local verification proves otherwise.
+  - The board build already collects `*.c` files from this board directory via `file(GLOB ...)`.
 - Modify `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
   - Adds LVGL overlay objects and power-save enter/exit methods on `PaopaoPetDisplay`.
   - Wires the existing `PowerSaveTimer` callbacks to the new overlay.
@@ -38,6 +38,8 @@
   - Verifies formatting, fallback time, icon/hint text, and minute refresh cadence.
 - Modify or create `tests/xiaoxin_low_power_clock_visual_path_test.py`
   - Source-shape tests for LVGL overlay wiring, icon-left layout, bottom hint, brightness behavior, and POWER wake path.
+- Modify `tests/xiaoxin_settings_path_test.py`
+  - Updates the existing power-save callback expectations so they do not conflict with the new clock-screen callbacks.
 
 ---
 
@@ -47,7 +49,6 @@
 - Create: `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_low_power_clock_model.h`
 - Create: `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_low_power_clock_model.c`
 - Create: `tests/xiaoxin_low_power_clock_model_test.c`
-- Modify: `main/CMakeLists.txt`
 
 **Interfaces:**
 - Consumes: plain time fields from the board display layer.
@@ -154,7 +155,7 @@ extern "C" {
 #define XIAOXIN_LOW_POWER_CLOCK_TIME_MAX 8
 #define XIAOXIN_LOW_POWER_CLOCK_HINT_MAX 32
 #define XIAOXIN_LOW_POWER_CLOCK_DEFAULT_BRIGHTNESS 8
-#define XIAOXIN_LOW_POWER_CLOCK_ICON_TEXT "\xEF\x80\xA5"
+#define XIAOXIN_LOW_POWER_CLOCK_ICON_TEXT "\xEF\x83\xB3"
 
 typedef struct {
   bool time_valid;
@@ -184,7 +185,7 @@ bool xiaoxin_low_power_clock_should_refresh(
 #endif
 ```
 
-Note: `XIAOXIN_LOW_POWER_CLOCK_ICON_TEXT` uses LVGL's built-in bell symbol byte sequence. If visual QA shows the board font renders it poorly, replace only this macro with a known-supported icon string and keep the left-of-time layout unchanged.
+Note: `XIAOXIN_LOW_POWER_CLOCK_ICON_TEXT` uses the same UTF-8 byte sequence as this repo's `FONT_AWESOME_BELL`. If visual QA shows the board font renders it poorly, replace only this macro with a known-supported icon string and keep the left-of-time layout unchanged.
 
 - [ ] **Step 4: Add the model implementation**
 
@@ -237,12 +238,15 @@ bool xiaoxin_low_power_clock_should_refresh(
 }
 ```
 
-- [ ] **Step 5: Add the model source to the firmware build**
+- [ ] **Step 5: Confirm the model source is picked up by the firmware build**
 
-In `main/CMakeLists.txt`, add this source next to the other 1.46 LCD board helper files:
+Do not add the model source manually to `main/CMakeLists.txt` unless verification proves the existing board source glob misses it. The current board build already collects board-local `*.c` files:
 
 ```cmake
-"boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_low_power_clock_model.c"
+file(GLOB BOARD_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/boards/${MANUFACTURER}/${BOARD_TYPE}/*.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/boards/${MANUFACTURER}/${BOARD_TYPE}/*.c
+)
 ```
 
 - [ ] **Step 6: Run the model test and verify it passes**
@@ -262,8 +266,7 @@ Expected: command exits with code `0`.
 - [ ] **Step 7: Commit**
 
 ```powershell
-git add main/CMakeLists.txt `
-  main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_low_power_clock_model.h `
+git add main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_low_power_clock_model.h `
   main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_low_power_clock_model.c `
   tests/xiaoxin_low_power_clock_model_test.c
 git commit -m "feat: add low power clock model"
@@ -315,6 +318,7 @@ def test_low_power_clock_uses_icon_left_time_right_layout():
     source = read_source()
     assert "lv_obj_align(low_power_clock_icon_label_, LV_ALIGN_TOP_MID" in source
     assert "lv_obj_align_to(low_power_clock_time_label_, low_power_clock_icon_label_, LV_ALIGN_OUT_RIGHT_MID" in source
+    assert "lv_obj_set_style_text_font(low_power_clock_icon_label_, icon_font, 0);" in source
     assert "lv_label_set_text(low_power_clock_hint_label_, low_power_clock_snapshot_.hint_text);" in source
     assert "LV_ALIGN_BOTTOM_MID" in source
 
@@ -325,14 +329,6 @@ def test_low_power_clock_enters_with_dim_backlight_and_exits_with_restore():
     assert "HideLowPowerClockScreen()" in source
     assert "backlight->SetBrightness(low_power_clock_snapshot_.brightness_percent, false);" in source
     assert "backlight->RestoreBrightness();" in source
-
-
-def test_power_save_timer_callbacks_show_and_hide_clock_screen():
-    source = read_source()
-    assert "display->ShowLowPowerClockScreen();" in source
-    assert "display->HideLowPowerClockScreen();" in source
-    assert "GetDisplay()->SetPowerSaveMode(true);" not in source
-    assert "GetDisplay()->SetPowerSaveMode(false);" not in source
 
 
 def test_power_button_still_wakes_power_save_timer():
@@ -349,14 +345,16 @@ Run:
 python -m pytest tests/xiaoxin_low_power_clock_visual_path_test.py -q
 ```
 
-Expected: FAIL because the overlay objects and callbacks do not exist yet.
+Expected: FAIL because the overlay objects do not exist yet.
 
 - [ ] **Step 3: Include the model header**
 
 In `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`, add:
 
 ```cpp
+extern "C" {
 #include "xiaoxin_low_power_clock_model.h"
+}
 ```
 
 - [ ] **Step 4: Add display members**
@@ -380,6 +378,9 @@ In the display setup path where the other overlays are created, add an `Initiali
 ```cpp
     void InitializeLowPowerClockLayerLocked() {
         lv_obj_t* screen = lv_screen_active();
+        auto lvgl_theme = static_cast<LvglTheme*>(current_theme_);
+        const lv_font_t* icon_font = lvgl_theme != nullptr ? lvgl_theme->icon_font()->font() : nullptr;
+
         low_power_clock_layer_ = lv_obj_create(screen);
         lv_obj_remove_style_all(low_power_clock_layer_);
         lv_obj_set_size(low_power_clock_layer_, DISPLAY_WIDTH, DISPLAY_HEIGHT);
@@ -391,6 +392,9 @@ In the display setup path where the other overlays are created, add an `Initiali
         low_power_clock_icon_label_ = lv_label_create(low_power_clock_layer_);
         lv_obj_set_style_text_color(low_power_clock_icon_label_, lv_color_hex(0xF6FAFF), 0);
         lv_obj_set_style_text_opa(low_power_clock_icon_label_, LV_OPA_COVER, 0);
+        if (icon_font != nullptr) {
+            lv_obj_set_style_text_font(low_power_clock_icon_label_, icon_font, 0);
+        }
         lv_obj_align(low_power_clock_icon_label_, LV_ALIGN_TOP_MID, -42, 54);
 
         low_power_clock_time_label_ = lv_label_create(low_power_clock_layer_);
@@ -522,6 +526,7 @@ git commit -m "feat: add low power clock overlay"
 **Files:**
 - Modify: `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
 - Modify: `tests/xiaoxin_low_power_clock_visual_path_test.py`
+- Modify: `tests/xiaoxin_settings_path_test.py`
 
 **Interfaces:**
 - Consumes:
@@ -561,7 +566,20 @@ with:
         });
 ```
 
-- [ ] **Step 2: Keep the existing shutdown behavior**
+- [ ] **Step 2: Add callback-path assertions to the visual-path test**
+
+Add this test to `tests/xiaoxin_low_power_clock_visual_path_test.py`:
+
+```python
+def test_power_save_timer_callbacks_show_and_hide_clock_screen():
+    source = read_source()
+    assert "display->ShowLowPowerClockScreen();" in source
+    assert "display->HideLowPowerClockScreen();" in source
+    assert "GetDisplay()->SetPowerSaveMode(true);" not in source
+    assert "GetDisplay()->SetPowerSaveMode(false);" not in source
+```
+
+- [ ] **Step 3: Keep the existing shutdown behavior**
 
 Leave this callback unchanged:
 
@@ -573,7 +591,7 @@ Leave this callback unchanged:
 
 This means the device still powers off after the existing timeout if nobody wakes it.
 
-- [ ] **Step 3: Ensure POWER short press still wakes**
+- [ ] **Step 4: Ensure POWER short press still wakes**
 
 Keep this existing code in the POWER button single-click callback:
 
@@ -583,7 +601,18 @@ Keep this existing code in the POWER button single-click callback:
 
 Do not add a separate overlay-only wake flag; the existing timer exit callback should be the single source of truth.
 
-- [ ] **Step 4: Run callback-path tests**
+- [ ] **Step 5: Update the existing settings-path power-save expectations**
+
+In `tests/xiaoxin_settings_path_test.py`, update `test_power_save_setting_is_only_enabled_when_timer_is_initialized()` so it expects the low-power clock callbacks instead of the old generic display power-save callbacks:
+
+```python
+    assert "ShowLowPowerClockScreen()" in source
+    assert "HideLowPowerClockScreen()" in source
+    assert "SetPowerSaveMode(true)" not in source
+    assert "SetPowerSaveMode(false)" not in source
+```
+
+- [ ] **Step 6: Run callback-path tests**
 
 Run:
 
@@ -593,11 +622,12 @@ python -m pytest tests/xiaoxin_low_power_clock_visual_path_test.py tests/xiaoxin
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```powershell
 git add main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc `
-  tests/xiaoxin_low_power_clock_visual_path_test.py
+  tests/xiaoxin_low_power_clock_visual_path_test.py `
+  tests/xiaoxin_settings_path_test.py
 git commit -m "feat: show clock screen in power save mode"
 ```
 
@@ -685,6 +715,6 @@ If no files changed, skip this commit.
 ## Self-Review
 
 - Spec coverage: The plan covers the requested time display, icon on the left, bottom POWER wake hint, dim TFT pseudo-sleep behavior, minute refresh, POWER wake, and brightness restore.
-- Placeholder scan: The plan has no placeholder markers or unspecified implementation steps.
+- Placeholder scan: The plan has no placeholder markers, mojibake strings, or unspecified implementation steps.
 - Type consistency: The model types are named `xiaoxin_low_power_clock_state_t` and `xiaoxin_low_power_clock_snapshot_t` consistently across tasks.
 - Scope check: This is one board-local feature and does not require a cross-board display API change.
