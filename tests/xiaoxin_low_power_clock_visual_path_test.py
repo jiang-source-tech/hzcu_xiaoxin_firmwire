@@ -25,6 +25,16 @@ def test_low_power_clock_uses_icon_left_time_right_layout():
     assert "LV_ALIGN_BOTTOM_MID" in source
 
 
+def test_low_power_clock_uses_fallback_icon_when_bell_glyph_is_missing():
+    source = read_source()
+    assert "LowPowerClockFontHasBell" in source
+    assert "font->get_glyph_dsc(font, &glyph_dsc, 0xf0f3, 0)" in source
+    assert 'LowPowerClockFontHasBell(font) ? XIAOXIN_LOW_POWER_CLOCK_ICON_TEXT : "*"' in source
+    assert "low_power_clock_icon_text_ = LowPowerClockIconTextForFont(icon_font);" in source
+    assert "lv_label_set_text(low_power_clock_icon_label_, low_power_clock_icon_text_);" in source
+    assert "if (use_icon_font)" in source
+
+
 def test_low_power_clock_enters_with_dim_backlight_and_exits_with_restore():
     source = read_source()
     assert "ShowLowPowerClockScreen()" in source

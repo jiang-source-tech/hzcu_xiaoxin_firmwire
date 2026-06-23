@@ -911,6 +911,7 @@ private:
     SettingsRow settings_rows_[k_settings_item_max_count];
     xiaoxin_settings_item_t settings_items_[k_settings_item_max_count] = {};
     xiaoxin_low_power_clock_snapshot_t low_power_clock_snapshot_ = {};
+    const char* low_power_clock_icon_text_ = XIAOXIN_LOW_POWER_CLOCK_ICON_TEXT;
     uint8_t low_power_clock_last_minute_ = 0xff;
     uint8_t settings_item_count_ = 0;
     SettingsView settings_view_ = SettingsView::List;
@@ -994,6 +995,19 @@ private:
         return status != nullptr && expected != nullptr && std::strcmp(status, expected) == 0;
     }
 
+    static bool LowPowerClockFontHasBell(const lv_font_t* font) {
+        if (font == nullptr || font->get_glyph_dsc == nullptr) {
+            return false;
+        }
+
+        lv_font_glyph_dsc_t glyph_dsc = {};
+        return font->get_glyph_dsc(font, &glyph_dsc, 0xf0f3, 0);
+    }
+
+    static const char* LowPowerClockIconTextForFont(const lv_font_t* font) {
+        return LowPowerClockFontHasBell(font) ? XIAOXIN_LOW_POWER_CLOCK_ICON_TEXT : "*";
+    }
+
     static xiaoxin_low_power_clock_state_t BuildLowPowerClockState() {
         xiaoxin_low_power_clock_state_t state = {};
         time_t now = 0;
@@ -1025,7 +1039,7 @@ private:
         low_power_clock_last_minute_ = current_minute;
         xiaoxin_low_power_clock_model_build(&state, &low_power_clock_snapshot_);
 
-        lv_label_set_text(low_power_clock_icon_label_, low_power_clock_snapshot_.icon_text);
+        lv_label_set_text(low_power_clock_icon_label_, low_power_clock_icon_text_);
         lv_label_set_text(low_power_clock_time_label_, low_power_clock_snapshot_.time_text);
         lv_label_set_text(low_power_clock_hint_label_, low_power_clock_snapshot_.hint_text);
     }
@@ -2022,6 +2036,8 @@ private:
         lv_obj_t* screen = lv_screen_active();
         auto lvgl_theme = static_cast<LvglTheme*>(current_theme_);
         const lv_font_t* icon_font = lvgl_theme != nullptr ? lvgl_theme->icon_font()->font() : nullptr;
+        const bool use_icon_font = LowPowerClockFontHasBell(icon_font);
+        low_power_clock_icon_text_ = LowPowerClockIconTextForFont(icon_font);
 
         low_power_clock_layer_ = lv_obj_create(screen);
         lv_obj_remove_style_all(low_power_clock_layer_);
@@ -2034,7 +2050,7 @@ private:
         low_power_clock_icon_label_ = lv_label_create(low_power_clock_layer_);
         lv_obj_set_style_text_color(low_power_clock_icon_label_, lv_color_hex(0xF6FAFF), 0);
         lv_obj_set_style_text_opa(low_power_clock_icon_label_, LV_OPA_COVER, 0);
-        if (icon_font != nullptr) {
+        if (use_icon_font) {
             lv_obj_set_style_text_font(low_power_clock_icon_label_, icon_font, 0);
         }
         lv_obj_align(low_power_clock_icon_label_, LV_ALIGN_TOP_MID, -42, 54);
