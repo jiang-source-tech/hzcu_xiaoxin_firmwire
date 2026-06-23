@@ -54,6 +54,7 @@ extern "C" {
 #include "xiaoxin_card_pager.h"
 #include "xiaoxin_overview_model.h"
 #include "xiaoxin_power_control.h"
+#include "xiaoxin_low_power_clock_model.h"
 #include "xiaoxin_settings_model.h"
 #include "xiaoxin_system_overlay.h"
 }
@@ -632,6 +633,7 @@ public:
             lv_obj_move_to_index(pet_image_, 1);
         }
         InitializeCardPagerLayer();
+        InitializeLowPowerClockLayerLocked();
         RaiseOverlayObjects();
         lv_obj_invalidate(screen);
 
@@ -770,6 +772,13 @@ public:
     }
 
     virtual void SetPowerSaveMode(bool on) override {
+        if (on) {
+            LvglDisplay::SetPowerSaveMode(on);
+            ShowLowPowerClockScreen();
+            return;
+        }
+
+        HideLowPowerClockScreen();
         LvglDisplay::SetPowerSaveMode(on);
     }
 
@@ -830,6 +839,36 @@ public:
         CloseSettingsOverlayLocked();
     }
 
+    void ShowLowPowerClockScreen() {
+        DisplayLockGuard lock(this);
+        low_power_clock_visible_ = true;
+        low_power_clock_last_minute_ = 0xff;
+        RefreshLowPowerClockScreenLocked(true);
+        if (low_power_clock_layer_ != nullptr) {
+            lv_obj_remove_flag(low_power_clock_layer_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_move_foreground(low_power_clock_layer_);
+        }
+
+        auto backlight = Board::GetInstance().GetBacklight();
+        if (backlight != nullptr) {
+            backlight->SetBrightness(low_power_clock_snapshot_.brightness_percent, false);
+        }
+    }
+
+    void HideLowPowerClockScreen() {
+        DisplayLockGuard lock(this);
+        low_power_clock_visible_ = false;
+        low_power_clock_last_minute_ = 0xff;
+        if (low_power_clock_layer_ != nullptr) {
+            lv_obj_add_flag(low_power_clock_layer_, LV_OBJ_FLAG_HIDDEN);
+        }
+
+        auto backlight = Board::GetInstance().GetBacklight();
+        if (backlight != nullptr) {
+            backlight->RestoreBrightness();
+        }
+    }
+
     bool IsTouchMotionSuppressed(uint32_t now_ms) {
         DisplayLockGuard lock(this);
         return touch_pressed_ ||
@@ -870,10 +909,17 @@ private:
     lv_obj_t* settings_brightness_high_label_ = nullptr;
     lv_obj_t* settings_brightness_back_button_ = nullptr;
     lv_obj_t* settings_brightness_back_button_label_ = nullptr;
+    lv_obj_t* low_power_clock_layer_ = nullptr;
+    lv_obj_t* low_power_clock_icon_label_ = nullptr;
+    lv_obj_t* low_power_clock_time_label_ = nullptr;
+    lv_obj_t* low_power_clock_hint_label_ = nullptr;
     SettingsRow settings_rows_[k_settings_item_max_count];
     xiaoxin_settings_item_t settings_items_[k_settings_item_max_count] = {};
+    xiaoxin_low_power_clock_snapshot_t low_power_clock_snapshot_ = {};
+    uint8_t low_power_clock_last_minute_ = 0xff;
     uint8_t settings_item_count_ = 0;
     SettingsView settings_view_ = SettingsView::List;
+    bool low_power_clock_visible_ = false;
     bool settings_open_ = false;
     bool settings_wifi_config_requested_ = false;
     uint8_t settings_brightness_value_ = 75;
@@ -951,6 +997,42 @@ private:
 
     static bool StatusEquals(const char* status, const char* expected) {
         return status != nullptr && expected != nullptr && std::strcmp(status, expected) == 0;
+    }
+
+    static xiaoxin_low_power_clock_state_t BuildLowPowerClockState() {
+        xiaoxin_low_power_clock_state_t state = {};
+        time_t now = 0;
+        time(&now);
+
+        struct tm timeinfo = {};
+        if (now > 24 * 60 * 60 &&
+            localtime_r(&now, &timeinfo) != nullptr &&
+            timeinfo.tm_year >= 120) {
+            state.time_valid = true;
+            state.hour = timeinfo.tm_hour;
+            state.minute = timeinfo.tm_min;
+        }
+        return state;
+    }
+
+    void RefreshLowPowerClockScreenLocked(bool force) {
+        if (low_power_clock_layer_ == nullptr) {
+            return;
+        }
+
+        const xiaoxin_low_power_clock_state_t state = BuildLowPowerClockState();
+        const uint8_t current_minute = state.time_valid ? (uint8_t)state.minute : 0xff;
+        if (!force &&
+            !xiaoxin_low_power_clock_should_refresh(low_power_clock_last_minute_, current_minute)) {
+            return;
+        }
+
+        low_power_clock_last_minute_ = current_minute;
+        xiaoxin_low_power_clock_model_build(&state, &low_power_clock_snapshot_);
+
+        lv_label_set_text(low_power_clock_icon_label_, low_power_clock_snapshot_.icon_text);
+        lv_label_set_text(low_power_clock_time_label_, low_power_clock_snapshot_.time_text);
+        lv_label_set_text(low_power_clock_hint_label_, low_power_clock_snapshot_.hint_text);
     }
 
     void RefreshNotificationPageIfVisibleLocked() {
@@ -1888,6 +1970,9 @@ private:
             if (system_overlay_ != nullptr) {
                 lv_obj_move_foreground(system_overlay_);
             }
+            if (low_power_clock_visible_ && low_power_clock_layer_ != nullptr) {
+                lv_obj_move_foreground(low_power_clock_layer_);
+            }
             return;
         }
 
@@ -1906,6 +1991,41 @@ private:
         if (settings_open_ && settings_layer_ != nullptr) {
             lv_obj_move_foreground(settings_layer_);
         }
+        if (low_power_clock_visible_ && low_power_clock_layer_ != nullptr) {
+            lv_obj_move_foreground(low_power_clock_layer_);
+        }
+    }
+
+    void InitializeLowPowerClockLayerLocked() {
+        lv_obj_t* screen = lv_screen_active();
+        auto lvgl_theme = static_cast<LvglTheme*>(current_theme_);
+        const lv_font_t* icon_font = lvgl_theme != nullptr ? lvgl_theme->icon_font()->font() : nullptr;
+
+        low_power_clock_layer_ = lv_obj_create(screen);
+        lv_obj_remove_style_all(low_power_clock_layer_);
+        lv_obj_set_size(low_power_clock_layer_, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+        lv_obj_set_style_bg_color(low_power_clock_layer_, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_bg_opa(low_power_clock_layer_, LV_OPA_COVER, 0);
+        lv_obj_clear_flag(low_power_clock_layer_, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(low_power_clock_layer_, LV_OBJ_FLAG_HIDDEN);
+
+        low_power_clock_icon_label_ = lv_label_create(low_power_clock_layer_);
+        lv_obj_set_style_text_color(low_power_clock_icon_label_, lv_color_hex(0xF6FAFF), 0);
+        lv_obj_set_style_text_opa(low_power_clock_icon_label_, LV_OPA_COVER, 0);
+        if (icon_font != nullptr) {
+            lv_obj_set_style_text_font(low_power_clock_icon_label_, icon_font, 0);
+        }
+        lv_obj_align(low_power_clock_icon_label_, LV_ALIGN_TOP_MID, -42, 54);
+
+        low_power_clock_time_label_ = lv_label_create(low_power_clock_layer_);
+        lv_obj_set_style_text_color(low_power_clock_time_label_, lv_color_hex(0xF6FAFF), 0);
+        lv_obj_set_style_text_opa(low_power_clock_time_label_, LV_OPA_COVER, 0);
+        lv_obj_align_to(low_power_clock_time_label_, low_power_clock_icon_label_, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
+
+        low_power_clock_hint_label_ = lv_label_create(low_power_clock_layer_);
+        lv_obj_set_style_text_color(low_power_clock_hint_label_, lv_color_hex(0x9AA4B2), 0);
+        lv_obj_set_style_text_opa(low_power_clock_hint_label_, LV_OPA_COVER, 0);
+        lv_obj_align(low_power_clock_hint_label_, LV_ALIGN_BOTTOM_MID, 0, -18);
     }
 
     void InitializeCardPagerLayer() {
@@ -3696,6 +3816,9 @@ private:
                 PollTouch(now_ms);
                 paopao_pet_trigger_tick(&trigger_, now_ms);
                 ApplyPetStateIfChanged();
+                if (low_power_clock_visible_) {
+                    RefreshLowPowerClockScreenLocked(false);
+                }
                 LogUiPerfSummary(now_ms);
                 request_settings_wifi_config = ConsumeSettingsWifiConfigRequestLocked();
                 wake_power_save_timer = ConsumePowerSaveTimerWakeRequestLocked();
