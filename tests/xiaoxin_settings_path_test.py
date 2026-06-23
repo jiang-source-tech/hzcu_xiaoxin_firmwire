@@ -29,6 +29,10 @@ def strip_cpp_comments(source: str) -> str:
     return re.sub(r"//.*?$|/\*.*?\*/", "", source, flags=re.MULTILINE | re.DOTALL)
 
 
+def collapse_whitespace(source: str) -> str:
+    return re.sub(r"\s+", " ", source)
+
+
 def section_between(source: str, start_marker: str, end_marker: str) -> str:
     start = source.index(start_marker)
     end = source.index(end_marker, start)
@@ -56,19 +60,19 @@ def test_boot_single_click_closes_settings_before_chat_or_wifi_config():
     assert "return;" in boot_section[close_call:start_check]
 
 
-def test_boot_long_press_only_opens_settings_from_idle():
+def test_boot_long_press_opens_settings_from_any_runtime_state():
     source = read_source(BOARD_SOURCE)
     boot_section = section_between(source, "// Boot Button", "// Power Button")
 
     assert "HandleBootLongPress()" in boot_section
     assert "OpenSettingsOverlayFromBootButton()" in source
     helper = function_body(source, "void OpenSettingsOverlayFromBootButton()")
-    assert "Application::GetInstance()" in helper
-    assert "GetDeviceState()" in helper
-    assert "XIAOXIN_SETTINGS_RUNTIME_IDLE" in helper
-    assert "xiaoxin_settings_can_open" in helper
+    assert "GetDeviceState()" not in helper
+    assert "XIAOXIN_SETTINGS_RUNTIME_IDLE" not in helper
+    assert "xiaoxin_settings_can_open" not in helper
     assert "OpenSettingsOverlay()" in helper
-    assert "ShowNotification(\"璇峰厛缁撴潫瀵硅瘽\"" in helper
+    assert "BOOT settings blocked" not in helper
+    assert "Settings only in idle" not in helper
 
 
 def test_boot_long_press_has_observable_feedback_and_hold_fallback():
@@ -85,8 +89,8 @@ def test_boot_long_press_has_observable_feedback_and_hold_fallback():
     assert "boot_long_press_handled_" in source
     assert "void HandleBootLongPress()" in source
     assert 'ESP_LOGI(TAG, "BOOT long press' in helper
-    assert 'ESP_LOGW(TAG, "BOOT settings blocked' in helper
-    assert 'ShowNotification("Settings only in idle"' in helper
+    assert 'ESP_LOGW(TAG, "BOOT settings blocked' not in helper
+    assert 'ShowNotification("Settings only in idle"' not in helper
     assert "OpenSettingsOverlay()" in helper
 
 
@@ -120,35 +124,228 @@ def test_settings_overlay_state_is_public_to_board_button_layer():
     assert "void CloseSettingsOverlay()" in source
 
 
+def test_settings_overlay_labels_are_valid_utf8_chinese():
+    source = read_source(BOARD_SOURCE)
+
+    assert 'lv_label_set_text(settings_title_label_, "设置")' in source
+    assert 'lv_label_set_text(settings_back_label_, "退出设置")' in source
+    assert '"小芯 D151\\n桌面助手\\n固件 %s"' in source
+    assert "\\n构建 %s %s" not in source
+    assert 'lv_label_set_text(settings_title_label_, "关于")' in source
+    assert 'lv_label_set_text(settings_title_label_, "亮度")' in source
+    assert 'lv_label_set_text(settings_hint_label_, "重新配网")' in source
+
+
+def test_settings_back_control_is_independent_from_normal_rows():
+    source = read_source(BOARD_SOURCE)
+
+    assert "lv_obj_t* settings_back_row_" in source
+    assert "lv_obj_t* settings_back_label_" in source
+    assert "lv_obj_set_size(settings_back_row_, k_settings_back_row_w, k_settings_back_row_h)" in source
+    assert "lv_obj_set_style_border_width(settings_back_row_, 1, 0)" in source
+    assert "lv_obj_set_style_bg_opa(settings_back_row_, static_cast<lv_opa_t>(72), 0)" in source
+    assert 'lv_label_set_text(row.value, "›")' in source
+    assert 'lv_label_set_text(row.value, "退出设置")' not in source
+
+
+def test_settings_small_buttons_are_visually_large_enough_for_round_touch_screen():
+    source = read_source(BOARD_SOURCE)
+
+    assert "static constexpr int16_t k_settings_back_row_w = 156;" in source
+    assert "static constexpr int16_t k_settings_back_row_h = 36;" in source
+    assert "static constexpr int16_t k_settings_back_row_y = 240;" in source
+    assert "static constexpr int16_t k_settings_brightness_back_button_w = 132;" in source
+    assert "static constexpr int16_t k_settings_brightness_back_button_h = 38;" in source
+    assert "static constexpr int16_t k_settings_brightness_back_button_y = 180;" in source
+
+
+def test_settings_back_control_sits_below_last_visible_row():
+    source = read_source(BOARD_SOURCE)
+
+    constants = {
+        name: int(value)
+        for name, value in re.findall(r"static constexpr int16_t (k_settings_[a-z_]+) = (\d+);", source)
+    }
+
+    last_row_bottom = (
+        constants["k_settings_row_y"]
+        + 3 * constants["k_settings_row_pitch"]
+        + constants["k_settings_row_h"]
+    )
+    back_row_top = constants["k_settings_back_row_y"]
+
+    assert back_row_top >= last_row_bottom + 6
+
+
+def test_settings_back_control_hit_area_does_not_overlap_fourth_row():
+    source = read_source(BOARD_SOURCE)
+
+    constants = {
+        name: int(value)
+        for name, value in re.findall(r"static constexpr int16_t (k_settings_[a-z_]+) = (\d+);", source)
+    }
+
+    fourth_row_bottom = (
+        constants["k_settings_row_y"]
+        + 3 * constants["k_settings_row_pitch"]
+        + constants["k_settings_row_h"]
+    )
+    back_hit_top = constants["k_settings_back_row_y"] - constants["k_settings_button_hit_slop_y"]
+    back_visual_bottom = constants["k_settings_back_row_y"] + constants["k_settings_back_row_h"]
+
+    assert constants["k_settings_panel_h"] >= back_visual_bottom + 12
+    assert back_hit_top >= fourth_row_bottom + 10
+
+
+def test_settings_back_control_touch_closes_settings_overlay():
+    source = read_source(BOARD_SOURCE)
+    overlay_body = function_body(source, "void EnsureSettingsOverlayLocked()")
+
+    assert "settings_back_row_ = lv_obj_create(settings_panel_)" in overlay_body
+    assert "lv_obj_set_size(settings_back_row_, k_settings_back_row_w, k_settings_back_row_h)" in overlay_body
+    assert 'lv_label_set_text(settings_back_label_, "退出设置")' in overlay_body
+
+
+def test_settings_touch_manually_closes_settings_back_control():
+    source = read_source(BOARD_SOURCE)
+    body = function_body(source, "void HandleSettingsTouch(uint16_t x, uint16_t y, bool pressed)")
+    body_flat = collapse_whitespace(body)
+
+    assert "settings_view_ == SettingsView::List" in body
+    assert "PointInObjWithSlop( settings_back_row_, x, y," in body_flat
+    assert "CloseSettingsOverlayLocked();" in body
+
+
+def test_settings_small_buttons_have_expanded_touch_hit_area():
+    source = read_source(BOARD_SOURCE)
+    body = function_body(source, "void HandleSettingsTouch(uint16_t x, uint16_t y, bool pressed)")
+    body_flat = collapse_whitespace(body)
+
+    assert "k_settings_button_hit_slop_x" in source
+    assert "k_settings_button_hit_slop_y" in source
+    assert "PointInObjWithSlop" in source
+    assert "PointInObjWithSlop( settings_back_row_, x, y, k_settings_button_hit_slop_x, k_settings_button_hit_slop_y )" in body_flat
+    assert "PointInObjWithSlop( settings_brightness_back_button_, x, y, k_settings_button_hit_slop_x, k_settings_button_hit_slop_y )" in body_flat
+
+
+def test_settings_button_touch_is_detected_after_first_pressed_frame():
+    source = read_source(BOARD_SOURCE)
+    body = strip_cpp_comments(function_body(source, "void HandleSettingsTouch(uint16_t x, uint16_t y, bool pressed)"))
+    body_flat = collapse_whitespace(body)
+
+    assert "settings_touch_action_consumed_" in source
+    assert "settings_touch_action_consumed_ = false" in body
+    back_check = body.index("PointInObjWithSlop")
+    assert "!touch_pressed_" not in body[:back_check]
+    assert "if (!settings_touch_action_consumed_)" in body_flat
+
+
 def test_settings_touch_suppresses_card_pager_gestures():
     body = function_body(read_source(BOARD_SOURCE), "void PollTouch(uint32_t now_ms)")
 
     assert "if (settings_open_)" in body
     assert "HandleSettingsTouch" in body
+    assert body.index("touch_->ReadPoint") < body.index("if (settings_open_)")
     assert body.index("if (settings_open_)") < body.index("xiaoxin_card_pager_press")
+
+
+def test_settings_overlay_registers_lvgl_touch_input_device():
+    source = read_source(BOARD_SOURCE)
+
+    assert "SettingsTouchInputReadCallback" not in source
+    assert "lv_indev_create()" not in source
+    assert "EnsureSettingsTouchIndevLocked();" not in function_body(source, "void AttachTouch(TouchReader* touch)")
+
+
+def test_settings_rows_use_lvgl_click_events_to_open_items():
+    source = read_source(BOARD_SOURCE)
+    overlay_body = function_body(source, "void EnsureSettingsOverlayLocked()")
+    callback_body = function_body(source, "static void SettingsRowClicked(lv_event_t* e)")
+
+    assert "lv_obj_add_event_cb(row.container, SettingsRowClicked, LV_EVENT_CLICKED, this)" in overlay_body
+    assert "lv_event_get_target(e)" in callback_body
+    assert "OpenSettingsItemLocked(self->settings_rows_[i].item)" in callback_body
 
 
 def test_brightness_setting_uses_backlight_api_not_direct_settings_write():
     source = read_source(BOARD_SOURCE)
-    body = function_body(source, "void ApplySettingsBrightness(uint8_t brightness)")
+    body = function_body(source, "void ApplySettingsBrightness(uint8_t brightness, bool permanent)")
 
     assert "xiaoxin_settings_clamp_percent" in body
     assert "Board::GetInstance().GetBacklight()" in body
-    assert "SetBrightness(clamped, true)" in body
+    assert "SetBrightness(clamped, permanent)" in body
     assert 'Settings("display"' not in body
 
 
-def test_brightness_page_exposes_three_presets():
+def test_brightness_page_exposes_dynamic_slider_not_three_presets():
+    source = read_source(BOARD_SOURCE)
     body = strip_cpp_comments(
-        function_body(read_source(BOARD_SOURCE), "void PaopaoPetDisplay::RenderSettingsBrightnessPage()")
+        function_body(source, "void PaopaoPetDisplay::RenderSettingsBrightnessPage()")
     )
 
-    assert "30" in body
-    assert "70" in body
-    assert "100" in body
-    assert "ApplySettingsBrightness(30)" in body
-    assert "ApplySettingsBrightness(70)" in body
-    assert "ApplySettingsBrightness(100)" in body
+    assert "settings_brightness_value_label_" in source
+    assert "settings_brightness_track_" in source
+    assert "settings_brightness_fill_" in source
+    assert "settings_brightness_thumb_" in source
+    assert "settings_brightness_low_label_" in source
+    assert "settings_brightness_high_label_" in source
+    assert "settings_brightness_back_button_" in source
+    assert 'lv_label_set_text(settings_brightness_low_label_, "低")' in source
+    assert 'lv_label_set_text(settings_brightness_high_label_, "高")' in source
+    assert 'lv_label_set_text(settings_brightness_back_button_label_, "返回")' in source
+    assert "ShowSettingsBrightnessSliderLocked" in body
+    assert "UpdateSettingsBrightnessSliderLocked" in body
+    assert "ApplySettingsBrightness(30)" not in body
+    assert "ApplySettingsBrightness(70)" not in body
+    assert "ApplySettingsBrightness(100)" not in body
+    assert '"30  70  100"' not in body
+    assert '"拖动调节 · BOOT 返回"' not in body
+
+
+def test_brightness_slider_drag_previews_and_release_persists():
+    source = read_source(BOARD_SOURCE)
+    slider_body = strip_cpp_comments(function_body(source, "void HandleSettingsBrightnessSliderEvent(lv_event_t* e)"))
+    apply_body = strip_cpp_comments(function_body(source, "void ApplySettingsBrightness(uint8_t brightness, bool permanent)"))
+
+    assert "lv_indev_get_point" in slider_body
+    assert "xiaoxin_settings_brightness_from_x" in slider_body
+    assert "ApplySettingsBrightness(settings_brightness_value_, false)" in slider_body
+    assert "ApplySettingsBrightness(settings_brightness_value_, true)" in slider_body
+    assert "SetBrightness(clamped, permanent)" in apply_body
+
+
+def test_brightness_manual_drag_captures_until_release():
+    source = read_source(BOARD_SOURCE)
+    touch_body = collapse_whitespace(
+        strip_cpp_comments(function_body(source, "void HandleSettingsTouch(uint16_t x, uint16_t y, bool pressed)"))
+    )
+
+    assert "settings_brightness_dragging_ || SettingsBrightnessSliderContains(x, y)" in touch_body
+    assert "settings_brightness_dragging_ = false; ApplySettingsBrightness(settings_brightness_value_, true)" in touch_body
+
+
+def test_brightness_preview_is_deduplicated_to_avoid_drag_log_flood():
+    source = read_source(BOARD_SOURCE)
+    apply_body = strip_cpp_comments(function_body(source, "void ApplySettingsBrightness(uint8_t brightness, bool permanent)"))
+
+    assert "settings_brightness_applied_value_" in source
+    assert "settings_brightness_applied_permanent_" in source
+    assert "settings_brightness_applied_value_ == clamped" in apply_body
+    assert "settings_brightness_applied_permanent_ == permanent" in apply_body
+    assert "return;" in apply_body[:apply_body.index("SetBrightness(clamped, permanent)")]
+
+
+def test_brightness_page_back_button_returns_to_settings_list():
+    source = read_source(BOARD_SOURCE)
+    overlay_body = strip_cpp_comments(function_body(source, "void EnsureSettingsOverlayLocked()"))
+    touch_body = strip_cpp_comments(function_body(source, "void HandleSettingsTouch(uint16_t x, uint16_t y, bool pressed)"))
+
+    assert "settings_brightness_back_button_ = lv_obj_create(settings_panel_)" in overlay_body
+    assert 'lv_label_set_text(settings_brightness_back_button_label_, "返回")' in overlay_body
+    assert "settings_view_ == SettingsView::Brightness" in touch_body
+    assert "PointInObjWithSlop" in touch_body
+    assert "settings_brightness_back_button_" in touch_body
+    assert "RenderSettingsListLocked()" in touch_body
 
 
 def test_wifi_reconfiguration_reuses_existing_entrypoint():
@@ -222,10 +419,22 @@ def test_power_save_timer_is_reset_by_local_button_and_touch_activity():
     assert lock_end < wake_helper_call
 
 
-def test_about_page_uses_esp_app_description():
+def test_about_page_prioritizes_xiaoxin_product_identity():
     source = read_source(BOARD_SOURCE)
     body = function_body(source, "void RenderSettingsAboutPage()")
 
     assert "#include <esp_app_desc.h>" in source
     assert "esp_app_get_description()" in body
-    assert "Waveshare ESP32-S3 Touch LCD 1.46" in body
+    assert "小芯 D151" in body
+    assert "桌面助手" in body
+    assert "固件 %s" in body
+    assert "构建 %s %s" not in body
+    assert "Waveshare ESP32-S3 Touch LCD 1.46" not in body
+
+
+def test_about_page_body_is_lifted_above_round_screen_bottom():
+    source = read_source(BOARD_SOURCE)
+    body = function_body(source, "void RenderSettingsAboutPage()")
+
+    assert "static constexpr int16_t k_settings_about_body_y = 92;" in source
+    assert "lv_obj_align(settings_hint_label_, LV_ALIGN_TOP_MID, 0, k_settings_about_body_y)" in body

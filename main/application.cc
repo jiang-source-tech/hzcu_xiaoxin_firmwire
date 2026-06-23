@@ -917,6 +917,8 @@ void Application::HandleStateChangedEvent() {
             audio_service_.ResetDecoder();
             break;
         case kDeviceStateWifiConfiguring:
+            display->SetStatus(Lang::Strings::WIFI_CONFIG_MODE);
+            display->UpdateStatusBar(true);
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(false);
             break;

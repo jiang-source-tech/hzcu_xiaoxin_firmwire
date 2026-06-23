@@ -46,6 +46,7 @@ uint8_t xiaoxin_settings_visible_items(
 
 bool xiaoxin_settings_can_open(xiaoxin_settings_runtime_state_t runtime_state);
 uint8_t xiaoxin_settings_clamp_percent(int value);
+uint8_t xiaoxin_settings_brightness_from_x(int x, int left, int width);
 const char* xiaoxin_settings_item_title(xiaoxin_settings_item_t item);
 
 #ifdef __cplusplus

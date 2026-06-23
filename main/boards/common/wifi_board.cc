@@ -263,7 +263,7 @@ const char* WifiBoard::GetNetworkStateIcon() {
     auto& wifi = WifiManager::GetInstance();
 
     if (wifi.IsConfigMode()) {
-        return FONT_AWESOME_WIFI;
+        return FONT_AWESOME_WIFI_SLASH;
     }
     if (!wifi.IsConnected()) {
         return FONT_AWESOME_WIFI_SLASH;

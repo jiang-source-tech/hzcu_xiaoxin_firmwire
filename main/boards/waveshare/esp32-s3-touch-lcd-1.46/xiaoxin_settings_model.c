@@ -38,7 +38,8 @@ uint8_t xiaoxin_settings_visible_items(
 }
 
 bool xiaoxin_settings_can_open(xiaoxin_settings_runtime_state_t runtime_state) {
-  return runtime_state == XIAOXIN_SETTINGS_RUNTIME_IDLE;
+  (void)runtime_state;
+  return true;
 }
 
 uint8_t xiaoxin_settings_clamp_percent(int value) {
@@ -51,24 +52,36 @@ uint8_t xiaoxin_settings_clamp_percent(int value) {
   return (uint8_t)value;
 }
 
+uint8_t xiaoxin_settings_brightness_from_x(int x, int left, int width) {
+  if (width <= 0) {
+    return 10;
+  }
+  const int offset = x - left;
+  int value = 10 + (offset * 90 + width / 2) / width;
+  if (value < 10) {
+    value = 10;
+  }
+  return xiaoxin_settings_clamp_percent(value);
+}
+
 const char* xiaoxin_settings_item_title(xiaoxin_settings_item_t item) {
   switch (item) {
     case XIAOXIN_SETTINGS_ITEM_BRIGHTNESS:
-      return "浜害";
+      return "亮度";
     case XIAOXIN_SETTINGS_ITEM_WIFI:
       return "Wi-Fi";
     case XIAOXIN_SETTINGS_ITEM_POWER_SAVE:
-      return "鐪佺數";
+      return "省电";
     case XIAOXIN_SETTINGS_ITEM_ABOUT:
-      return "鍏充簬";
+      return "关于";
     case XIAOXIN_SETTINGS_ITEM_VOLUME:
-      return "闊抽噺";
+      return "音量";
     case XIAOXIN_SETTINGS_ITEM_MUTE:
-      return "闈欓煶";
+      return "静音";
     case XIAOXIN_SETTINGS_ITEM_PROMPT_SOUND:
-      return "鎻愮ず闊?";
+      return "提示音";
     case XIAOXIN_SETTINGS_ITEM_VIBRATION:
-      return "闇囧姩";
+      return "震动";
     default:
       return "";
   }

@@ -125,14 +125,30 @@ static constexpr uint8_t k_overview_row_count = 4;
 static constexpr uint8_t k_overview_sep_count = 3;
 static constexpr uint8_t k_settings_item_max_count = 6;
 static constexpr int16_t k_settings_panel_w = 264;
-static constexpr int16_t k_settings_panel_h = 250;
+static constexpr int16_t k_settings_panel_h = 288;
 static constexpr int16_t k_settings_panel_radius = 28;
 static constexpr int16_t k_settings_title_y = 22;
+static constexpr int16_t k_settings_hint_bottom_offset = 18;
+static constexpr int16_t k_settings_about_body_y = 92;
 static constexpr int16_t k_settings_row_x = 22;
-static constexpr int16_t k_settings_row_y = 64;
+static constexpr int16_t k_settings_row_y = 60;
 static constexpr int16_t k_settings_row_w = 220;
-static constexpr int16_t k_settings_row_h = 38;
-static constexpr int16_t k_settings_row_pitch = 42;
+static constexpr int16_t k_settings_row_h = 34;
+static constexpr int16_t k_settings_row_pitch = 38;
+static constexpr int16_t k_settings_back_row_w = 156;
+static constexpr int16_t k_settings_back_row_h = 36;
+static constexpr int16_t k_settings_back_row_y = 240;
+static constexpr int16_t k_settings_button_hit_slop_x = 32;
+static constexpr int16_t k_settings_button_hit_slop_y = 22;
+static constexpr int16_t k_settings_brightness_value_y = 76;
+static constexpr int16_t k_settings_brightness_track_y = 140;
+static constexpr int16_t k_settings_brightness_track_w = 190;
+static constexpr int16_t k_settings_brightness_track_h = 12;
+static constexpr int16_t k_settings_brightness_level_label_y = 158;
+static constexpr int16_t k_settings_brightness_thumb_size = 24;
+static constexpr int16_t k_settings_brightness_back_button_w = 132;
+static constexpr int16_t k_settings_brightness_back_button_h = 38;
+static constexpr int16_t k_settings_brightness_back_button_y = 180;
 static constexpr uint32_t k_settings_panel_bg = 0x111827;
 static constexpr uint32_t k_settings_panel_border = 0x4a9eff;
 static constexpr uint32_t k_settings_text_primary = 0xe8eaed;
@@ -842,12 +858,27 @@ private:
     lv_obj_t* settings_panel_ = nullptr;
     lv_obj_t* settings_title_label_ = nullptr;
     lv_obj_t* settings_hint_label_ = nullptr;
+    lv_obj_t* settings_back_row_ = nullptr;
+    lv_obj_t* settings_back_label_ = nullptr;
+    lv_obj_t* settings_brightness_value_label_ = nullptr;
+    lv_obj_t* settings_brightness_track_ = nullptr;
+    lv_obj_t* settings_brightness_fill_ = nullptr;
+    lv_obj_t* settings_brightness_thumb_ = nullptr;
+    lv_obj_t* settings_brightness_low_label_ = nullptr;
+    lv_obj_t* settings_brightness_high_label_ = nullptr;
+    lv_obj_t* settings_brightness_back_button_ = nullptr;
+    lv_obj_t* settings_brightness_back_button_label_ = nullptr;
     SettingsRow settings_rows_[k_settings_item_max_count];
     xiaoxin_settings_item_t settings_items_[k_settings_item_max_count] = {};
     uint8_t settings_item_count_ = 0;
     SettingsView settings_view_ = SettingsView::List;
     bool settings_open_ = false;
     bool settings_wifi_config_requested_ = false;
+    uint8_t settings_brightness_value_ = 75;
+    bool settings_brightness_dragging_ = false;
+    bool settings_touch_action_consumed_ = false;
+    uint8_t settings_brightness_applied_value_ = 0xff;
+    bool settings_brightness_applied_permanent_ = false;
     bool power_save_timer_wake_requested_ = false;
     GlassCard glass_cards_[k_card_glass_count];
     OverviewRow overview_rows_[k_overview_row_count];
@@ -1067,6 +1098,100 @@ private:
         return x >= coords.x1 && x <= coords.x2 && y >= coords.y1 && y <= coords.y2;
     }
 
+    static bool PointInObjWithSlop(
+        lv_obj_t* obj,
+        uint16_t x,
+        uint16_t y,
+        int16_t slop_x,
+        int16_t slop_y
+    ) {
+        if (obj == nullptr || lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) {
+            return false;
+        }
+        lv_area_t coords;
+        lv_obj_get_coords(obj, &coords);
+        coords.x1 -= slop_x;
+        coords.x2 += slop_x;
+        coords.y1 -= slop_y;
+        coords.y2 += slop_y;
+        return x >= coords.x1 && x <= coords.x2 && y >= coords.y1 && y <= coords.y2;
+    }
+
+    static PaopaoPetDisplay* SettingsEventDisplay(lv_event_t* e) {
+        return e != nullptr ? static_cast<PaopaoPetDisplay*>(lv_event_get_user_data(e)) : nullptr;
+    }
+
+    static void SettingsBackRowClicked(lv_event_t* e) {
+        auto* self = SettingsEventDisplay(e);
+        if (self != nullptr) {
+            self->CloseSettingsOverlayLocked();
+        }
+    }
+
+    static void SettingsBrightnessBackClicked(lv_event_t* e) {
+        auto* self = SettingsEventDisplay(e);
+        if (self != nullptr) {
+            self->RenderSettingsListLocked();
+        }
+    }
+
+    static void SettingsRowClicked(lv_event_t* e) {
+        auto* self = SettingsEventDisplay(e);
+        lv_obj_t* target = e != nullptr ? (lv_obj_t*)lv_event_get_target(e) : nullptr;
+        if (self == nullptr || target == nullptr) {
+            return;
+        }
+        for (uint8_t i = 0; i < self->settings_item_count_; ++i) {
+            if (self->settings_rows_[i].container == target) {
+                self->OpenSettingsItemLocked(self->settings_rows_[i].item);
+                return;
+            }
+        }
+    }
+
+    void HandleSettingsBrightnessSliderEvent(lv_event_t* e) {
+        const lv_event_code_t code = lv_event_get_code(e);
+        if (code != LV_EVENT_PRESSED &&
+            code != LV_EVENT_PRESSING &&
+            code != LV_EVENT_RELEASED &&
+            code != LV_EVENT_PRESS_LOST) {
+            return;
+        }
+
+        if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+            settings_brightness_dragging_ = false;
+            ApplySettingsBrightness(settings_brightness_value_, true);
+            return;
+        }
+
+        lv_point_t point = {};
+        lv_indev_t* indev = lv_indev_active();
+        if (indev == nullptr) {
+            return;
+        }
+        lv_indev_get_point(indev, &point);
+
+        lv_area_t coords = {};
+        if (settings_brightness_track_ != nullptr) {
+            lv_obj_get_coords(settings_brightness_track_, &coords);
+        }
+        settings_brightness_dragging_ = true;
+        settings_brightness_value_ = xiaoxin_settings_brightness_from_x(
+            (int)point.x,
+            (int)coords.x1,
+            k_settings_brightness_track_w
+        );
+        UpdateSettingsBrightnessSliderLocked(settings_brightness_value_);
+        ApplySettingsBrightness(settings_brightness_value_, false);
+    }
+
+    static void SettingsBrightnessSliderEvent(lv_event_t* e) {
+        auto* self = SettingsEventDisplay(e);
+        if (self != nullptr) {
+            self->HandleSettingsBrightnessSliderEvent(e);
+        }
+    }
+
     bool ConsumeSettingsWifiConfigRequestLocked() {
         const bool requested = settings_wifi_config_requested_;
         settings_wifi_config_requested_ = false;
@@ -1085,6 +1210,7 @@ private:
         }
         settings_open_ = false;
         settings_view_ = SettingsView::List;
+        settings_touch_action_consumed_ = false;
         AddFlagIfCreated(settings_layer_, LV_OBJ_FLAG_HIDDEN);
         RaiseOverlayObjects();
     }
@@ -1122,7 +1248,107 @@ private:
 
         settings_hint_label_ = lv_label_create(settings_panel_);
         lv_obj_set_style_text_color(settings_hint_label_, lv_color_hex(k_settings_text_secondary), 0);
-        lv_obj_align(settings_hint_label_, LV_ALIGN_BOTTOM_MID, 0, -18);
+        lv_obj_align(settings_hint_label_, LV_ALIGN_BOTTOM_MID, 0, -k_settings_hint_bottom_offset);
+
+        settings_brightness_value_label_ = lv_label_create(settings_panel_);
+        lv_label_set_text(settings_brightness_value_label_, "75%");
+        lv_obj_set_style_text_color(settings_brightness_value_label_, lv_color_hex(k_settings_text_primary), 0);
+        lv_obj_align(settings_brightness_value_label_, LV_ALIGN_TOP_MID, 0, k_settings_brightness_value_y);
+        lv_obj_add_flag(settings_brightness_value_label_, LV_OBJ_FLAG_HIDDEN);
+
+        settings_brightness_track_ = lv_obj_create(settings_panel_);
+        lv_obj_remove_style_all(settings_brightness_track_);
+        lv_obj_set_size(settings_brightness_track_, k_settings_brightness_track_w, k_settings_brightness_track_h);
+        lv_obj_set_style_radius(settings_brightness_track_, k_settings_brightness_track_h / 2, 0);
+        lv_obj_set_style_bg_color(settings_brightness_track_, lv_color_hex(0x26364f), 0);
+        lv_obj_set_style_bg_opa(settings_brightness_track_, LV_OPA_COVER, 0);
+        lv_obj_clear_flag(settings_brightness_track_, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(settings_brightness_track_, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(settings_brightness_track_, SettingsBrightnessSliderEvent, LV_EVENT_PRESSED, this);
+        lv_obj_add_event_cb(settings_brightness_track_, SettingsBrightnessSliderEvent, LV_EVENT_PRESSING, this);
+        lv_obj_add_event_cb(settings_brightness_track_, SettingsBrightnessSliderEvent, LV_EVENT_RELEASED, this);
+        lv_obj_add_event_cb(settings_brightness_track_, SettingsBrightnessSliderEvent, LV_EVENT_PRESS_LOST, this);
+        lv_obj_align(settings_brightness_track_, LV_ALIGN_TOP_MID, 0, k_settings_brightness_track_y);
+        lv_obj_add_flag(settings_brightness_track_, LV_OBJ_FLAG_HIDDEN);
+
+        settings_brightness_fill_ = lv_obj_create(settings_brightness_track_);
+        lv_obj_remove_style_all(settings_brightness_fill_);
+        lv_obj_set_size(settings_brightness_fill_, 1, k_settings_brightness_track_h);
+        lv_obj_set_style_radius(settings_brightness_fill_, k_settings_brightness_track_h / 2, 0);
+        lv_obj_set_style_bg_color(settings_brightness_fill_, lv_color_hex(k_settings_panel_border), 0);
+        lv_obj_set_style_bg_opa(settings_brightness_fill_, LV_OPA_COVER, 0);
+        lv_obj_clear_flag(settings_brightness_fill_, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_align(settings_brightness_fill_, LV_ALIGN_LEFT_MID, 0, 0);
+
+        settings_brightness_thumb_ = lv_obj_create(settings_panel_);
+        lv_obj_remove_style_all(settings_brightness_thumb_);
+        lv_obj_set_size(settings_brightness_thumb_, k_settings_brightness_thumb_size, k_settings_brightness_thumb_size);
+        lv_obj_set_style_radius(settings_brightness_thumb_, k_settings_brightness_thumb_size / 2, 0);
+        lv_obj_set_style_bg_color(settings_brightness_thumb_, lv_color_hex(k_settings_panel_border), 0);
+        lv_obj_set_style_bg_opa(settings_brightness_thumb_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(settings_brightness_thumb_, 2, 0);
+        lv_obj_set_style_border_color(settings_brightness_thumb_, lv_color_hex(0xeaf4ff), 0);
+        lv_obj_set_style_border_opa(settings_brightness_thumb_, LV_OPA_80, 0);
+        lv_obj_clear_flag(settings_brightness_thumb_, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(settings_brightness_thumb_, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(settings_brightness_thumb_, SettingsBrightnessSliderEvent, LV_EVENT_PRESSED, this);
+        lv_obj_add_event_cb(settings_brightness_thumb_, SettingsBrightnessSliderEvent, LV_EVENT_PRESSING, this);
+        lv_obj_add_event_cb(settings_brightness_thumb_, SettingsBrightnessSliderEvent, LV_EVENT_RELEASED, this);
+        lv_obj_add_event_cb(settings_brightness_thumb_, SettingsBrightnessSliderEvent, LV_EVENT_PRESS_LOST, this);
+        lv_obj_add_flag(settings_brightness_thumb_, LV_OBJ_FLAG_HIDDEN);
+
+        settings_brightness_low_label_ = lv_label_create(settings_panel_);
+        lv_label_set_text(settings_brightness_low_label_, "低");
+        lv_obj_set_style_text_color(settings_brightness_low_label_, lv_color_hex(k_settings_text_secondary), 0);
+        lv_obj_align(
+            settings_brightness_low_label_,
+            LV_ALIGN_TOP_LEFT,
+            (k_settings_panel_w - k_settings_brightness_track_w) / 2,
+            k_settings_brightness_level_label_y
+        );
+        lv_obj_add_flag(settings_brightness_low_label_, LV_OBJ_FLAG_HIDDEN);
+
+        settings_brightness_high_label_ = lv_label_create(settings_panel_);
+        lv_label_set_text(settings_brightness_high_label_, "高");
+        lv_obj_set_style_text_color(settings_brightness_high_label_, lv_color_hex(k_settings_text_secondary), 0);
+        lv_obj_align(
+            settings_brightness_high_label_,
+            LV_ALIGN_TOP_RIGHT,
+            -((k_settings_panel_w - k_settings_brightness_track_w) / 2),
+            k_settings_brightness_level_label_y
+        );
+        lv_obj_add_flag(settings_brightness_high_label_, LV_OBJ_FLAG_HIDDEN);
+
+        settings_brightness_back_button_ = lv_obj_create(settings_panel_);
+        lv_obj_remove_style_all(settings_brightness_back_button_);
+        lv_obj_set_size(
+            settings_brightness_back_button_,
+            k_settings_brightness_back_button_w,
+            k_settings_brightness_back_button_h
+        );
+        lv_obj_set_style_radius(settings_brightness_back_button_, k_settings_brightness_back_button_h / 2, 0);
+        lv_obj_set_style_bg_color(settings_brightness_back_button_, lv_color_hex(0x0e1a2b), 0);
+        lv_obj_set_style_bg_opa(settings_brightness_back_button_, static_cast<lv_opa_t>(118), 0);
+        lv_obj_set_style_border_width(settings_brightness_back_button_, 1, 0);
+        lv_obj_set_style_border_color(settings_brightness_back_button_, lv_color_hex(k_settings_panel_border), 0);
+        lv_obj_set_style_border_opa(settings_brightness_back_button_, LV_OPA_70, 0);
+        lv_obj_clear_flag(settings_brightness_back_button_, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(settings_brightness_back_button_, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(settings_brightness_back_button_, SettingsBrightnessBackClicked, LV_EVENT_CLICKED, this);
+        lv_obj_align(settings_brightness_back_button_, LV_ALIGN_TOP_MID, 0, k_settings_brightness_back_button_y);
+        lv_obj_add_flag(settings_brightness_back_button_, LV_OBJ_FLAG_HIDDEN);
+
+        settings_brightness_back_button_label_ = lv_label_create(settings_brightness_back_button_);
+        lv_label_set_text(settings_brightness_back_button_label_, "返回");
+        lv_obj_set_style_text_color(settings_brightness_back_button_label_, lv_color_hex(k_settings_text_primary), 0);
+        lv_obj_add_flag(settings_brightness_back_button_label_, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(
+            settings_brightness_back_button_label_,
+            SettingsBrightnessBackClicked,
+            LV_EVENT_CLICKED,
+            this
+        );
+        lv_obj_align(settings_brightness_back_button_label_, LV_ALIGN_CENTER, 0, 0);
 
         for (uint8_t i = 0; i < k_settings_item_max_count; ++i) {
             SettingsRow& row = settings_rows_[i];
@@ -1133,6 +1359,8 @@ private:
             lv_obj_set_style_bg_color(row.container, lv_color_hex(0x1d3654), 0);
             lv_obj_set_style_bg_opa(row.container, static_cast<lv_opa_t>(122), 0);
             lv_obj_clear_flag(row.container, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_add_flag(row.container, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(row.container, SettingsRowClicked, LV_EVENT_CLICKED, this);
             lv_obj_align(row.container, LV_ALIGN_TOP_LEFT, k_settings_row_x, k_settings_row_y + i * k_settings_row_pitch);
 
             row.title = lv_label_create(row.container);
@@ -1143,6 +1371,27 @@ private:
             lv_obj_set_style_text_color(row.value, lv_color_hex(k_settings_text_secondary), 0);
             lv_obj_align(row.value, LV_ALIGN_RIGHT_MID, -14, 0);
         }
+
+        settings_back_row_ = lv_obj_create(settings_panel_);
+        lv_obj_remove_style_all(settings_back_row_);
+        lv_obj_set_size(settings_back_row_, k_settings_back_row_w, k_settings_back_row_h);
+        lv_obj_set_style_radius(settings_back_row_, 13, 0);
+        lv_obj_set_style_bg_color(settings_back_row_, lv_color_hex(0x0e1a2b), 0);
+        lv_obj_set_style_bg_opa(settings_back_row_, static_cast<lv_opa_t>(72), 0);
+        lv_obj_set_style_border_width(settings_back_row_, 1, 0);
+        lv_obj_set_style_border_color(settings_back_row_, lv_color_hex(k_settings_text_secondary), 0);
+        lv_obj_set_style_border_opa(settings_back_row_, LV_OPA_50, 0);
+        lv_obj_clear_flag(settings_back_row_, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(settings_back_row_, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(settings_back_row_, SettingsBackRowClicked, LV_EVENT_CLICKED, this);
+        lv_obj_align(settings_back_row_, LV_ALIGN_TOP_MID, 0, k_settings_back_row_y);
+
+        settings_back_label_ = lv_label_create(settings_back_row_);
+        lv_label_set_text(settings_back_label_, "退出设置");
+        lv_obj_set_style_text_color(settings_back_label_, lv_color_hex(k_settings_text_secondary), 0);
+        lv_obj_add_flag(settings_back_label_, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(settings_back_label_, SettingsBackRowClicked, LV_EVENT_CLICKED, this);
+        lv_obj_align(settings_back_label_, LV_ALIGN_CENTER, 0, 0);
     }
 
     void HideSettingsRowsLocked() {
@@ -1151,13 +1400,95 @@ private:
         }
     }
 
+    void HideSettingsBrightnessSliderLocked() {
+        AddFlagIfCreated(settings_brightness_value_label_, LV_OBJ_FLAG_HIDDEN);
+        AddFlagIfCreated(settings_brightness_track_, LV_OBJ_FLAG_HIDDEN);
+        AddFlagIfCreated(settings_brightness_thumb_, LV_OBJ_FLAG_HIDDEN);
+        AddFlagIfCreated(settings_brightness_low_label_, LV_OBJ_FLAG_HIDDEN);
+        AddFlagIfCreated(settings_brightness_high_label_, LV_OBJ_FLAG_HIDDEN);
+        AddFlagIfCreated(settings_brightness_back_button_, LV_OBJ_FLAG_HIDDEN);
+        settings_brightness_dragging_ = false;
+    }
+
+    void ShowSettingsBrightnessSliderLocked() {
+        RemoveFlagIfCreated(settings_brightness_value_label_, LV_OBJ_FLAG_HIDDEN);
+        RemoveFlagIfCreated(settings_brightness_track_, LV_OBJ_FLAG_HIDDEN);
+        RemoveFlagIfCreated(settings_brightness_fill_, LV_OBJ_FLAG_HIDDEN);
+        RemoveFlagIfCreated(settings_brightness_thumb_, LV_OBJ_FLAG_HIDDEN);
+        RemoveFlagIfCreated(settings_brightness_low_label_, LV_OBJ_FLAG_HIDDEN);
+        RemoveFlagIfCreated(settings_brightness_high_label_, LV_OBJ_FLAG_HIDDEN);
+        RemoveFlagIfCreated(settings_brightness_back_button_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    void UpdateSettingsBrightnessSliderLocked(uint8_t brightness) {
+        const uint8_t clamped = std::max<uint8_t>((uint8_t)10, xiaoxin_settings_clamp_percent(brightness));
+        settings_brightness_value_ = clamped;
+        if (settings_brightness_value_label_ == nullptr ||
+            settings_brightness_fill_ == nullptr ||
+            settings_brightness_thumb_ == nullptr) {
+            return;
+        }
+
+        char text[8] = {};
+        std::snprintf(text, sizeof(text), "%u%%", (unsigned)settings_brightness_value_);
+        lv_label_set_text(settings_brightness_value_label_, text);
+
+        const int16_t fill_w = (int16_t)std::max<int32_t>(
+            1,
+            ((int32_t)k_settings_brightness_track_w * (settings_brightness_value_ - 10) + 45) / 90
+        );
+        lv_obj_set_width(settings_brightness_fill_, fill_w);
+        lv_obj_align(settings_brightness_fill_, LV_ALIGN_LEFT_MID, 0, 0);
+
+        const int16_t track_left = (int16_t)((k_settings_panel_w - k_settings_brightness_track_w) / 2);
+        const int16_t thumb_x = (int16_t)(track_left + fill_w - k_settings_brightness_thumb_size / 2);
+        const int16_t thumb_y = (int16_t)(k_settings_brightness_track_y -
+            (k_settings_brightness_thumb_size - k_settings_brightness_track_h) / 2);
+        lv_obj_align(settings_brightness_thumb_, LV_ALIGN_TOP_LEFT, thumb_x, thumb_y);
+    }
+
+    bool SettingsBrightnessSliderContains(uint16_t x, uint16_t y) const {
+        if (settings_brightness_track_ == nullptr ||
+            lv_obj_has_flag(settings_brightness_track_, LV_OBJ_FLAG_HIDDEN)) {
+            return false;
+        }
+        lv_area_t coords;
+        lv_obj_get_coords(settings_brightness_track_, &coords);
+        coords.x1 -= 18;
+        coords.x2 += 18;
+        coords.y1 -= 24;
+        coords.y2 += 24;
+        return x >= coords.x1 && x <= coords.x2 && y >= coords.y1 && y <= coords.y2;
+    }
+
+    void SetSettingsBackRowVisibleLocked(bool visible) {
+        if (settings_back_row_ == nullptr) {
+            return;
+        }
+        if (visible) {
+            lv_obj_remove_flag(settings_back_row_, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(settings_back_row_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    void AlignSettingsHintBottomLocked() {
+        if (settings_hint_label_ == nullptr) {
+            return;
+        }
+        lv_obj_align(settings_hint_label_, LV_ALIGN_BOTTOM_MID, 0, -k_settings_hint_bottom_offset);
+    }
+
     void RenderSettingsListLocked() {
         EnsureSettingsOverlayLocked();
         settings_view_ = SettingsView::List;
-        lv_label_set_text(settings_title_label_, "璁剧疆");
-        lv_label_set_text(settings_hint_label_, "BOOT 杩斿洖");
+        lv_label_set_text(settings_title_label_, "设置");
+        AlignSettingsHintBottomLocked();
+        lv_label_set_text(settings_hint_label_, "");
+        SetSettingsBackRowVisibleLocked(true);
         settings_item_count_ = xiaoxin_settings_visible_items(SettingsCaps(), settings_items_, k_settings_item_max_count);
         HideSettingsRowsLocked();
+        HideSettingsBrightnessSliderLocked();
         for (uint8_t i = 0; i < settings_item_count_; ++i) {
             SettingsRow& row = settings_rows_[i];
             row.item = settings_items_[i];
@@ -1167,11 +1498,18 @@ private:
         }
     }
 
-    void ApplySettingsBrightness(uint8_t brightness) {
+    void ApplySettingsBrightness(uint8_t brightness, bool permanent) {
         const uint8_t clamped = xiaoxin_settings_clamp_percent(brightness);
+        if (settings_brightness_applied_value_ == clamped &&
+            settings_brightness_applied_permanent_ == permanent) {
+            return;
+        }
+        settings_brightness_applied_value_ = clamped;
+        settings_brightness_applied_permanent_ = permanent;
+
         auto backlight = Board::GetInstance().GetBacklight();
         if (backlight != nullptr) {
-            backlight->SetBrightness(clamped, true);
+            backlight->SetBrightness(clamped, permanent);
         }
     }
 
@@ -1183,18 +1521,18 @@ private:
         settings_view_ = SettingsView::About;
         EnsureSettingsOverlayLocked();
         HideSettingsRowsLocked();
+        HideSettingsBrightnessSliderLocked();
+        SetSettingsBackRowVisibleLocked(false);
         const esp_app_desc_t* app_desc = esp_app_get_description();
         char text[160] = {};
         std::snprintf(
             text,
             sizeof(text),
-            "鍥轰欢 %s\n%s\nWaveshare ESP32-S3 Touch LCD 1.46\n%s %s",
-            app_desc != nullptr ? app_desc->version : "-",
-            app_desc != nullptr ? app_desc->project_name : "ai_pet",
-            app_desc != nullptr ? app_desc->date : "-",
-            app_desc != nullptr ? app_desc->time : "-"
+            "小芯 D151\n桌面助手\n固件 %s",
+            app_desc != nullptr ? app_desc->version : "-"
         );
-        lv_label_set_text(settings_title_label_, "鍏充簬");
+        lv_label_set_text(settings_title_label_, "关于");
+        lv_obj_align(settings_hint_label_, LV_ALIGN_TOP_MID, 0, k_settings_about_body_y);
         lv_label_set_text(settings_hint_label_, text);
     }
 
@@ -1216,18 +1554,74 @@ private:
     }
 
     void HandleSettingsTouch(uint16_t x, uint16_t y, bool pressed) {
-        if (!pressed || touch_pressed_) {
+        if (!pressed) {
+            if (settings_view_ == SettingsView::Brightness && settings_brightness_dragging_) {
+                settings_brightness_dragging_ = false;
+                ApplySettingsBrightness(settings_brightness_value_, true);
+            }
+            settings_touch_action_consumed_ = false;
             return;
         }
-        if (settings_view_ != SettingsView::List) {
-            RenderSettingsListLocked();
-            return;
-        }
-        for (uint8_t i = 0; i < settings_item_count_; ++i) {
-            if (PointInObj(settings_rows_[i].container, x, y)) {
-                OpenSettingsItemLocked(settings_rows_[i].item);
+
+        if (!settings_touch_action_consumed_) {
+            if (settings_view_ == SettingsView::List) {
+                if (PointInObjWithSlop(
+                        settings_back_row_,
+                        x,
+                        y,
+                        k_settings_button_hit_slop_x,
+                        k_settings_button_hit_slop_y
+                    )) {
+                    settings_touch_action_consumed_ = true;
+                    CloseSettingsOverlayLocked();
+                    return;
+                }
+                if (!touch_pressed_) {
+                    for (uint8_t i = 0; i < settings_item_count_; ++i) {
+                        if (PointInObj(settings_rows_[i].container, x, y)) {
+                            settings_touch_action_consumed_ = true;
+                            OpenSettingsItemLocked(settings_rows_[i].item);
+                            return;
+                        }
+                    }
+                }
                 return;
             }
+
+            if (settings_view_ == SettingsView::Brightness &&
+                PointInObjWithSlop(
+                    settings_brightness_back_button_,
+                    x,
+                    y,
+                    k_settings_button_hit_slop_x,
+                    k_settings_button_hit_slop_y
+                )) {
+                settings_touch_action_consumed_ = true;
+                RenderSettingsListLocked();
+                return;
+            }
+
+            if (!touch_pressed_ && settings_view_ == SettingsView::About) {
+                settings_touch_action_consumed_ = true;
+                RenderSettingsListLocked();
+                return;
+            }
+        }
+
+        if (settings_view_ == SettingsView::Brightness &&
+            (settings_brightness_dragging_ || SettingsBrightnessSliderContains(x, y))) {
+            lv_area_t coords = {};
+            if (settings_brightness_track_ != nullptr) {
+                lv_obj_get_coords(settings_brightness_track_, &coords);
+            }
+            settings_brightness_dragging_ = true;
+            settings_brightness_value_ = xiaoxin_settings_brightness_from_x(
+                (int)x,
+                (int)coords.x1,
+                k_settings_brightness_track_w
+            );
+            UpdateSettingsBrightnessSliderLocked(settings_brightness_value_);
+            ApplySettingsBrightness(settings_brightness_value_, false);
         }
     }
 
@@ -3090,6 +3484,11 @@ private:
         uint16_t y = 0;
         const esp_err_t touch_err = touch_->ReadPoint(x, y, pressed);
         if (touch_err != ESP_OK) {
+            if (settings_open_ && touch_pressed_) {
+                HandleSettingsTouch(touch_last_x_, touch_last_y_, false);
+                power_save_timer_wake_requested_ = true;
+                touch_pressed_ = false;
+            }
             if (touch_pressed_) {
                 power_save_timer_wake_requested_ = true;
                 HandleTouchRelease(now_ms);
@@ -3108,7 +3507,16 @@ private:
         }
 
         if (settings_open_) {
-            HandleSettingsTouch(x, y, pressed);
+            if (pressed) {
+                touch_last_x_ = x;
+                touch_last_y_ = y;
+                touch_last_active_ms_ = now_ms;
+            }
+            HandleSettingsTouch(
+                pressed ? x : touch_last_x_,
+                pressed ? y : touch_last_y_,
+                pressed
+            );
             touch_pressed_ = pressed;
             return;
         }
@@ -3709,48 +4117,8 @@ private:
         gpio_set_level(PWR_Control_PIN, xiaoxin_power_control_power_hold(&power_control_));
     }
 
-    static xiaoxin_settings_runtime_state_t SettingsRuntimeState(DeviceState state) {
-        switch (state) {
-            case kDeviceStateStarting:
-                return XIAOXIN_SETTINGS_RUNTIME_STARTING;
-            case kDeviceStateWifiConfiguring:
-                return XIAOXIN_SETTINGS_RUNTIME_WIFI_CONFIGURING;
-            case kDeviceStateIdle:
-                return XIAOXIN_SETTINGS_RUNTIME_IDLE;
-            case kDeviceStateConnecting:
-                return XIAOXIN_SETTINGS_RUNTIME_CONNECTING;
-            case kDeviceStateListening:
-                return XIAOXIN_SETTINGS_RUNTIME_LISTENING;
-            case kDeviceStateSpeaking:
-                return XIAOXIN_SETTINGS_RUNTIME_SPEAKING;
-            case kDeviceStateUpgrading:
-                return XIAOXIN_SETTINGS_RUNTIME_UPGRADING;
-            case kDeviceStateActivating:
-                return XIAOXIN_SETTINGS_RUNTIME_ACTIVATING;
-            case kDeviceStateAudioTesting:
-                return XIAOXIN_SETTINGS_RUNTIME_AUDIO_TESTING;
-            case kDeviceStateFatalError:
-                return XIAOXIN_SETTINGS_RUNTIME_FATAL_ERROR;
-            default:
-                return XIAOXIN_SETTINGS_RUNTIME_UNKNOWN;
-        }
-    }
-
     void OpenSettingsOverlayFromBootButton() {
-        auto& app = Application::GetInstance();
-        const DeviceState device_state = app.GetDeviceState();
-        const xiaoxin_settings_runtime_state_t runtime = SettingsRuntimeState(device_state);
-        ESP_LOGI(TAG, "BOOT long press: device_state=%d runtime=%d", (int)device_state, (int)runtime);
-        if (runtime != XIAOXIN_SETTINGS_RUNTIME_IDLE || !xiaoxin_settings_can_open(runtime)) {
-            ESP_LOGW(TAG, "BOOT settings blocked: device_state=%d runtime=%d", (int)device_state, (int)runtime);
-            if (app.GetDeviceState() == kDeviceStateConnecting ||
-                app.GetDeviceState() == kDeviceStateListening ||
-                app.GetDeviceState() == kDeviceStateSpeaking) {
-                GetDisplay()->ShowNotification("璇峰厛缁撴潫瀵硅瘽", 1600);
-            }
-            GetDisplay()->ShowNotification("Settings only in idle", 1600);
-            return;
-        }
+        ESP_LOGI(TAG, "BOOT long press: opening settings overlay");
         auto* display = static_cast<PaopaoPetDisplay*>(display_);
         if (display != nullptr) {
             ESP_LOGI(TAG, "Opening BOOT settings overlay");
@@ -3974,34 +4342,32 @@ void PaopaoPetDisplay::RenderSettingsBrightnessPage() {
     settings_view_ = SettingsView::Brightness;
     EnsureSettingsOverlayLocked();
     HideSettingsRowsLocked();
-    lv_label_set_text(settings_title_label_, "浜害");
-    lv_label_set_text(settings_hint_label_, "30  70  100");
+    SetSettingsBackRowVisibleLocked(false);
+    lv_label_set_text(settings_title_label_, "亮度");
+    AlignSettingsHintBottomLocked();
+    lv_label_set_text(settings_hint_label_, "");
+    ShowSettingsBrightnessSliderLocked();
 
-    auto apply_brightness_preset = [this](uint8_t preset_index) {
-        switch (preset_index) {
-            case 0:
-                ApplySettingsBrightness(30);
-                break;
-            case 1:
-                ApplySettingsBrightness(70);
-                break;
-            case 2:
-                ApplySettingsBrightness(100);
-                break;
-            default:
-                ApplySettingsBrightness(70);
-                break;
-        }
-    };
-    apply_brightness_preset(1);
+    uint8_t brightness = 75;
+    auto backlight = Board::GetInstance().GetBacklight();
+    if (backlight != nullptr) {
+        brightness = backlight->brightness();
+    }
+    if (brightness < 10) {
+        brightness = 10;
+    }
+    UpdateSettingsBrightnessSliderLocked(brightness);
 }
 
 void PaopaoPetDisplay::RenderSettingsWifiPage() {
     settings_view_ = SettingsView::Wifi;
     EnsureSettingsOverlayLocked();
     HideSettingsRowsLocked();
+    HideSettingsBrightnessSliderLocked();
+    SetSettingsBackRowVisibleLocked(false);
     lv_label_set_text(settings_title_label_, "Wi-Fi");
-    lv_label_set_text(settings_hint_label_, "閲嶆柊閰嶇綉");
+    lv_label_set_text(settings_hint_label_, "重新配网");
+    AlignSettingsHintBottomLocked();
     settings_wifi_config_requested_ = true;
     CloseSettingsOverlayLocked();
 }

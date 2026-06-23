@@ -2,6 +2,65 @@
 
 ## 2026-06-23 00:00:00 +08:00
 
+### Waveshare ESP32-S3 Touch LCD 1.46 设置页交互、亮度滑条与配网状态完善
+
+#### 背景
+
+实机反馈设置首页底部的 `退出设置`、亮度页中的 `返回` 等小按钮在 1.46 寸圆屏上不够好点，亮度页的 `30 / 70 / 100` 预设也不够细；同时关于页仍暴露开发板型号，Wi-Fi 配网状态栏图标容易看起来像“已连接”。
+
+本轮把设置页交互继续收束在现有 `PollTouch()` 读取路径里，保留卡片分页和桌宠触摸隔离，同时为小按钮补足独立控件、扩展命中区和动态亮度拖动能力。设置页文案和关于页也同步改为面向用户的小芯产品信息。
+
+#### 修改内容
+
+- 设置页布局和小按钮命中优化：
+  - 设置面板高度从 `250` 调整到 `288`，列表行高度和间距收紧，给底部 `退出设置` 留出独立区域。
+  - `退出设置` 从普通设置行中拆出为独立 `settings_back_row_`，避免和第四行设置项混在一起。
+  - 新增 `PointInObjWithSlop()`，为 `退出设置` 和亮度页 `返回` 增加横向/纵向命中扩展。
+  - 新增 `settings_touch_action_consumed_`，避免一次按压在同一帧内重复触发关闭、返回或拖动动作。
+- 亮度设置从固定预设改为动态滑条：
+  - 新增 `settings_brightness_value_label_`、轨道、填充、滑块、`低/高` 标签和独立 `返回` 按钮。
+  - 新增 `xiaoxin_settings_brightness_from_x()`，把触摸横坐标映射到安全亮度区间 `10~100`，避免拖到 0 导致屏幕近似黑屏。
+  - 拖动时调用 `Backlight::SetBrightness(value, false)` 做即时预览，松手后调用 `Backlight::SetBrightness(value, true)` 持久化。
+  - 增加亮度写入去重，避免拖动过程中同一值重复刷日志和写入链路。
+- 设置页进入和产品文案调整：
+  - BOOT 长按打开设置页不再限制 idle 状态，连接、聆听、说话、升级等运行态也可进入设置。
+  - 修复设置模型中中文标题的 UTF-8 文案，覆盖 `亮度`、`省电`、`关于`、`音量`、`静音`、`提示音`、`震动` 等标题。
+  - 关于页从开发板型号改为小芯产品信息，展示 `小芯 D151`、`桌面助手` 和固件版本，并上移正文以适配圆屏底部。
+- Wi-Fi 配网状态显示修正：
+  - 进入 `kDeviceStateWifiConfiguring` 时立即设置状态文案为 `WIFI_CONFIG_MODE` 并刷新状态栏。
+  - `WifiBoard::GetNetworkStateIcon()` 在配网模式下显示 `FONT_AWESOME_WIFI_SLASH`，避免状态栏看起来像已经联网。
+- 保留现有设置页触摸边界：
+  - 设置页打开时仍先由 `PollTouch()` 读取触摸点，再把事件交给 `HandleSettingsTouch()`。
+  - 设置页触摸继续压制卡片分页手势，避免设置 overlay 内拖动亮度时触发通知/总览抽屉。
+- 扩展 source-path 测试：
+  - 覆盖设置页中文文案、独立退出按钮、命中扩展、按钮首帧可触发和触摸消费状态。
+  - 覆盖亮度动态滑条、坐标映射、预览/持久化分离、返回按钮和重复写入去重。
+  - 覆盖关于页产品身份、圆屏底部适配、BOOT 长按任意运行态进入设置。
+  - 新增 Wi-Fi 配网状态栏和网络图标 source-path 守卫。
+
+#### 涉及文件
+
+- `main/application.cc`
+- `main/boards/common/wifi_board.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_settings_model.c`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_settings_model.h`
+- `tests/xiaoxin_settings_model_test.c`
+- `tests/xiaoxin_settings_path_test.py`
+- `tests/wifi_config_status_path_test.py`
+- `docs/superpowers/specs/2026-06-23-xiaoxin-dynamic-brightness-settings-design.zh-CN.md`
+- `docs/superpowers/plans/2026-06-23-xiaoxin-about-page-product-info.md`
+- `docs/superpowers/plans/2026-06-23-xiaoxin-dynamic-brightness-settings.md`
+- `docs/update.md`
+
+#### 验证结果
+
+- `python -m pytest tests/xiaoxin_settings_path_test.py tests/wifi_config_status_path_test.py -q`：通过，33 passed。
+- `gcc -std=c11 -Wall -Wextra -Werror tests/xiaoxin_settings_model_test.c main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_settings_model.c -o build/xiaoxin_settings_model_test.exe`：通过。
+- `.\build\xiaoxin_settings_model_test.exe`：通过，输出 `xiaoxin_settings_model tests passed`。
+- `git diff --check`：通过，仅提示当前工作副本中文件下一次由 Git 触碰时会进行 LF/CRLF 行尾转换。
+- 当前 shell 中未执行完整 ESP-IDF 固件 build / flash，因此仍需在 ESP-IDF 环境中实机验证 `退出设置`、亮度滑条拖动/持久化、关于页显示和 Wi-Fi 配网状态栏。
+
 ### Waveshare ESP32-S3 Touch LCD 1.46 BOOT 长按设置页硬件回归兜底
 
 #### 背景

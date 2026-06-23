@@ -78,18 +78,18 @@ static void item_count_is_clamped_to_output_capacity(void) {
   assert(items[1] == XIAOXIN_SETTINGS_ITEM_WIFI);
 }
 
-static void only_idle_runtime_state_can_open_settings(void) {
+static void every_runtime_state_can_open_settings(void) {
+  assert(xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_UNKNOWN));
+  assert(xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_STARTING));
+  assert(xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_WIFI_CONFIGURING));
   assert(xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_IDLE));
-  assert(!xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_UNKNOWN));
-  assert(!xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_STARTING));
-  assert(!xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_CONNECTING));
-  assert(!xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_LISTENING));
-  assert(!xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_SPEAKING));
-  assert(!xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_WIFI_CONFIGURING));
-  assert(!xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_AUDIO_TESTING));
-  assert(!xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_ACTIVATING));
-  assert(!xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_UPGRADING));
-  assert(!xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_FATAL_ERROR));
+  assert(xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_CONNECTING));
+  assert(xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_LISTENING));
+  assert(xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_SPEAKING));
+  assert(xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_UPGRADING));
+  assert(xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_ACTIVATING));
+  assert(xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_AUDIO_TESTING));
+  assert(xiaoxin_settings_can_open(XIAOXIN_SETTINGS_RUNTIME_FATAL_ERROR));
 }
 
 static void brightness_percent_is_clamped(void) {
@@ -100,11 +100,24 @@ static void brightness_percent_is_clamped(void) {
   assert(xiaoxin_settings_clamp_percent(125) == 100);
 }
 
-static void titles_are_short_for_round_screen(void) {
-  assert(strcmp(xiaoxin_settings_item_title(XIAOXIN_SETTINGS_ITEM_BRIGHTNESS), "浜害") == 0);
+static void brightness_slider_maps_x_to_safe_range(void) {
+  assert(xiaoxin_settings_brightness_from_x(10, 10, 180) == 10);
+  assert(xiaoxin_settings_brightness_from_x(190, 10, 180) == 100);
+  assert(xiaoxin_settings_brightness_from_x(100, 10, 180) == 55);
+  assert(xiaoxin_settings_brightness_from_x(-20, 10, 180) == 10);
+  assert(xiaoxin_settings_brightness_from_x(260, 10, 180) == 100);
+  assert(xiaoxin_settings_brightness_from_x(60, 10, 0) == 10);
+}
+
+static void titles_are_valid_utf8_chinese(void) {
+  assert(strcmp(xiaoxin_settings_item_title(XIAOXIN_SETTINGS_ITEM_BRIGHTNESS), "亮度") == 0);
   assert(strcmp(xiaoxin_settings_item_title(XIAOXIN_SETTINGS_ITEM_WIFI), "Wi-Fi") == 0);
-  assert(strcmp(xiaoxin_settings_item_title(XIAOXIN_SETTINGS_ITEM_POWER_SAVE), "鐪佺數") == 0);
-  assert(strcmp(xiaoxin_settings_item_title(XIAOXIN_SETTINGS_ITEM_ABOUT), "鍏充簬") == 0);
+  assert(strcmp(xiaoxin_settings_item_title(XIAOXIN_SETTINGS_ITEM_POWER_SAVE), "省电") == 0);
+  assert(strcmp(xiaoxin_settings_item_title(XIAOXIN_SETTINGS_ITEM_ABOUT), "关于") == 0);
+  assert(strcmp(xiaoxin_settings_item_title(XIAOXIN_SETTINGS_ITEM_VOLUME), "音量") == 0);
+  assert(strcmp(xiaoxin_settings_item_title(XIAOXIN_SETTINGS_ITEM_MUTE), "静音") == 0);
+  assert(strcmp(xiaoxin_settings_item_title(XIAOXIN_SETTINGS_ITEM_PROMPT_SOUND), "提示音") == 0);
+  assert(strcmp(xiaoxin_settings_item_title(XIAOXIN_SETTINGS_ITEM_VIBRATION), "震动") == 0);
 }
 
 int main(void) {
@@ -112,9 +125,10 @@ int main(void) {
   power_save_item_requires_scheduler_capability();
   audio_items_require_audio_capability();
   item_count_is_clamped_to_output_capacity();
-  only_idle_runtime_state_can_open_settings();
+  every_runtime_state_can_open_settings();
   brightness_percent_is_clamped();
-  titles_are_short_for_round_screen();
+  brightness_slider_maps_x_to_safe_range();
+  titles_are_valid_utf8_chinese();
   puts("xiaoxin_settings_model tests passed");
   return 0;
 }
