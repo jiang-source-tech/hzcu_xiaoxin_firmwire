@@ -90,6 +90,28 @@ def test_boot_long_press_has_observable_feedback_and_hold_fallback():
     assert "OpenSettingsOverlay()" in helper
 
 
+def test_boot_gpio_has_pullup_and_polling_long_press_fallback():
+    source = read_source(BOARD_SOURCE)
+    custom_init = strip_cpp_comments(function_body(source, "void InitializeButtonsCustom()"))
+    boot_section = strip_cpp_comments(section_between(source, "// Boot Button", "// Power Button"))
+    fallback = strip_cpp_comments(function_body(source, "void PollBootButtonFallback()"))
+
+    assert "gpio_set_pull_mode(BOOT_BUTTON_GPIO, GPIO_PULLUP_ONLY)" in custom_init
+    assert "esp_timer_handle_t boot_poll_timer_" in source
+    assert "int64_t boot_press_started_us_" in source
+    assert "bool boot_poll_pressed_" in source
+    assert "InitializeBootButtonPollingFallback()" in source
+    assert "esp_timer_create" in source
+    assert "esp_timer_start_periodic" in source
+    assert "PollBootButtonFallback()" in source
+    assert "gpio_get_level(BOOT_BUTTON_GPIO) == 0" in fallback
+    assert 'ESP_LOGI(TAG, "BOOT poll press down")' in fallback
+    assert 'ESP_LOGI(TAG, "BOOT poll long press fallback")' in fallback
+    assert "HandleBootLongPress()" in fallback
+    assert "boot_long_press_handled_ = false" in boot_section
+    assert "boot_long_press_handled_ = false" in fallback
+
+
 def test_settings_overlay_state_is_public_to_board_button_layer():
     source = read_source(BOARD_SOURCE)
 

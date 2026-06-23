@@ -10,9 +10,9 @@
 
 ## Implementation Update
 
-**Status:** Implemented and reviewed on branch `codex/xiaoxin-boot-settings-page`.
+**Status:** Implemented and reviewed on branch `codex/xiaoxin-boot-settings-page`; hardware follow-up added for BOOT GPIO event visibility.
 
-**Updated:** 2026-06-22
+**Updated:** 2026-06-23
 
 **Implementation commits:**
 - `59acf04` - `feat: add xiaoxin settings model`
@@ -24,6 +24,7 @@
 - `4518f56` - `fix: harden power save settings gate`
 - `3474bfb` - `fix: avoid settings wifi lock reentry`
 - `f802d01` - `fix: defer touch power-save wake`
+- `b06f2ad` - `fix: add boot settings long press diagnostics`
 
 **What shipped:**
 - Added the pure C Xiaoxin settings model and local C coverage.
@@ -35,10 +36,17 @@
 - Added Wi-Fi reconfiguration through the existing `EnterWifiConfigMode()` path.
 - Added `PowerSaveTimer` integration and made power-save visibility depend on a real scheduler.
 - Fixed final-review lock re-entry risks by deferring Wi-Fi reconfiguration and touch-triggered power-save wake until after the display lock is released.
+- Added BOOT press/long-press diagnostics after hardware testing reported no visible long-press feedback.
+- Added a GPIO0 polling fallback for hardware cases where `iot_button` does not emit BOOT press events:
+  - BOOT/PWR inputs now explicitly enable `GPIO_PULLUP_ONLY`.
+  - A 50ms `esp_timer` polls `BOOT_BUTTON_GPIO`.
+  - GPIO0 held low for 2 seconds calls the same `HandleBootLongPress()` path.
+  - The fallback shares `boot_long_press_handled_` with `iot_button` to avoid double-opening the settings overlay.
+  - New logs identify the fallback path: `BOOT polling fallback started`, `BOOT poll press down`, `BOOT poll long press fallback`, and `BOOT poll press up`.
 
 **Verification completed:**
 - `xiaoxin_settings_model tests passed`
-- `python -m pytest tests/xiaoxin_settings_path_test.py -q` -> `13 passed`
+- `python -m pytest tests/xiaoxin_settings_path_test.py -q` -> `15 passed`
 - `python -m pytest tests/xiaoxin_notification_visual_path_test.py tests/xiaoxin_pet_mood_integration_path_test.py -q` -> `27 passed`
 - `xiaoxin_card_pager tests passed`
 - `xiaoxin_system_overlay tests passed`

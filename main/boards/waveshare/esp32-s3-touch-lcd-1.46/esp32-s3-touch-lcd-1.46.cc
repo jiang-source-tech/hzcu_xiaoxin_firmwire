@@ -3339,6 +3339,9 @@ private:
     button_driver_t* boot_btn_driver_ = nullptr;
     button_driver_t* pwr_btn_driver_ = nullptr;
     bool boot_long_press_handled_ = false;
+    esp_timer_handle_t boot_poll_timer_ = nullptr;
+    int64_t boot_press_started_us_ = 0;
+    bool boot_poll_pressed_ = false;
     static CustomBoard* instance_;
 
     void InitializeI2c() {
@@ -3697,8 +3700,10 @@ private:
         xiaoxin_power_control_init(&power_control_);
         gpio_reset_pin(BOOT_BUTTON_GPIO);                                     
         gpio_set_direction(BOOT_BUTTON_GPIO, GPIO_MODE_INPUT);   
+        gpio_set_pull_mode(BOOT_BUTTON_GPIO, GPIO_PULLUP_ONLY);
         gpio_reset_pin(PWR_BUTTON_GPIO);                                     
         gpio_set_direction(PWR_BUTTON_GPIO, GPIO_MODE_INPUT);   
+        gpio_set_pull_mode(PWR_BUTTON_GPIO, GPIO_PULLUP_ONLY);
         gpio_reset_pin(PWR_Control_PIN);                                     
         gpio_set_direction(PWR_Control_PIN, GPIO_MODE_OUTPUT);     
         gpio_set_level(PWR_Control_PIN, xiaoxin_power_control_power_hold(&power_control_));
@@ -3762,6 +3767,51 @@ private:
         OpenSettingsOverlayFromBootButton();
     }
 
+    void PollBootButtonFallback() {
+        const bool pressed = gpio_get_level(BOOT_BUTTON_GPIO) == 0;
+        const int64_t now_us = esp_timer_get_time();
+        if (pressed) {
+            if (!boot_poll_pressed_) {
+                boot_poll_pressed_ = true;
+                boot_press_started_us_ = now_us;
+                boot_long_press_handled_ = false;
+                ESP_LOGI(TAG, "BOOT poll press down");
+            }
+            if (!boot_long_press_handled_ &&
+                boot_press_started_us_ > 0 &&
+                now_us - boot_press_started_us_ >= 2000000) {
+                ESP_LOGI(TAG, "BOOT poll long press fallback");
+                HandleBootLongPress();
+            }
+            return;
+        }
+
+        if (boot_poll_pressed_) {
+            boot_poll_pressed_ = false;
+            boot_press_started_us_ = 0;
+            boot_long_press_handled_ = false;
+            ESP_LOGI(TAG, "BOOT poll press up");
+        }
+    }
+
+    void InitializeBootButtonPollingFallback() {
+        if (boot_poll_timer_ != nullptr) {
+            return;
+        }
+        const esp_timer_create_args_t boot_poll_timer_args = {
+            .callback = [](void* arg) {
+                static_cast<CustomBoard*>(arg)->PollBootButtonFallback();
+            },
+            .arg = this,
+            .dispatch_method = ESP_TIMER_TASK,
+            .name = "boot_poll",
+            .skip_unhandled_events = true,
+        };
+        ESP_ERROR_CHECK(esp_timer_create(&boot_poll_timer_args, &boot_poll_timer_));
+        ESP_ERROR_CHECK(esp_timer_start_periodic(boot_poll_timer_, 50 * 1000));
+        ESP_LOGI(TAG, "BOOT polling fallback started: gpio=%d level=%d", (int)BOOT_BUTTON_GPIO, gpio_get_level(BOOT_BUTTON_GPIO));
+    }
+
     void InitializeButtons() {
         instance_ = this;
         InitializeButtonsCustom();
@@ -3810,6 +3860,7 @@ private:
             auto self = static_cast<CustomBoard*>(usr_data);
             self->HandleBootLongPress();
         }, this);
+        InitializeBootButtonPollingFallback();
 
         // Power Button
         button_config_t pwr_btn_config = {

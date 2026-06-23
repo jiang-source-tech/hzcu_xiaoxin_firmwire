@@ -1,5 +1,44 @@
 ﻿# Update
 
+## 2026-06-23 00:00:00 +08:00
+
+### Waveshare ESP32-S3 Touch LCD 1.46 BOOT 长按设置页硬件回归兜底
+
+#### 背景
+
+远程分支已实现 BOOT 长按进入设置页，并补充了按键事件日志；实际硬件重新 build / 烧录后，长按 BOOT 仍无界面反馈，串口中也没有看到 `BOOT press down`、`BOOT long press` 等日志。该现象说明问题发生在更靠前的边界：GPIO0/BOOT 没有稳定进入 `iot_button` 事件链，或者 button 库没有产出 press/long-press 回调。
+
+#### 修改内容
+
+- BOOT/PWR 输入初始化显式启用内部上拉：
+  - `BOOT_BUTTON_GPIO` 使用 `GPIO_PULLUP_ONLY`，稳定未按下时的高电平。
+  - `PWR_BUTTON_GPIO` 同步启用上拉，避免同类输入漂浮。
+- 为 BOOT 增加 GPIO 轮询兜底：
+  - 使用 `esp_timer` 每 50ms 读取 `gpio_get_level(BOOT_BUTTON_GPIO)`。
+  - GPIO0 低电平持续 2 秒时调用同一个 `HandleBootLongPress()`。
+  - 复用 `boot_long_press_handled_`，避免 `iot_button` 和轮询兜底双触发。
+- 增加硬件排查日志：
+  - `BOOT polling fallback started: gpio=%d level=%d`
+  - `BOOT poll press down`
+  - `BOOT poll long press fallback`
+  - `BOOT poll press up`
+- 扩展 source-path 测试：
+  - 覆盖 BOOT 上拉配置。
+  - 覆盖轮询 timer、GPIO0 低电平判断、2 秒兜底路径和防双触发状态位。
+
+#### 涉及文件
+
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `tests/xiaoxin_settings_path_test.py`
+- `docs/superpowers/plans/2026-06-22-xiaoxin-boot-settings-page.md`
+- `docs/update.md`
+
+#### 验证结果
+
+- 先新增 failing source-path test：缺少 `PollBootButtonFallback()` 时失败。
+- 实现后 `python -m pytest tests/xiaoxin_settings_path_test.py -q`：通过，15 passed。
+- 当前 shell 中未找到 `idf.py`，因此仍需在 ESP-IDF 环境中执行完整固件 build / flash 做硬件验证。
+
 ## 2026-06-22 00:00:00 +08:00
 
 ### Waveshare ESP32-S3 Touch LCD 1.46 BOOT 长按设置页
