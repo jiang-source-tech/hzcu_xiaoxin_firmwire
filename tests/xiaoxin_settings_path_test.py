@@ -394,8 +394,10 @@ def test_power_save_setting_is_only_enabled_when_timer_is_initialized():
     assert "InitializePowerSaveTimer()" in source
     assert ".has_power_save_scheduler = power_save_timer_ != nullptr" in caps_body
     assert "new PowerSaveTimer(-1, 60, 300)" in source
-    assert "SetPowerSaveMode(true)" in source
-    assert "SetPowerSaveMode(false)" in source
+    assert "ShowLowPowerClockScreen()" in source
+    assert "HideLowPowerClockScreen()" in source
+    assert "SetPowerSaveMode(true)" not in source
+    assert "SetPowerSaveMode(false)" not in source
 
 
 def test_power_save_timer_is_reset_by_local_button_and_touch_activity():

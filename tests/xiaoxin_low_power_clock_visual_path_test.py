@@ -49,6 +49,14 @@ def test_power_button_still_wakes_power_save_timer():
     assert "self->WakePowerSaveTimer();" in power_section
 
 
+def test_power_save_timer_callbacks_show_and_hide_clock_screen():
+    source = read_source()
+    assert "display->ShowLowPowerClockScreen();" in source
+    assert "display->HideLowPowerClockScreen();" in source
+    assert "GetDisplay()->SetPowerSaveMode(true);" not in source
+    assert "GetDisplay()->SetPowerSaveMode(false);" not in source
+
+
 def test_power_save_mode_remains_task3_timer_boundary():
     source = read_source()
     power_save_section = source[

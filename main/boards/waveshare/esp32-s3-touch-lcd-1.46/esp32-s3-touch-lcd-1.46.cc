@@ -4327,10 +4327,16 @@ private:
     void InitializePowerSaveTimer() {
         power_save_timer_ = new PowerSaveTimer(-1, 60, 300);
         power_save_timer_->OnEnterSleepMode([this]() {
-            GetDisplay()->SetPowerSaveMode(true);
+            auto* display = static_cast<PaopaoPetDisplay*>(display_);
+            if (display != nullptr) {
+                display->ShowLowPowerClockScreen();
+            }
         });
         power_save_timer_->OnExitSleepMode([this]() {
-            GetDisplay()->SetPowerSaveMode(false);
+            auto* display = static_cast<PaopaoPetDisplay*>(display_);
+            if (display != nullptr) {
+                display->HideLowPowerClockScreen();
+            }
         });
         power_save_timer_->OnShutdownRequest([this]() {
             RequestPowerOff();
