@@ -120,6 +120,17 @@ static void titles_are_valid_utf8_chinese(void) {
   assert(strcmp(xiaoxin_settings_item_title(XIAOXIN_SETTINGS_ITEM_VIBRATION), "震动") == 0);
 }
 
+static void power_save_value_label_reflects_enabled_state(void) {
+  assert(strcmp(xiaoxin_settings_power_save_value_label(true), "已开启") == 0);
+  assert(strcmp(xiaoxin_settings_power_save_value_label(false), "已关闭") == 0);
+}
+
+static void power_save_battery_color_preserves_low_battery_priority(void) {
+  assert(xiaoxin_settings_power_save_battery_color(false, false, 0x00ff00, 0xff0000, 0xffb84d) == 0x00ff00);
+  assert(xiaoxin_settings_power_save_battery_color(true, false, 0x00ff00, 0xff0000, 0xffb84d) == 0xffb84d);
+  assert(xiaoxin_settings_power_save_battery_color(true, true, 0x00ff00, 0xff0000, 0xffb84d) == 0xff0000);
+}
+
 int main(void) {
   default_target_items_exclude_audio_and_power_save();
   power_save_item_requires_scheduler_capability();
@@ -129,6 +140,8 @@ int main(void) {
   brightness_percent_is_clamped();
   brightness_slider_maps_x_to_safe_range();
   titles_are_valid_utf8_chinese();
+  power_save_value_label_reflects_enabled_state();
+  power_save_battery_color_preserves_low_battery_priority();
   puts("xiaoxin_settings_model tests passed");
   return 0;
 }

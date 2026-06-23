@@ -64,6 +64,26 @@ uint8_t xiaoxin_settings_brightness_from_x(int x, int left, int width) {
   return xiaoxin_settings_clamp_percent(value);
 }
 
+const char* xiaoxin_settings_power_save_value_label(bool enabled) {
+  return enabled ? "已开启" : "已关闭";
+}
+
+uint32_t xiaoxin_settings_power_save_battery_color(
+  bool power_save_enabled,
+  bool low_battery,
+  uint32_t normal_color,
+  uint32_t low_color,
+  uint32_t power_save_color
+) {
+  if (low_battery) {
+    return low_color;
+  }
+  if (power_save_enabled) {
+    return power_save_color;
+  }
+  return normal_color;
+}
+
 const char* xiaoxin_settings_item_title(xiaoxin_settings_item_t item) {
   switch (item) {
     case XIAOXIN_SETTINGS_ITEM_BRIGHTNESS:

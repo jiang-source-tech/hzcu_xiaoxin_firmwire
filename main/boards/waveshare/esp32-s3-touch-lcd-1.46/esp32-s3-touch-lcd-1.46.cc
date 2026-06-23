@@ -9,6 +9,7 @@
 #include "button.h"
 #include "config.h"
 #include "power_save_timer.h"
+#include "settings.h"
 #include "assets/lang_config.h"
 
 #include <esp_check.h>
@@ -211,6 +212,7 @@ static constexpr uint32_t k_dot_color_info = 0x4fc3f7;
 static constexpr uint32_t k_battery_meter_border = XIAOXIN_SYSTEM_OVERLAY_ACTIVE_COLOR;
 static constexpr uint32_t k_battery_meter_fill = XIAOXIN_SYSTEM_OVERLAY_ACTIVE_COLOR;
 static constexpr uint32_t k_battery_meter_low = XIAOXIN_SYSTEM_OVERLAY_LOW_BATTERY_COLOR;
+static constexpr uint32_t k_battery_meter_power_save = 0xffb84d;
 static constexpr uint32_t k_battery_meter_empty = 0x27413a;
 static constexpr int16_t k_ov_icon_size = 30;
 static constexpr int16_t k_ov_icon_radius = 10;
@@ -1479,6 +1481,47 @@ private:
         lv_obj_align(settings_hint_label_, LV_ALIGN_BOTTOM_MID, 0, -k_settings_hint_bottom_offset);
     }
 
+    bool SettingsPowerSaveEnabled() const {
+        Settings settings("wifi", false);
+        return settings.GetBool("sleep_mode", true);
+    }
+
+    void ApplySettingsDefaultRowValueStyleLocked(SettingsRow& row) {
+        if (row.value == nullptr) {
+            return;
+        }
+        lv_label_set_text(row.value, "›");
+        lv_obj_set_style_text_color(row.value, lv_color_hex(k_settings_text_secondary), 0);
+        lv_obj_set_style_bg_opa(row.value, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_radius(row.value, 0, 0);
+        lv_obj_set_style_pad_left(row.value, 0, 0);
+        lv_obj_set_style_pad_right(row.value, 0, 0);
+        lv_obj_set_style_pad_top(row.value, 0, 0);
+        lv_obj_set_style_pad_bottom(row.value, 0, 0);
+    }
+
+    void ApplySettingsPowerSaveRowStyleLocked(SettingsRow& row, bool power_save_enabled) {
+        if (row.value == nullptr) {
+            return;
+        }
+        lv_obj_set_style_text_color(
+            row.value,
+            lv_color_hex(power_save_enabled ? 0xfff4cc : k_settings_text_secondary),
+            0
+        );
+        lv_obj_set_style_bg_color(
+            row.value,
+            lv_color_hex(power_save_enabled ? 0x70521b : 0x26364f),
+            0
+        );
+        lv_obj_set_style_bg_opa(row.value, static_cast<lv_opa_t>(188), 0);
+        lv_obj_set_style_radius(row.value, 10, 0);
+        lv_obj_set_style_pad_left(row.value, 7, 0);
+        lv_obj_set_style_pad_right(row.value, 7, 0);
+        lv_obj_set_style_pad_top(row.value, 2, 0);
+        lv_obj_set_style_pad_bottom(row.value, 2, 0);
+    }
+
     void RenderSettingsListLocked() {
         EnsureSettingsOverlayLocked();
         settings_view_ = SettingsView::List;
@@ -1493,7 +1536,13 @@ private:
             SettingsRow& row = settings_rows_[i];
             row.item = settings_items_[i];
             lv_label_set_text(row.title, xiaoxin_settings_item_title(row.item));
-            lv_label_set_text(row.value, "›");
+            if (row.item == XIAOXIN_SETTINGS_ITEM_POWER_SAVE) {
+                const bool power_save_enabled = SettingsPowerSaveEnabled();
+                lv_label_set_text(row.value, xiaoxin_settings_power_save_value_label(power_save_enabled));
+                ApplySettingsPowerSaveRowStyleLocked(row, power_save_enabled);
+            } else {
+                ApplySettingsDefaultRowValueStyleLocked(row);
+            }
             lv_obj_remove_flag(row.container, LV_OBJ_FLAG_HIDDEN);
         }
     }
@@ -1516,6 +1565,19 @@ private:
     void RenderSettingsBrightnessPage();
 
     void RenderSettingsWifiPage();
+
+    void ToggleSettingsPowerSaveLocked() {
+        const bool enabled = !SettingsPowerSaveEnabled();
+        {
+            Settings settings("wifi", true);
+            settings.SetBool("sleep_mode", enabled);
+        }
+
+        PowerSaveTimer* power_save_timer = TargetPowerSaveTimer();
+        if (power_save_timer != nullptr) {
+            power_save_timer->SetEnabled(enabled);
+        }
+    }
 
     void RenderSettingsAboutPage() {
         settings_view_ = SettingsView::About;
@@ -1543,6 +1605,10 @@ private:
                 break;
             case XIAOXIN_SETTINGS_ITEM_WIFI:
                 RenderSettingsWifiPage();
+                break;
+            case XIAOXIN_SETTINGS_ITEM_POWER_SAVE:
+                ToggleSettingsPowerSaveLocked();
+                RenderSettingsListLocked();
                 break;
             case XIAOXIN_SETTINGS_ITEM_ABOUT:
                 RenderSettingsAboutPage();
@@ -2797,6 +2863,16 @@ private:
             battery_snapshot_.state,
             battery_snapshot_.power_source
         );
+        const bool low_battery =
+            battery_snapshot_.state == XIAOXIN_BATTERY_STATE_LOW ||
+            battery_snapshot_.state == XIAOXIN_BATTERY_STATE_CRITICAL;
+        const uint32_t battery_color = xiaoxin_settings_power_save_battery_color(
+            SettingsPowerSaveEnabled(),
+            low_battery,
+            style.battery_color,
+            k_battery_meter_low,
+            k_battery_meter_power_save
+        );
         const int inner_w = k_system_battery_w - 4;
         const int fill_w =
             battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_UNKNOWN &&
@@ -2806,18 +2882,18 @@ private:
         lv_obj_set_width(battery_overlay_fill_, fill_w);
         lv_obj_set_style_bg_color(
             battery_overlay_fill_,
-            lv_color_hex(style.battery_color),
+            lv_color_hex(battery_color),
             0
         );
         lv_obj_set_style_border_color(
             battery_overlay_box_,
-            lv_color_hex(style.battery_color),
+            lv_color_hex(battery_color),
             0
         );
         if (battery_overlay_cap_ != nullptr) {
             lv_obj_set_style_bg_color(
                 battery_overlay_cap_,
-                lv_color_hex(style.battery_color),
+                lv_color_hex(battery_color),
                 0
             );
         }

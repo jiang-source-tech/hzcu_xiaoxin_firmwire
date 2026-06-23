@@ -58,3 +58,19 @@ def test_wifi_config_state_refreshes_status_bar_immediately():
 
     assert "display->SetStatus(Lang::Strings::WIFI_CONFIG_MODE);" in wifi_config_block
     assert "display->UpdateStatusBar(true);" in wifi_config_block
+
+
+def test_wifi_connection_starts_time_synchronization():
+    source = read_source(WIFI_BOARD_SOURCE)
+    body = function_body(source, "void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data)")
+    connected_block = block_after(body, "case NetworkEvent::Connected:", length=420)
+
+    assert "#include <esp_sntp.h>" in source
+    assert "StartTimeSynchronization();" in connected_block
+    assert 'static constexpr char NTP_SERVER[] = "ntp.aliyun.com";' in source
+    assert 'static constexpr char DEFAULT_TIMEZONE[] = "CST-8";' in source
+    assert '#include <stdlib.h>' in source
+    assert '#include <time.h>' in source
+    assert 'setenv("TZ", DEFAULT_TIMEZONE, 1);' in source
+    assert "tzset();" in source
+    assert "esp_sntp_init();" in source

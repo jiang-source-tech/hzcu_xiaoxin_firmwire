@@ -10,6 +10,9 @@
 #include <freertos/task.h>
 #include <esp_network.h>
 #include <esp_log.h>
+#include <esp_sntp.h>
+#include <stdlib.h>
+#include <time.h>
 #include <utility>
 
 #include <font_awesome.h>
@@ -26,6 +29,25 @@ static const char *TAG = "WifiBoard";
 // Connection timeout in seconds
 static constexpr int CONNECT_TIMEOUT_SEC = 60;
 static constexpr char DEFAULT_WIFI_SSID[] = "Jiang";
+static constexpr char NTP_SERVER[] = "ntp.aliyun.com";
+static constexpr char DEFAULT_TIMEZONE[] = "CST-8";
+
+static void StartTimeSynchronization() {
+    static bool sntp_started = false;
+
+    setenv("TZ", DEFAULT_TIMEZONE, 1);
+    tzset();
+
+    if (sntp_started) {
+        return;
+    }
+
+    ESP_LOGI(TAG, "Starting SNTP time synchronization");
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, NTP_SERVER);
+    esp_sntp_init();
+    sntp_started = true;
+}
 
 static void RemoveDefaultWifiCredentialsIfPresent(SsidManager& ssid_manager) {
     const auto& ssid_list = ssid_manager.GetSsidList();
@@ -126,6 +148,7 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
             Blufi::GetInstance().deinit();
 #endif
             in_config_mode_ = false;
+            StartTimeSynchronization();
             ESP_LOGI(TAG, "Connected to WiFi: %s", data.c_str());
             break;
         case NetworkEvent::Scanning:

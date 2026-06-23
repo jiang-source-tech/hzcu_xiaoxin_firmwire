@@ -2,6 +2,58 @@
 
 ## 2026-06-23 00:00:00 +08:00
 
+### Waveshare ESP32-S3 Touch LCD 1.46 省电设置反馈与主页电池省电色
+
+#### 背景
+
+实机反馈设置页中的 `省电` 项点击后没有明显反馈，用户无法判断是否已经按下，也看不到当前省电模式是否启用。进一步设计后，决定让设置列表本身承担状态展示：`省电` 行右侧直接显示 `已开启` / `已关闭` 状态胶囊；同时在主页右上角电池图标上给出轻量省电提示。
+
+本轮不新增额外叶子、月亮等小图标，避免挤占 1.46 寸圆屏右上角空间。省电开启时电池图标改为琥珀黄，但低电/严重低电颜色优先，避免把低电警告语义覆盖掉。
+
+#### 修改内容
+
+- 设置页 `省电` 行增加可见状态：
+  - 右侧从普通进入箭头改为状态文案 `已开启` / `已关闭`。
+  - 状态文案使用胶囊样式，开启时使用偏琥珀色背景，关闭时使用深色背景。
+  - 非省电设置行仍保留原来的 `›` 进入提示。
+- 点击 `省电` 行直接切换状态：
+  - 新增 `SettingsPowerSaveEnabled()`，读取 `Settings("wifi").GetBool("sleep_mode", true)`。
+  - 新增 `ToggleSettingsPowerSaveLocked()`，写入 `Settings("wifi").SetBool("sleep_mode", enabled)`。
+  - 切换后调用 `PowerSaveTimer::SetEnabled(enabled)`，让运行时省电调度器同步启停。
+  - 切换完成后回到设置列表，只通过右侧状态胶囊变化反馈，不再显示底部提示，避免和 `退出设置` 重叠。
+- 主页右上角电池图标增加省电颜色反馈：
+  - 新增 `k_battery_meter_power_save = 0xffb84d` 作为省电琥珀黄。
+  - 新增 `xiaoxin_settings_power_save_battery_color()`，统一处理颜色优先级。
+  - 颜色优先级为：低电/严重低电 > 省电开启 > 普通电量状态。
+  - 不新增任何省电小图标。
+- 扩展设置模型纯函数：
+  - 新增 `xiaoxin_settings_power_save_value_label()`，负责返回 `已开启` / `已关闭`。
+  - 新增 `xiaoxin_settings_power_save_battery_color()`，负责省电色和低电色优先级选择。
+- 补充设计和实施计划文档：
+  - 记录省电设置反馈交互、主页电池省电色、低电优先级和测试策略。
+
+#### 涉及文件
+
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_settings_model.c`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_settings_model.h`
+- `tests/xiaoxin_settings_model_test.c`
+- `tests/xiaoxin_settings_path_test.py`
+- `docs/superpowers/specs/2026-06-23-xiaoxin-power-save-settings-feedback-design.zh-CN.md`
+- `docs/superpowers/plans/2026-06-23-xiaoxin-power-save-settings-feedback.md`
+- `docs/update.md`
+
+#### 验证结果
+
+- 先按 TDD 增加 failing tests：
+  - `tests/xiaoxin_settings_model_test.c` 因缺少省电状态文案和电池颜色 helper 失败。
+  - `tests/xiaoxin_settings_path_test.py` 因缺少省电切换路径和琥珀色电池路径失败。
+- 实现后 `pytest tests\xiaoxin_settings_path_test.py -q`：通过，33 passed。
+- 实现后 `gcc -std=c11 -Wall -Wextra -I. tests\xiaoxin_settings_model_test.c main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_settings_model.c -o $env:TEMP\xiaoxin_settings_model_test.exe`：通过。
+- `& $env:TEMP\xiaoxin_settings_model_test.exe`：通过，输出 `xiaoxin_settings_model tests passed`。
+- `git diff --check`：通过，仅提示当前工作副本中文件下一次由 Git 触碰时会进行 LF/CRLF 行尾转换。
+- 当前 shell 中未执行完整 ESP-IDF 固件 build / flash，因此仍需在 ESP-IDF 环境中实机验证设置页胶囊显示、点击切换、省电调度器启停和主页电池琥珀色反馈。
+
 ### Waveshare ESP32-S3 Touch LCD 1.46 设置页交互、亮度滑条与配网状态完善
 
 #### 背景

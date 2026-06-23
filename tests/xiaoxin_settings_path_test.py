@@ -419,6 +419,48 @@ def test_power_save_timer_is_reset_by_local_button_and_touch_activity():
     assert lock_end < wake_helper_call
 
 
+def test_power_save_row_renders_status_capsule_and_click_toggles_setting():
+    source = read_source(BOARD_SOURCE)
+    render_body = strip_cpp_comments(
+        function_body(source, "void RenderSettingsListLocked()")
+    )
+    toggle_body = strip_cpp_comments(
+        function_body(source, "void ToggleSettingsPowerSaveLocked()")
+    )
+    open_body = strip_cpp_comments(
+        function_body(source, "void OpenSettingsItemLocked(xiaoxin_settings_item_t item)")
+    )
+
+    assert "ApplySettingsPowerSaveRowStyleLocked(row, power_save_enabled)" in render_body
+    assert "xiaoxin_settings_power_save_value_label(power_save_enabled)" in render_body
+    assert "Settings settings(\"wifi\", true)" in toggle_body
+    assert "settings.SetBool(\"sleep_mode\", enabled)" in toggle_body
+    assert "power_save_timer->SetEnabled(enabled)" in toggle_body
+    assert "case XIAOXIN_SETTINGS_ITEM_POWER_SAVE:" in open_body
+    assert "ToggleSettingsPowerSaveLocked()" in open_body
+    assert "RenderSettingsListLocked()" in open_body[open_body.index("case XIAOXIN_SETTINGS_ITEM_POWER_SAVE:"):]
+
+
+def test_power_save_toggle_does_not_use_bottom_hint_that_overlaps_exit_button():
+    source = read_source(BOARD_SOURCE)
+
+    assert "省电已开启" not in source
+    assert "省电已关闭" not in source
+
+
+def test_power_save_enabled_tints_home_battery_amber_without_overriding_low_battery():
+    source = read_source(BOARD_SOURCE)
+    body = strip_cpp_comments(function_body(source, "void ApplyBatteryOverlayLevel()"))
+
+    assert "k_battery_meter_power_save" in source
+    assert "xiaoxin_settings_power_save_battery_color(" in body
+    assert "SettingsPowerSaveEnabled()" in body
+    assert "battery_snapshot_.state == XIAOXIN_BATTERY_STATE_LOW" in body
+    assert "battery_snapshot_.state == XIAOXIN_BATTERY_STATE_CRITICAL" in body
+    assert "style.battery_color" in body
+    assert "k_battery_meter_power_save" in body
+
+
 def test_about_page_prioritizes_xiaoxin_product_identity():
     source = read_source(BOARD_SOURCE)
     body = function_body(source, "void RenderSettingsAboutPage()")

@@ -47,6 +47,14 @@ uint8_t xiaoxin_settings_visible_items(
 bool xiaoxin_settings_can_open(xiaoxin_settings_runtime_state_t runtime_state);
 uint8_t xiaoxin_settings_clamp_percent(int value);
 uint8_t xiaoxin_settings_brightness_from_x(int x, int left, int width);
+const char* xiaoxin_settings_power_save_value_label(bool enabled);
+uint32_t xiaoxin_settings_power_save_battery_color(
+  bool power_save_enabled,
+  bool low_battery,
+  uint32_t normal_color,
+  uint32_t low_color,
+  uint32_t power_save_color
+);
 const char* xiaoxin_settings_item_title(xiaoxin_settings_item_t item);
 
 #ifdef __cplusplus
