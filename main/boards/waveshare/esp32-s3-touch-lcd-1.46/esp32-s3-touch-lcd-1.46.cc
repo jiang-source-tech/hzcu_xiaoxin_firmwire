@@ -634,6 +634,7 @@ public:
         }
         InitializeCardPagerLayer();
         InitializeLowPowerClockLayerLocked();
+        InitializeLowPowerClockRefreshTimer();
         RaiseOverlayObjects();
         lv_obj_invalidate(screen);
 
@@ -772,13 +773,6 @@ public:
     }
 
     virtual void SetPowerSaveMode(bool on) override {
-        if (on) {
-            LvglDisplay::SetPowerSaveMode(on);
-            ShowLowPowerClockScreen();
-            return;
-        }
-
-        HideLowPowerClockScreen();
         LvglDisplay::SetPowerSaveMode(on);
     }
 
@@ -878,6 +872,7 @@ public:
 
 private:
     TaskHandle_t render_task_ = nullptr;
+    esp_timer_handle_t low_power_clock_timer_ = nullptr;
     lv_obj_t* pet_image_ = nullptr;
     lv_obj_t* card_layer_ = nullptr;
     lv_obj_t* system_overlay_ = nullptr;
@@ -1033,6 +1028,33 @@ private:
         lv_label_set_text(low_power_clock_icon_label_, low_power_clock_snapshot_.icon_text);
         lv_label_set_text(low_power_clock_time_label_, low_power_clock_snapshot_.time_text);
         lv_label_set_text(low_power_clock_hint_label_, low_power_clock_snapshot_.hint_text);
+    }
+
+    void RefreshLowPowerClockScreenFromTimer() {
+        DisplayLockGuard lock(this);
+        if (!low_power_clock_visible_) {
+            return;
+        }
+
+        RefreshLowPowerClockScreenLocked(false);
+    }
+
+    void InitializeLowPowerClockRefreshTimer() {
+        if (low_power_clock_timer_ != nullptr) {
+            return;
+        }
+
+        const esp_timer_create_args_t low_power_clock_timer_args = {
+            .callback = [](void* arg) {
+                static_cast<PaopaoPetDisplay*>(arg)->RefreshLowPowerClockScreenFromTimer();
+            },
+            .arg = this,
+            .dispatch_method = ESP_TIMER_TASK,
+            .name = "low_power_clock",
+            .skip_unhandled_events = true,
+        };
+        ESP_ERROR_CHECK(esp_timer_create(&low_power_clock_timer_args, &low_power_clock_timer_));
+        ESP_ERROR_CHECK(esp_timer_start_periodic(low_power_clock_timer_, 10 * 1000 * 1000));
     }
 
     void RefreshNotificationPageIfVisibleLocked() {
@@ -3816,9 +3838,6 @@ private:
                 PollTouch(now_ms);
                 paopao_pet_trigger_tick(&trigger_, now_ms);
                 ApplyPetStateIfChanged();
-                if (low_power_clock_visible_) {
-                    RefreshLowPowerClockScreenLocked(false);
-                }
                 LogUiPerfSummary(now_ms);
                 request_settings_wifi_config = ConsumeSettingsWifiConfigRequestLocked();
                 wake_power_save_timer = ConsumePowerSaveTimerWakeRequestLocked();

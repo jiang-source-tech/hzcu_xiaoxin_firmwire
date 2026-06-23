@@ -37,3 +37,39 @@ def test_power_button_still_wakes_power_save_timer():
     source = read_source()
     power_section = source[source.index("// Power Button"):]
     assert "self->WakePowerSaveTimer();" in power_section
+
+
+def test_power_save_mode_remains_task3_timer_boundary():
+    source = read_source()
+    power_save_section = source[
+        source.index("virtual void SetPowerSaveMode(bool on) override {"):
+        source.index("void DispatchPetTrigger", source.index("virtual void SetPowerSaveMode(bool on) override {"))
+    ]
+    assert "LvglDisplay::SetPowerSaveMode(on);" in power_save_section
+    assert "ShowLowPowerClockScreen();" not in power_save_section
+    assert "HideLowPowerClockScreen();" not in power_save_section
+
+
+def test_low_power_clock_refresh_uses_dedicated_timer_with_display_lock():
+    source = read_source()
+    assert "esp_timer_handle_t low_power_clock_timer_ = nullptr;" in source
+    assert "InitializeLowPowerClockRefreshTimer();" in source
+    assert ".name = \"low_power_clock\"" in source
+    assert "esp_timer_start_periodic(low_power_clock_timer_, 10 * 1000 * 1000)" in source
+
+    timer_refresh_section = source[
+        source.index("void RefreshLowPowerClockScreenFromTimer()"):
+        source.index("void InitializeLowPowerClockRefreshTimer()")
+    ]
+    assert "DisplayLockGuard lock(this);" in timer_refresh_section
+    assert "if (!low_power_clock_visible_)" in timer_refresh_section
+    assert "RefreshLowPowerClockScreenLocked(false);" in timer_refresh_section
+
+
+def test_low_power_clock_refresh_is_not_in_hot_render_loop():
+    source = read_source()
+    render_loop_section = source[
+        source.index("void RunRenderLoop()"):
+        source.index("static void RenderTask", source.index("void RunRenderLoop()"))
+    ]
+    assert "RefreshLowPowerClockScreenLocked(false);" not in render_loop_section
