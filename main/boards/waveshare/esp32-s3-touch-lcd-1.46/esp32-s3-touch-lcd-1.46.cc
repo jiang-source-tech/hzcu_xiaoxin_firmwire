@@ -3338,6 +3338,7 @@ private:
     button_handle_t boot_btn, pwr_btn;
     button_driver_t* boot_btn_driver_ = nullptr;
     button_driver_t* pwr_btn_driver_ = nullptr;
+    bool boot_long_press_handled_ = false;
     static CustomBoard* instance_;
 
     void InitializeI2c() {
@@ -3734,18 +3735,31 @@ private:
         auto& app = Application::GetInstance();
         const DeviceState device_state = app.GetDeviceState();
         const xiaoxin_settings_runtime_state_t runtime = SettingsRuntimeState(device_state);
+        ESP_LOGI(TAG, "BOOT long press: device_state=%d runtime=%d", (int)device_state, (int)runtime);
         if (runtime != XIAOXIN_SETTINGS_RUNTIME_IDLE || !xiaoxin_settings_can_open(runtime)) {
+            ESP_LOGW(TAG, "BOOT settings blocked: device_state=%d runtime=%d", (int)device_state, (int)runtime);
             if (app.GetDeviceState() == kDeviceStateConnecting ||
                 app.GetDeviceState() == kDeviceStateListening ||
                 app.GetDeviceState() == kDeviceStateSpeaking) {
                 GetDisplay()->ShowNotification("璇峰厛缁撴潫瀵硅瘽", 1600);
             }
+            GetDisplay()->ShowNotification("Settings only in idle", 1600);
             return;
         }
         auto* display = static_cast<PaopaoPetDisplay*>(display_);
         if (display != nullptr) {
+            ESP_LOGI(TAG, "Opening BOOT settings overlay");
             display->OpenSettingsOverlay();
         }
+    }
+
+    void HandleBootLongPress() {
+        if (boot_long_press_handled_) {
+            return;
+        }
+        boot_long_press_handled_ = true;
+        WakePowerSaveTimer();
+        OpenSettingsOverlayFromBootButton();
     }
 
     void InitializeButtons() {
@@ -3763,6 +3777,16 @@ private:
             return !gpio_get_level(BOOT_BUTTON_GPIO);
         };
         ESP_ERROR_CHECK(iot_button_create(&boot_btn_config, boot_btn_driver_, &boot_btn));
+        iot_button_register_cb(boot_btn, BUTTON_PRESS_DOWN, nullptr, [](void* button_handle, void* usr_data) {
+            auto self = static_cast<CustomBoard*>(usr_data);
+            self->boot_long_press_handled_ = false;
+            ESP_LOGI(TAG, "BOOT press down");
+        }, this);
+        iot_button_register_cb(boot_btn, BUTTON_PRESS_UP, nullptr, [](void* button_handle, void* usr_data) {
+            auto self = static_cast<CustomBoard*>(usr_data);
+            self->boot_long_press_handled_ = false;
+            ESP_LOGI(TAG, "BOOT press up");
+        }, this);
         iot_button_register_cb(boot_btn, BUTTON_SINGLE_CLICK, nullptr, [](void* button_handle, void* usr_data) {
             auto self = static_cast<CustomBoard*>(usr_data);
             self->WakePowerSaveTimer();
@@ -3780,8 +3804,11 @@ private:
         }, this);
         iot_button_register_cb(boot_btn, BUTTON_LONG_PRESS_START, nullptr, [](void* button_handle, void* usr_data) {
             auto self = static_cast<CustomBoard*>(usr_data);
-            self->WakePowerSaveTimer();
-            self->OpenSettingsOverlayFromBootButton();
+            self->HandleBootLongPress();
+        }, this);
+        iot_button_register_cb(boot_btn, BUTTON_LONG_PRESS_HOLD, nullptr, [](void* button_handle, void* usr_data) {
+            auto self = static_cast<CustomBoard*>(usr_data);
+            self->HandleBootLongPress();
         }, this);
 
         // Power Button

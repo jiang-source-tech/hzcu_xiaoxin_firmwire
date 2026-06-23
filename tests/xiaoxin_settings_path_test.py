@@ -60,7 +60,8 @@ def test_boot_long_press_only_opens_settings_from_idle():
     source = read_source(BOARD_SOURCE)
     boot_section = section_between(source, "// Boot Button", "// Power Button")
 
-    assert "OpenSettingsOverlayFromBootButton()" in boot_section
+    assert "HandleBootLongPress()" in boot_section
+    assert "OpenSettingsOverlayFromBootButton()" in source
     helper = function_body(source, "void OpenSettingsOverlayFromBootButton()")
     assert "Application::GetInstance()" in helper
     assert "GetDeviceState()" in helper
@@ -68,6 +69,25 @@ def test_boot_long_press_only_opens_settings_from_idle():
     assert "xiaoxin_settings_can_open" in helper
     assert "OpenSettingsOverlay()" in helper
     assert "ShowNotification(\"璇峰厛缁撴潫瀵硅瘽\"" in helper
+
+
+def test_boot_long_press_has_observable_feedback_and_hold_fallback():
+    source = read_source(BOARD_SOURCE)
+    boot_section = strip_cpp_comments(section_between(source, "// Boot Button", "// Power Button"))
+    helper = strip_cpp_comments(function_body(source, "void OpenSettingsOverlayFromBootButton()"))
+
+    assert "BUTTON_LONG_PRESS_START" in boot_section
+    assert "BUTTON_LONG_PRESS_HOLD" in boot_section
+    assert "BUTTON_PRESS_DOWN" in boot_section
+    assert "BUTTON_PRESS_UP" in boot_section
+    assert 'ESP_LOGI(TAG, "BOOT press down")' in boot_section
+    assert 'ESP_LOGI(TAG, "BOOT press up")' in boot_section
+    assert "boot_long_press_handled_" in source
+    assert "void HandleBootLongPress()" in source
+    assert 'ESP_LOGI(TAG, "BOOT long press' in helper
+    assert 'ESP_LOGW(TAG, "BOOT settings blocked' in helper
+    assert 'ShowNotification("Settings only in idle"' in helper
+    assert "OpenSettingsOverlay()" in helper
 
 
 def test_settings_overlay_state_is_public_to_board_button_layer():
@@ -171,7 +191,8 @@ def test_power_save_timer_is_reset_by_local_button_and_touch_activity():
 
     assert "void WakePowerSaveTimer()" in source
     assert "power_save_timer_->WakeUp()" in function_body(source, "void WakePowerSaveTimer()")
-    assert boot_section.count("self->WakePowerSaveTimer();") >= 2
+    assert "WakePowerSaveTimer();" in function_body(source, "void HandleBootLongPress()")
+    assert boot_section.count("self->HandleBootLongPress();") >= 2
     assert power_section.count("self->WakePowerSaveTimer();") >= 2
     assert "power_save_timer_wake_requested_ = true" in poll_body
     assert "WakePowerSaveTimerFromTouch()" not in poll_body
