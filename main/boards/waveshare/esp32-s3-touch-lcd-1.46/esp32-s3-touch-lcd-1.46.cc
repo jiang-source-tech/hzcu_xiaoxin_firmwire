@@ -886,6 +886,7 @@ public:
 private:
     TaskHandle_t render_task_ = nullptr;
     esp_timer_handle_t low_power_clock_timer_ = nullptr;
+    esp_timer_handle_t notification_maintenance_timer_ = nullptr;
     lv_obj_t* pet_image_ = nullptr;
     lv_obj_t* card_layer_ = nullptr;
     lv_obj_t* system_overlay_ = nullptr;
@@ -1141,12 +1142,73 @@ private:
         RenderNotificationPageAfterDataChange();
     }
 
-    void UpsertNotificationEventLocked(const xiaoxin_notification_event_t& event) {
-        if (xiaoxin_card_pager_notification_upsert_event(&card_pager_, &event)) {
+    static void NotificationMaintenanceTimerCallback(void* arg) {
+        auto* self = static_cast<PaopaoPetDisplay*>(arg);
+        if (self != nullptr) {
+            self->RefreshNotificationsFromTimer();
+        }
+    }
+
+    void RefreshNotificationsFromTimer() {
+        DisplayLockGuard lock(this);
+        const uint8_t removed = xiaoxin_card_pager_notification_expire(&card_pager_, NowMs());
+        const bool heads_up_visible = xiaoxin_notification_heads_up_tick(&notification_heads_up_model_, NowMs());
+        if (removed > 0) {
             notification_scroll_y_ = ClampNotificationScrollY(
                 notification_scroll_y_,
                 xiaoxin_card_pager_notification_count(&card_pager_)
             );
+            RefreshNotificationPageIfVisibleLocked();
+        }
+        RefreshNotificationHeadsUpLocked();
+        if (!heads_up_visible && xiaoxin_card_pager_notification_count(&card_pager_) == 0) {
+            StopNotificationMaintenanceTimer();
+        }
+    }
+
+    void EnsureNotificationMaintenanceTimer() {
+        if (notification_maintenance_timer_ != nullptr) {
+            return;
+        }
+
+        const esp_timer_create_args_t notification_maintenance_timer_args = {
+            .callback = &NotificationMaintenanceTimerCallback,
+            .arg = this,
+            .dispatch_method = ESP_TIMER_TASK,
+            .name = "xiaoxin_notify",
+            .skip_unhandled_events = true,
+        };
+        ESP_ERROR_CHECK(esp_timer_create(&notification_maintenance_timer_args, &notification_maintenance_timer_));
+    }
+
+    void StartNotificationMaintenanceTimer() {
+        EnsureNotificationMaintenanceTimer();
+        if (notification_maintenance_timer_ != nullptr &&
+            !esp_timer_is_active(notification_maintenance_timer_)) {
+            ESP_ERROR_CHECK(esp_timer_start_periodic(notification_maintenance_timer_, 250 * 1000));
+        }
+    }
+
+    void StopNotificationMaintenanceTimer() {
+        if (notification_maintenance_timer_ != nullptr &&
+            esp_timer_is_active(notification_maintenance_timer_)) {
+            ESP_ERROR_CHECK(esp_timer_stop(notification_maintenance_timer_));
+        }
+    }
+
+    void UpsertNotificationEventLocked(const xiaoxin_notification_event_t& event) {
+        if (xiaoxin_card_pager_notification_upsert_event_at(&card_pager_, &event, NowMs())) {
+            notification_scroll_y_ = ClampNotificationScrollY(
+                notification_scroll_y_,
+                xiaoxin_card_pager_notification_count(&card_pager_)
+            );
+            const xiaoxin_card_item_t* item =
+                xiaoxin_card_pager_notification_find_by_type(&card_pager_, event.type);
+            if (item != nullptr) {
+                xiaoxin_notification_heads_up_enqueue(&notification_heads_up_model_, item, NowMs());
+                RefreshNotificationHeadsUpLocked();
+                StartNotificationMaintenanceTimer();
+            }
             RefreshNotificationPageIfVisibleLocked();
         }
     }

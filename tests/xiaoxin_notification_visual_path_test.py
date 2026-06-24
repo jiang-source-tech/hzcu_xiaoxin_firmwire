@@ -337,3 +337,18 @@ def test_notification_heads_up_uses_frosted_glass_banner_visuals():
     assert palette[-8:] == [0xFE, 0xFE, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
     assert min(pixels) >= 0x76
     assert max(pixels) <= 0x8A
+
+
+def test_notification_upsert_enqueues_heads_up_and_ttl_maintenance():
+    source = read_source()
+    upsert_body = function_body(source, "void UpsertNotificationEventLocked(const xiaoxin_notification_event_t& event)")
+    timer_body = function_body(source, "void RefreshNotificationsFromTimer()")
+
+    assert "esp_timer_handle_t notification_maintenance_timer_ = nullptr;" in source
+    assert "xiaoxin_card_pager_notification_upsert_event_at(&card_pager_, &event, NowMs())" in upsert_body
+    assert "xiaoxin_card_pager_notification_find_by_type(&card_pager_, event.type)" in upsert_body
+    assert "xiaoxin_notification_heads_up_enqueue(&notification_heads_up_model_, item, NowMs())" in upsert_body
+    assert "StartNotificationMaintenanceTimer();" in upsert_body
+    assert "xiaoxin_card_pager_notification_expire(&card_pager_, NowMs())" in timer_body
+    assert "xiaoxin_notification_heads_up_tick(&notification_heads_up_model_, NowMs())" in timer_body
+    assert "RefreshNotificationHeadsUpLocked();" in timer_body
