@@ -385,9 +385,11 @@ def test_notification_upsert_enqueues_heads_up_and_ttl_maintenance():
 def test_display_notification_bridge_maps_ota_to_xiaoxin_notification_center():
     display_header = Path("main/display/display.h").read_text(encoding="utf-8")
     source = read_source()
+    remove_body = function_body(source, "bool RemoveNotification(const char* id) override")
 
     assert "virtual bool UpsertNotification(" in display_header
     assert "virtual bool RemoveNotification(" in display_header
     assert 'strcmp(id, "ota_update") == 0' in source
     assert "XIAOXIN_NOTIFICATION_EVENT_OTA_UPDATE" in source
     assert "UpsertNotificationEventLocked(event);" in source
+    assert "RemoveNotificationEventLocked(XIAOXIN_NOTIFICATION_EVENT_OTA_UPDATE);" in remove_body
