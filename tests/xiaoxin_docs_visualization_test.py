@@ -46,6 +46,19 @@ def test_yaml_contains_expected_feature_map_entries():
         assert f"  - id: {feature_id}" in yaml
 
 
+def test_notification_map_tracks_heads_up_and_later_feedback_needs():
+    yaml = read(YAML_SOURCE)
+
+    assert "../superpowers/specs/2026-06-24-xiaoxin-notification-heads-up-design.zh-CN.md" in yaml
+    assert "../superpowers/plans/2026-06-24-xiaoxin-notification-heads-up.md" in yaml
+    assert "真实通知中心与即时浮层" in yaml
+    assert "实现所有通知共用的顶部视觉即时浮层" in yaml
+    assert "通知中心卡片还缺通知发生时间" in yaml
+    assert "后续为通知卡片补充通知时间显示" in yaml
+    assert "提示音和震动已经记录为后续需求" in yaml
+    assert "后续再评估提示音、震动或其他触觉反馈" in yaml
+
+
 def test_feature_entries_have_renderable_core_fields():
     yaml = read(YAML_SOURCE)
     blocks = feature_blocks(yaml)

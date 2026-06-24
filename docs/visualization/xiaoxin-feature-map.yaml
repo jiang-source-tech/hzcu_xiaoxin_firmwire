@@ -7,6 +7,8 @@ source_documents:
   - ../xiaoxin-real-notification-center.zh-CN.md
   - ../xiaoxin-pet-emotion-gif-mapping.zh-CN.md
   - ../superpowers/specs/2026-06-24-xiaoxin-dynamic-low-power-clock-design.zh-CN.md
+  - ../superpowers/specs/2026-06-24-xiaoxin-notification-heads-up-design.zh-CN.md
+  - ../superpowers/plans/2026-06-24-xiaoxin-notification-heads-up.md
 status_legend:
   - name: 已完成
     meaning: 核心用户路径已经可用，并有基本验证。
@@ -17,33 +19,44 @@ status_legend:
 
 features:
   - id: notification_center
-    title: 真实通知中心
+    title: 真实通知中心与即时浮层
     priority: P0
     status: 部分完成
-    goal: 让通知页从静态样板变成真实事件入口。
+    goal: 让通知页从静态样板变成真实事件入口，并让所有通知发生时都有统一视觉即时浮层。
     implemented:
       - 通知中心已经从静态样板改为事件注入模型。
       - 支持 upsert、移除、单条清理、全部清理和优先级排序。
       - 低电量、WiFi 断开/配网中、语音识别失败已经接入通知仓库。
       - 课程提醒已经有可注入 helper。
       - 本地测试覆盖事件注入、排序、清理和课程提醒 helper。
+      - 已补充统一顶部即时通知浮层规划，明确第一版只做视觉弹窗。
     gaps:
+      - 所有通知还缺统一顶部即时浮层，用户仍需要主动进入通知页才能发现新通知。
       - ttl_ms 目前只是事件字段和默认值，尚未看到自动过期扫描。
       - OTA 检查、下载、升级失败等真实流程尚未注入通知中心。
       - 课程提醒还缺真实课表源、调度器、去重和本地提醒策略。
+      - 通知中心卡片还缺通知发生时间。
+      - 提示音和震动已经记录为后续需求，但不进入第一版视觉弹窗范围。
     next_steps:
+      - 实现所有通知共用的顶部视觉即时浮层。
       - 给 ttl_ms 增加到期清理机制。
       - 将 OTA 状态转成 XIAOXIN_NOTIFICATION_EVENT_OTA_UPDATE。
       - 接入第一版课程提醒数据源。
+      - 后续为通知卡片补充通知时间显示。
+      - 后续再评估提示音、震动或其他触觉反馈。
     modules:
       - xiaoxin_notification_center
+      - xiaoxin_notification_heads_up
       - xiaoxin_system_overlay
       - xiaoxin_battery_state
     tests:
+      - tests/xiaoxin_notification_heads_up_path_test.py
       - tests/xiaoxin_notification_visual_path_test.py
       - tests/xiaoxin_system_overlay_test.c
     related_docs:
       - ../xiaoxin-real-notification-center.zh-CN.md
+      - ../superpowers/specs/2026-06-24-xiaoxin-notification-heads-up-design.zh-CN.md
+      - ../superpowers/plans/2026-06-24-xiaoxin-notification-heads-up.md
 
   - id: dynamic_overview
     title: 动态总览页
@@ -186,7 +199,7 @@ features:
 phases:
   - name: 第一阶段：真实数据接入
     status: 部分完成
-    focus: 通知仓库、低电量/WiFi/语音错误事件、TTL、OTA 和课程提醒。
+    focus: 通知仓库、统一视觉即时浮层、低电量/WiFi/语音错误事件、TTL、OTA 和课程提醒。
   - name: 第二阶段：总览页动态化
     status: 部分完成
     focus: Overview 快照模型、真实摘要数据源和端到端刷新链路。
