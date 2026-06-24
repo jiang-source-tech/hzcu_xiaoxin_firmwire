@@ -35,6 +35,21 @@ def function_body(source: str, signature: str) -> str:
     raise AssertionError(f"function body not found: {signature}")
 
 
+def block_after_marker(source: str, marker: str) -> str:
+    start = source.index(marker)
+    brace = source.index("{", start)
+    depth = 0
+    for index in range(brace, len(source)):
+        char = source[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[brace + 1 : index]
+    raise AssertionError(f"block not found: {marker}")
+
+
 def normalize_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
@@ -343,18 +358,25 @@ def test_notification_upsert_enqueues_heads_up_and_ttl_maintenance():
     source = read_source()
     upsert_body = function_body(source, "void UpsertNotificationEventLocked(const xiaoxin_notification_event_t& event)")
     timer_body = function_body(source, "void RefreshNotificationsFromTimer()")
+    enqueue_block = block_after_marker(source, "if (item != nullptr)")
+    removed_block = block_after_marker(source, "if (removed > 0)")
+    stop_block = block_after_marker(
+        source,
+        "if (!heads_up_visible && xiaoxin_card_pager_notification_count(&card_pager_) == 0)",
+    )
 
     assert "esp_timer_handle_t notification_maintenance_timer_ = nullptr;" in source
     assert "xiaoxin_card_pager_notification_upsert_event_at(&card_pager_, &event, NowMs())" in upsert_body
     assert "xiaoxin_card_pager_notification_find_by_type(&card_pager_, event.type)" in upsert_body
     assert "xiaoxin_notification_heads_up_enqueue(&notification_heads_up_model_, item, NowMs())" in upsert_body
-    enqueue_index = upsert_body.index("xiaoxin_notification_heads_up_enqueue(&notification_heads_up_model_, item, NowMs())")
-    refresh_index = upsert_body.index("RefreshNotificationHeadsUpLocked();")
-    assert enqueue_index < refresh_index
+    assert (
+        "xiaoxin_notification_heads_up_enqueue(&notification_heads_up_model_, item, NowMs()); "
+        "RefreshNotificationHeadsUpLocked(); StartNotificationMaintenanceTimer();"
+    ) in normalize_whitespace(enqueue_block)
+    assert "RefreshNotificationHeadsUpLocked();" in enqueue_block
     assert "StartNotificationMaintenanceTimer();" in upsert_body
     assert "xiaoxin_card_pager_notification_expire(&card_pager_, NowMs())" in timer_body
     assert "xiaoxin_notification_heads_up_tick(&notification_heads_up_model_, NowMs())" in timer_body
     assert "RefreshNotificationHeadsUpLocked();" in timer_body
-    assert "RefreshNotificationPageIfVisibleLocked();" in timer_body
-    assert "if (!heads_up_visible && xiaoxin_card_pager_notification_count(&card_pager_) == 0) {" in timer_body
-    assert "StopNotificationMaintenanceTimer();" in timer_body
+    assert "RefreshNotificationPageIfVisibleLocked();" in removed_block
+    assert "StopNotificationMaintenanceTimer();" in stop_block
