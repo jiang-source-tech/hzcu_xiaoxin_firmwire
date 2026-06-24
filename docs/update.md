@@ -2,6 +2,50 @@
 
 ## 2026-06-24 00:00:00 +08:00
 
+### Waveshare ESP32-S3 Touch LCD 1.46 底部字幕统一流式显示
+
+#### 背景
+
+实机反馈底部字幕观感不统一：部分对话字幕看起来是流式出现，但类似“无法连接服务，请稍后再试”的系统错误提示会一次性静态显示。根因是底部字幕原本在 `LcdDisplay::SetChatMessage()` 中直接 `lv_label_set_text()` 完整内容，而个别业务路径如果想要流式效果只能单独处理，容易漏掉 system/error 等来源。
+
+本轮把流式显示能力下沉到通用底部字幕组件，统一所有落到底部字幕条的消息来源。
+
+#### 修改内容
+
+- 底部字幕统一流式：
+  - 在 `LcdDisplay` 中新增 `chat_message_stream_timer_`、`chat_message_stream_text_` 和 `chat_message_stream_offset_`。
+  - 非 wechat 底部字幕模式下，所有非空 `SetChatMessage(role, content)` 都调用 `StartChatMessageStreamLocked(content)`。
+  - 字幕显示时先清空当前 label，再通过 LVGL timer 按 55ms 节奏逐步追加前缀文本。
+  - `system`、`assistant`、`user`、错误提示、升级进度等来源共享同一套流式路径。
+- UTF-8 安全：
+  - 新增 `NextUtf8CharacterEnd()`，按 UTF-8 字符边界推进，避免中文提示被按字节拆开。
+- 清理和取消：
+  - 空字幕和 `ClearChatMessages()` 会调用 `StopChatMessageStreamLocked()`，停止当前流式 timer 并隐藏底部栏。
+  - `LcdDisplay` 析构时删除 `chat_message_stream_timer_`，避免对象销毁后继续回调。
+- 错误提示归一：
+  - 保留 `Application` 的错误提示保持逻辑，但不在应用层做单独流式任务。
+  - 错误提示仍通过 `Alert(...)->SetChatMessage("system", message)` 进入显示层，由底部字幕组件统一流式显示。
+- 回归测试：
+  - 新增 `tests/xiaoxin_bottom_subtitle_stream_test.py`，覆盖所有底部字幕角色都走统一流式 helper、空字幕取消流式、LVGL timer 和 UTF-8 边界。
+  - 扩展 `tests/xiaoxin_error_display_path_test.py`，防止重新把错误提示流式逻辑放回应用层特例。
+
+#### 涉及文件
+
+- `main/display/lcd_display.cc`
+- `main/display/lcd_display.h`
+- `tests/xiaoxin_bottom_subtitle_stream_test.py`
+- `tests/xiaoxin_error_display_path_test.py`
+- `docs/xiaoxin-vertical-card-pager-plan.zh-CN.md`
+- `docs/update.md`
+
+#### 验证结果
+
+- `python -m pytest tests`：通过，92 passed。
+- `git diff --check -- main\display\lcd_display.cc main\display\lcd_display.h tests\xiaoxin_error_display_path_test.py tests\xiaoxin_bottom_subtitle_stream_test.py`：通过。
+- 当前 shell 中未找到 `idf.py`，因此本轮未执行完整 ESP-IDF 固件构建；需要在 ESP-IDF 环境中补跑 `idf.py build` 并在实机确认所有底部字幕来源均为流式显示。
+
+## 2026-06-24 00:00:00 +08:00
+
 ### Waveshare ESP32-S3 Touch LCD 1.46 动态低功耗时钟、SNTP 与错误提示保持
 
 #### 背景

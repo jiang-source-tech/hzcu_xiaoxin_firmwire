@@ -18,6 +18,8 @@
 
 #define TAG "LcdDisplay"
 
+static constexpr uint32_t k_chat_message_stream_frame_ms = 55;
+
 LV_FONT_DECLARE(BUILTIN_TEXT_FONT);
 LV_FONT_DECLARE(BUILTIN_ICON_FONT);
 LV_FONT_DECLARE(font_awesome_30_4);
@@ -285,6 +287,11 @@ MipiLcdDisplay::MipiLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel
 
 LcdDisplay::~LcdDisplay() {
     SetPreviewImage(nullptr);
+    StopChatMessageStreamLocked();
+    if (chat_message_stream_timer_ != nullptr) {
+        lv_timer_delete(chat_message_stream_timer_);
+        chat_message_stream_timer_ = nullptr;
+    }
     
     // Clean up GIF controller
     if (gif_controller_) {
@@ -339,6 +346,89 @@ LcdDisplay::~LcdDisplay() {
     }
     if (panel_io_ != nullptr) {
         esp_lcd_panel_io_del(panel_io_);
+    }
+}
+
+size_t LcdDisplay::NextUtf8CharacterEnd(const std::string& text, size_t offset) {
+    if (offset >= text.size()) {
+        return text.size();
+    }
+
+    const auto lead = static_cast<unsigned char>(text[offset]);
+    size_t width = 1;
+    if ((lead & 0x80) == 0x00) {
+        width = 1;
+    } else if ((lead & 0xE0) == 0xC0) {
+        width = 2;
+    } else if ((lead & 0xF0) == 0xE0) {
+        width = 3;
+    } else if ((lead & 0xF8) == 0xF0) {
+        width = 4;
+    }
+
+    return std::min(text.size(), offset + width);
+}
+
+void LcdDisplay::StopChatMessageStreamLocked() {
+    chat_message_stream_text_.clear();
+    chat_message_stream_offset_ = 0;
+    if (chat_message_stream_timer_ != nullptr) {
+        lv_timer_pause(chat_message_stream_timer_);
+    }
+}
+
+void LcdDisplay::StartChatMessageStreamLocked(const char* content) {
+    chat_message_stream_text_ = content != nullptr ? content : "";
+    chat_message_stream_offset_ = 0;
+
+    if (chat_message_label_ == nullptr) {
+        return;
+    }
+
+    lv_label_set_text(chat_message_label_, "");
+    if (bottom_bar_ != nullptr && !hide_subtitle_) {
+        lv_obj_remove_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    if (chat_message_stream_text_.empty()) {
+        StopChatMessageStreamLocked();
+        return;
+    }
+
+    if (chat_message_stream_timer_ == nullptr) {
+        chat_message_stream_timer_ = lv_timer_create(ChatMessageStreamTimerCallback, k_chat_message_stream_frame_ms, this);
+    }
+
+    if (chat_message_stream_timer_ == nullptr) {
+        lv_label_set_text(chat_message_label_, chat_message_stream_text_.c_str());
+        return;
+    }
+
+    lv_timer_resume(chat_message_stream_timer_);
+    lv_timer_reset(chat_message_stream_timer_);
+    ChatMessageStreamTimerCallback(chat_message_stream_timer_);
+}
+
+void LcdDisplay::ChatMessageStreamTimerCallback(lv_timer_t* timer) {
+    auto* self = static_cast<LcdDisplay*>(lv_timer_get_user_data(timer));
+    if (self == nullptr || self->chat_message_label_ == nullptr) {
+        return;
+    }
+
+    const size_t end = NextUtf8CharacterEnd(self->chat_message_stream_text_, self->chat_message_stream_offset_);
+    self->chat_message_stream_offset_ = end;
+
+    std::string frame = self->chat_message_stream_text_.substr(0, end);
+    lv_label_set_text(self->chat_message_label_, frame.c_str());
+
+#if CONFIG_USE_MULTILINE_CHAT_MESSAGE
+    if (self->bottom_bar_ != nullptr) {
+        lv_obj_align(self->bottom_bar_, LV_ALIGN_BOTTOM_MID, 0, 0);
+    }
+#endif
+
+    if (end >= self->chat_message_stream_text_.size()) {
+        lv_timer_pause(self->chat_message_stream_timer_);
     }
 }
 
@@ -1041,15 +1131,17 @@ void LcdDisplay::SetChatMessage(const char* role, const char* content) {
         }
         return;
     }
-    lv_label_set_text(chat_message_label_, content);
-    // Show bottom_bar_ only when there is content (and subtitle is not globally hidden)
-    if (bottom_bar_ != nullptr) {
-        if (content == nullptr || content[0] == '\0') {
+
+    if (content == nullptr || content[0] == '\0') {
+        StopChatMessageStreamLocked();
+        lv_label_set_text(chat_message_label_, "");
+        if (bottom_bar_ != nullptr) {
             lv_obj_add_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);
-        } else if (!hide_subtitle_) {
-            lv_obj_remove_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);
         }
+        return;
     }
+
+    StartChatMessageStreamLocked(content);
 #if CONFIG_USE_MULTILINE_CHAT_MESSAGE
     // Re-align bottom_bar_ after text change so it stays anchored to the bottom
     // as its height adapts to the wrapped content.
@@ -1062,6 +1154,7 @@ void LcdDisplay::SetChatMessage(const char* role, const char* content) {
 void LcdDisplay::ClearChatMessages() {
     DisplayLockGuard lock(this);
     // In non-wechat mode, just clear the chat message label and hide the bar
+    StopChatMessageStreamLocked();
     if (chat_message_label_ != nullptr) {
         lv_label_set_text(chat_message_label_, "");
     }

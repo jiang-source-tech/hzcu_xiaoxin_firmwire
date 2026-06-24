@@ -33,7 +33,7 @@ def test_error_event_marks_bottom_error_message_visible_before_idle_refresh():
     header = read_source(APPLICATION_HEADER)
     source = read_source(APPLICATION_SOURCE)
     run_body = function_body(source, "void Application::Run()")
-    error_block = block_after(run_body, "if (bits & MAIN_EVENT_ERROR)", length=240)
+    error_block = block_after(run_body, "if (bits & MAIN_EVENT_ERROR)", length=260)
 
     assert "bool error_message_visible_ = false;" in header
     assert "error_message_visible_ = true;" in error_block
@@ -43,6 +43,16 @@ def test_error_event_marks_bottom_error_message_visible_before_idle_refresh():
     assert error_block.index("SetDeviceState(kDeviceStateIdle);") < error_block.index(
         "Alert(Lang::Strings::ERROR"
     )
+
+
+def test_error_streaming_is_owned_by_bottom_subtitle_display():
+    header = read_source(APPLICATION_HEADER)
+    source = read_source(APPLICATION_SOURCE)
+
+    assert "ShowErrorMessageStream" not in header
+    assert "RunErrorMessageStreamTask" not in header
+    assert "error_message_stream_generation_" not in header
+    assert "ShowErrorMessageStream" not in source
 
 
 def test_idle_state_keeps_visible_bottom_error_message():
@@ -73,7 +83,7 @@ def test_audio_channel_closed_does_not_clear_visible_bottom_error_message():
 def test_new_conversation_attempt_clears_previous_bottom_error_message():
     source = read_source(APPLICATION_SOURCE)
     body = function_body(source, "void Application::HandleStateChangedEvent()")
-    connecting_block = block_after(body, "case kDeviceStateConnecting:", length=260)
+    connecting_block = block_after(body, "case kDeviceStateConnecting:", length=320)
 
     assert "error_message_visible_ = false;" in connecting_block
     assert connecting_block.index("error_message_visible_ = false;") < connecting_block.index(
