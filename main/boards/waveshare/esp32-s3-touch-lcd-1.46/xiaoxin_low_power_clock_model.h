@@ -9,8 +9,9 @@ extern "C" {
 
 #define XIAOXIN_LOW_POWER_CLOCK_TIME_MAX 8
 #define XIAOXIN_LOW_POWER_CLOCK_HINT_MAX 32
-#define XIAOXIN_LOW_POWER_CLOCK_DEFAULT_BRIGHTNESS 8
+#define XIAOXIN_LOW_POWER_CLOCK_DEFAULT_BRIGHTNESS 12
 #define XIAOXIN_LOW_POWER_CLOCK_ICON_TEXT "\xEF\x83\xB3"
+#define XIAOXIN_LOW_POWER_CLOCK_ARC_SPAN_DEGREES 76
 
 typedef struct {
   bool time_valid;
@@ -34,6 +35,8 @@ bool xiaoxin_low_power_clock_should_refresh(
   uint8_t previous_minute,
   uint8_t current_minute
 );
+
+uint16_t xiaoxin_low_power_clock_animation_phase(uint32_t tick);
 
 #ifdef __cplusplus
 }
