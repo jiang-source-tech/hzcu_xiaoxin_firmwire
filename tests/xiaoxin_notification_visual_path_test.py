@@ -348,7 +348,13 @@ def test_notification_upsert_enqueues_heads_up_and_ttl_maintenance():
     assert "xiaoxin_card_pager_notification_upsert_event_at(&card_pager_, &event, NowMs())" in upsert_body
     assert "xiaoxin_card_pager_notification_find_by_type(&card_pager_, event.type)" in upsert_body
     assert "xiaoxin_notification_heads_up_enqueue(&notification_heads_up_model_, item, NowMs())" in upsert_body
+    enqueue_index = upsert_body.index("xiaoxin_notification_heads_up_enqueue(&notification_heads_up_model_, item, NowMs())")
+    refresh_index = upsert_body.index("RefreshNotificationHeadsUpLocked();")
+    assert enqueue_index < refresh_index
     assert "StartNotificationMaintenanceTimer();" in upsert_body
     assert "xiaoxin_card_pager_notification_expire(&card_pager_, NowMs())" in timer_body
     assert "xiaoxin_notification_heads_up_tick(&notification_heads_up_model_, NowMs())" in timer_body
     assert "RefreshNotificationHeadsUpLocked();" in timer_body
+    assert "RefreshNotificationPageIfVisibleLocked();" in timer_body
+    assert "if (!heads_up_visible && xiaoxin_card_pager_notification_count(&card_pager_) == 0) {" in timer_body
+    assert "StopNotificationMaintenanceTimer();" in timer_body
