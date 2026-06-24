@@ -766,6 +766,47 @@ public:
         }
     }
 
+    bool UpsertNotification(
+        const char* id,
+        const char* title,
+        const char* body,
+        const char* tag,
+        uint32_t priority,
+        uint32_t ttl_ms
+    ) override {
+        DisplayLockGuard lock(this);
+        if (id == nullptr) {
+            return false;
+        }
+        if (strcmp(id, "ota_update") == 0) {
+            const xiaoxin_notification_event_t event = {
+                .type = XIAOXIN_NOTIFICATION_EVENT_OTA_UPDATE,
+                .title = title,
+                .body = body,
+                .tag = tag,
+                .priority = priority,
+                .ttl_ms = ttl_ms,
+            };
+            UpsertNotificationEventLocked(event);
+            return true;
+        }
+
+        return false;
+    }
+
+    bool RemoveNotification(const char* id) override {
+        DisplayLockGuard lock(this);
+        if (id == nullptr) {
+            return false;
+        }
+        if (strcmp(id, "ota_update") == 0) {
+            RemoveNotificationEventLocked(XIAOXIN_NOTIFICATION_EVENT_OTA_UPDATE);
+            return true;
+        }
+
+        return false;
+    }
+
     virtual void UpdateStatusBar(bool update_all = false) override {
         LcdDisplay::UpdateStatusBar(update_all);
         {

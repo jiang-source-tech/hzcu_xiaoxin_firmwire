@@ -32,6 +32,32 @@ void Display::ShowNotification(const char* notification, int duration_ms) {
     ESP_LOGW(TAG, "ShowNotification: %s", notification);
 }
 
+bool Display::UpsertNotification(
+    const char* id,
+    const char* title,
+    const char* body,
+    const char* tag,
+    uint32_t priority,
+    uint32_t ttl_ms
+) {
+    ESP_LOGW(
+        TAG,
+        "UpsertNotification ignored: id=%s title=%s body=%s tag=%s priority=%lu ttl=%lu",
+        id != nullptr ? id : "",
+        title != nullptr ? title : "",
+        body != nullptr ? body : "",
+        tag != nullptr ? tag : "",
+        (unsigned long)priority,
+        (unsigned long)ttl_ms
+    );
+    return false;
+}
+
+bool Display::RemoveNotification(const char* id) {
+    ESP_LOGW(TAG, "RemoveNotification ignored: id=%s", id != nullptr ? id : "");
+    return false;
+}
+
 void Display::UpdateStatusBar(bool update_all) {
 }
 

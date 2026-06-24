@@ -33,6 +33,15 @@ public:
     virtual void SetStatus(const char* status);
     virtual void ShowNotification(const char* notification, int duration_ms = 3000);
     virtual void ShowNotification(const std::string &notification, int duration_ms = 3000);
+    virtual bool UpsertNotification(
+        const char* id,
+        const char* title,
+        const char* body,
+        const char* tag,
+        uint32_t priority,
+        uint32_t ttl_ms
+    );
+    virtual bool RemoveNotification(const char* id);
     virtual void SetEmotion(const char* emotion);
     virtual void SetChatMessage(const char* role, const char* content);
     virtual void ClearChatMessages();
