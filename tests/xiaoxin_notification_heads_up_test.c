@@ -68,6 +68,24 @@ static void duplicate_visible_content_is_not_queued_again(void) {
   assert(!xiaoxin_notification_heads_up_enqueue(&model, &same, 1100));
 }
 
+static void duplicate_queued_content_is_not_queued_again(void) {
+  xiaoxin_notification_heads_up_t model;
+  xiaoxin_notification_heads_up_init(&model);
+
+  xiaoxin_card_item_t active = item("Low battery", "Please charge soon", "battery");
+  xiaoxin_card_item_t queued = item("WiFi disconnected", "Please check the network", "network");
+  xiaoxin_card_item_t same = item("WiFi disconnected", "Please check the network", "network");
+
+  assert(xiaoxin_notification_heads_up_enqueue(&model, &active, 1000));
+  assert(xiaoxin_notification_heads_up_enqueue(&model, &queued, 1100));
+
+  xiaoxin_notification_heads_up_snapshot_t snapshot = {};
+  assert(xiaoxin_notification_heads_up_snapshot(&model, &snapshot));
+  assert(strcmp(snapshot.title, "Low battery") == 0);
+
+  assert(!xiaoxin_notification_heads_up_enqueue(&model, &same, 1200));
+}
+
 static void overflow_drops_oldest_queued_banner(void) {
   xiaoxin_notification_heads_up_t model;
   xiaoxin_notification_heads_up_init(&model);
@@ -118,6 +136,7 @@ int main(void) {
   enqueue_starts_visible_banner_for_three_seconds();
   queued_notifications_show_in_order();
   duplicate_visible_content_is_not_queued_again();
+  duplicate_queued_content_is_not_queued_again();
   overflow_drops_oldest_queued_banner();
   empty_body_snapshot_keeps_title_only();
   puts("xiaoxin_notification_heads_up tests passed");
