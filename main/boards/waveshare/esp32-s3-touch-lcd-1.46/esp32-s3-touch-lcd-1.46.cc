@@ -59,10 +59,8 @@ extern "C" {
 #include "xiaoxin_low_power_clock_model.h"
 #include "xiaoxin_settings_model.h"
 #include "xiaoxin_system_overlay.h"
+extern const lv_image_dsc_t xiaoxin_heads_up_glass_texture;
 }
-
-#define XIAOXIN_NOTIFICATION_HEADS_UP_GLASS_TEXTURE_IMPLEMENTATION
-#include "xiaoxin_notification_heads_up_glass_texture.c"
 
 #define TAG "waveshare_lcd_1_46"
 

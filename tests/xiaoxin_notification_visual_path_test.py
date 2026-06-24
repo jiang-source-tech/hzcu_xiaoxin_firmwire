@@ -6,10 +6,18 @@ SOURCE = Path(
     "main/boards/waveshare/esp32-s3-touch-lcd-1.46/"
     "esp32-s3-touch-lcd-1.46.cc"
 )
+TEXTURE_SOURCE = Path(
+    "main/boards/waveshare/esp32-s3-touch-lcd-1.46/"
+    "xiaoxin_notification_heads_up_glass_texture.c"
+)
 
 
 def read_source() -> str:
     return SOURCE.read_text(encoding="utf-8")
+
+
+def read_texture_source() -> str:
+    return TEXTURE_SOURCE.read_text(encoding="utf-8")
 
 
 def function_body(source: str, signature: str) -> str:
@@ -29,6 +37,16 @@ def function_body(source: str, signature: str) -> str:
 
 def normalize_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
+
+
+def texture_map_bytes(source: str) -> list[int]:
+    match = re.search(
+        r"xiaoxin_heads_up_glass_texture_map\[\]\s*=\s*\{(?P<body>.*?)\};",
+        source,
+        re.DOTALL,
+    )
+    assert match, "texture byte map not found"
+    return [int(byte, 16) for byte in re.findall(r"0x([0-9a-fA-F]{2})", match.group("body"))]
 
 
 def test_notification_scroll_animation_uses_lightweight_visual_path():
@@ -234,11 +252,13 @@ def test_battery_overlay_uses_stable_display_level():
 
 def test_notification_heads_up_uses_frosted_glass_banner_visuals():
     source = read_source()
+    texture_source = read_texture_source()
     init_body = function_body(source, "void InitializeNotificationHeadsUpLayerLocked()")
     raise_body = function_body(source, "void RaiseOverlayObjects()")
     foreground_body = function_body(source, "void RaiseNotificationHeadsUpLayerLocked()")
     show_body = function_body(source, "void ShowNotificationHeadsUpLocked()")
     hide_body = function_body(source, "void HideNotificationHeadsUpLocked()")
+    texture_bytes = texture_map_bytes(texture_source)
 
     assert '#include "xiaoxin_notification_heads_up.h"' in source
     assert "xiaoxin_notification_heads_up_t notification_heads_up_model_ = {};" in source
@@ -254,7 +274,8 @@ def test_notification_heads_up_uses_frosted_glass_banner_visuals():
     assert "lv_obj_t* notification_heads_up_rim_bottom_right_ = nullptr;" in source
     assert "lv_obj_t* notification_heads_up_texture_overlay_ = nullptr;" in source
     assert "lv_obj_t* notification_heads_up_tag_capsule_ = nullptr;" in source
-    assert '#include "xiaoxin_notification_heads_up_glass_texture.c"' in source
+    assert '#include "xiaoxin_notification_heads_up_glass_texture.c"' not in source
+    assert "extern const lv_image_dsc_t xiaoxin_heads_up_glass_texture;" in source
 
     assert "lv_obj_set_size(notification_heads_up_layer_, 250, 58);" in init_body
     assert "lv_obj_set_style_radius(notification_heads_up_layer_, 22, 0);" in init_body
@@ -288,7 +309,11 @@ def test_notification_heads_up_uses_frosted_glass_banner_visuals():
     assert "lv_obj_set_style_text_color(notification_heads_up_body_label_, lv_color_hex(0x4A5568), 0);" in init_body
     assert "lv_obj_set_style_text_color(notification_heads_up_tag_label_, lv_color_hex(0x3182CE), 0);" in init_body
 
-    assert "RaiseNotificationHeadsUpLayerLocked();" in raise_body
+    assert raise_body.count("RaiseNotificationHeadsUpLayerLocked();") == 2
+    early_return = raise_body.index("return;")
+    early_raise = raise_body.index("RaiseNotificationHeadsUpLayerLocked();")
+    assert early_raise < early_return
+    assert normalize_whitespace(raise_body).endswith("RaiseNotificationHeadsUpLayerLocked();")
     assert "lv_obj_move_foreground(notification_heads_up_layer_);" in foreground_body
 
     assert "lv_anim_set_values(&anim, k_notification_heads_up_hidden_y, k_notification_heads_up_visible_y);" in show_body
@@ -297,3 +322,18 @@ def test_notification_heads_up_uses_frosted_glass_banner_visuals():
     assert "lv_anim_set_exec_cb(&fade, NotificationHeadsUpSetOpa);" in hide_body
     assert "lv_anim_set_values(&fade, LV_OPA_TRANSP, LV_OPA_COVER);" in show_body
     assert "lv_anim_set_values(&fade, LV_OPA_COVER, LV_OPA_TRANSP);" in hide_body
+
+    assert ".cf = LV_COLOR_FORMAT_I8," in texture_source
+    assert ".w = 250," in texture_source
+    assert ".h = 58," in texture_source
+    assert ".stride = 250," in texture_source
+    assert ".data_size = sizeof(xiaoxin_heads_up_glass_texture_map)," in texture_source
+    assert len(texture_bytes) == 1024 + (250 * 58)
+
+    palette = texture_bytes[:1024]
+    pixels = texture_bytes[1024:]
+    assert len(pixels) == 250 * 58
+    assert palette[:8] == [0x00, 0x00, 0x00, 0xFF, 0x01, 0x01, 0x01, 0xFF]
+    assert palette[-8:] == [0xFE, 0xFE, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
+    assert min(pixels) >= 0x76
+    assert max(pixels) <= 0x8A
