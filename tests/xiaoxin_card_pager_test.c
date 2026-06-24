@@ -463,6 +463,56 @@ static void non_home_pages_capture_pet_interaction(void) {
     assert(!xiaoxin_card_pager_allows_pet_interaction(&pager));
 }
 
+static void notification_ttl_expire_removes_only_expired_items(void) {
+    xiaoxin_card_pager_t pager;
+    xiaoxin_card_pager_init(&pager, 412);
+
+    const xiaoxin_notification_event_t voice = {
+        .type = XIAOXIN_NOTIFICATION_EVENT_VOICE_RECOGNITION_FAILED,
+        .body = "娌″惉娓咃紝璇峰啀璇翠竴娆�",
+        .ttl_ms = 8000,
+    };
+    const xiaoxin_notification_event_t wifi = {
+        .type = XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED,
+        .body = "WiFi 宸叉柇寮€锛屾鍦ㄩ噸鏂拌繛鎺�",
+    };
+
+    assert(xiaoxin_card_pager_notification_upsert_event_at(&pager, &voice, 1000));
+    assert(xiaoxin_card_pager_notification_upsert_event_at(&pager, &wifi, 1000));
+    assert(xiaoxin_card_pager_notification_count(&pager) == 2);
+
+    assert(xiaoxin_card_pager_notification_expire(&pager, 8999) == 0);
+    assert(xiaoxin_card_pager_notification_count(&pager) == 2);
+
+    assert(xiaoxin_card_pager_notification_expire(&pager, 9000) == 1);
+    assert(xiaoxin_card_pager_notification_count(&pager) == 1);
+    assert(xiaoxin_card_pager_notification_find_by_type(&pager, XIAOXIN_NOTIFICATION_EVENT_WIFI_DISCONNECTED) != NULL);
+    assert(xiaoxin_card_pager_notification_find_by_type(&pager, XIAOXIN_NOTIFICATION_EVENT_VOICE_RECOGNITION_FAILED) == NULL);
+}
+
+static void notification_find_by_type_survives_priority_sort(void) {
+    xiaoxin_card_pager_t pager;
+    xiaoxin_card_pager_init(&pager, 412);
+
+    const xiaoxin_notification_event_t voice = {
+        .type = XIAOXIN_NOTIFICATION_EVENT_VOICE_RECOGNITION_FAILED,
+        .body = "娌″惉娓咃紝璇峰啀璇翠竴娆�",
+    };
+    const xiaoxin_notification_event_t reminder = {
+        .type = XIAOXIN_NOTIFICATION_EVENT_REMINDER,
+        .body = "15 鍒嗛挓鍚?楂樼瓑鏁板 @ 3鏁?204",
+    };
+
+    assert(xiaoxin_card_pager_notification_upsert_event_at(&pager, &voice, 2000));
+    assert(xiaoxin_card_pager_notification_upsert_event_at(&pager, &reminder, 2000));
+
+    const xiaoxin_card_item_t* found =
+        xiaoxin_card_pager_notification_find_by_type(&pager, XIAOXIN_NOTIFICATION_EVENT_VOICE_RECOGNITION_FAILED);
+    assert(found != NULL);
+    assert(strcmp(found->title, "语音识别失败") == 0);
+    assert(strcmp(found->body, "娌″惉娓咃紝璇峰啀璇翠竴娆�") == 0);
+}
+
 int main(void) {
     home_down_swipe_enters_notifications();
     home_up_swipe_enters_overview();
@@ -488,6 +538,8 @@ int main(void) {
     notification_clear_all_empties_notifications();
     notification_dismiss_invalid_index_returns_false();
     non_home_pages_capture_pet_interaction();
+    notification_ttl_expire_removes_only_expired_items();
+    notification_find_by_type_survives_priority_sort();
     puts("xiaoxin_card_pager tests passed");
     return 0;
 }

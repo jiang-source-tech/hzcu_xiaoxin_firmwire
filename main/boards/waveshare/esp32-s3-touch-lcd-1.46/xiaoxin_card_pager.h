@@ -76,6 +76,7 @@ typedef struct {
   uint8_t notification_count;
   uint8_t notification_dismissed_mask;
   xiaoxin_notification_event_type_t notification_types[XIAOXIN_CARD_NOTIFICATION_MAX];
+  int64_t notification_expires_at_ms[XIAOXIN_CARD_NOTIFICATION_MAX];
   xiaoxin_card_item_t notification_items[XIAOXIN_CARD_NOTIFICATION_MAX];
   char notification_title_storage[XIAOXIN_CARD_NOTIFICATION_MAX][XIAOXIN_CARD_NOTIFICATION_TITLE_MAX];
   char notification_body_storage[XIAOXIN_CARD_NOTIFICATION_MAX][XIAOXIN_CARD_NOTIFICATION_BODY_MAX];
@@ -105,6 +106,19 @@ const xiaoxin_card_item_t* xiaoxin_card_pager_notification_at(
 bool xiaoxin_card_pager_notification_upsert_event(
   xiaoxin_card_pager_t* pager,
   const xiaoxin_notification_event_t* event
+);
+bool xiaoxin_card_pager_notification_upsert_event_at(
+  xiaoxin_card_pager_t* pager,
+  const xiaoxin_notification_event_t* event,
+  int64_t now_ms
+);
+uint8_t xiaoxin_card_pager_notification_expire(
+  xiaoxin_card_pager_t* pager,
+  int64_t now_ms
+);
+const xiaoxin_card_item_t* xiaoxin_card_pager_notification_find_by_type(
+  const xiaoxin_card_pager_t* pager,
+  xiaoxin_notification_event_type_t type
 );
 bool xiaoxin_card_pager_notification_upsert_course_reminder(
   xiaoxin_card_pager_t* pager,

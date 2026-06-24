@@ -69,6 +69,7 @@ static void notification_clear_slot(xiaoxin_card_pager_t* pager, uint8_t slot) {
     return;
   }
   pager->notification_types[slot] = XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY;
+  pager->notification_expires_at_ms[slot] = 0;
   pager->notification_title_storage[slot][0] = '\0';
   pager->notification_body_storage[slot][0] = '\0';
   pager->notification_tag_storage[slot][0] = '\0';
@@ -92,6 +93,13 @@ static int8_t notification_index_for_type(
   return -1;
 }
 
+static int64_t notification_expiry_from_ttl(uint32_t ttl_ms, int64_t now_ms) {
+  if (ttl_ms == 0) {
+    return 0;
+  }
+  return now_ms + (int64_t)ttl_ms;
+}
+
 static void clamp_notification_index(xiaoxin_card_pager_t* pager) {
   if (pager == NULL) {
     return;
@@ -111,6 +119,10 @@ static void notification_swap_slots(xiaoxin_card_pager_t* pager, uint8_t a, uint
   const xiaoxin_notification_event_type_t type_tmp = pager->notification_types[a];
   pager->notification_types[a] = pager->notification_types[b];
   pager->notification_types[b] = type_tmp;
+
+  const int64_t expires_tmp = pager->notification_expires_at_ms[a];
+  pager->notification_expires_at_ms[a] = pager->notification_expires_at_ms[b];
+  pager->notification_expires_at_ms[b] = expires_tmp;
 
   const xiaoxin_card_item_t item_tmp = pager->notification_items[a];
   pager->notification_items[a] = pager->notification_items[b];
@@ -153,6 +165,7 @@ static void notification_shift_left(xiaoxin_card_pager_t* pager, uint8_t index) 
   }
   for (uint8_t i = index; (uint8_t)(i + 1) < pager->notification_count; ++i) {
     pager->notification_types[i] = pager->notification_types[i + 1];
+    pager->notification_expires_at_ms[i] = pager->notification_expires_at_ms[i + 1];
     pager->notification_items[i] = pager->notification_items[i + 1];
     memcpy(pager->notification_title_storage[i], pager->notification_title_storage[i + 1], XIAOXIN_CARD_NOTIFICATION_TITLE_MAX);
     memcpy(pager->notification_body_storage[i], pager->notification_body_storage[i + 1], XIAOXIN_CARD_NOTIFICATION_BODY_MAX);
@@ -354,6 +367,14 @@ bool xiaoxin_card_pager_notification_upsert_event(
   xiaoxin_card_pager_t* pager,
   const xiaoxin_notification_event_t* event
 ) {
+  return xiaoxin_card_pager_notification_upsert_event_at(pager, event, 0);
+}
+
+bool xiaoxin_card_pager_notification_upsert_event_at(
+  xiaoxin_card_pager_t* pager,
+  const xiaoxin_notification_event_t* event,
+  int64_t now_ms
+) {
   if (pager == NULL || event == NULL) {
     return false;
   }
@@ -399,10 +420,45 @@ bool xiaoxin_card_pager_notification_upsert_event(
   );
   pager->notification_items[index].priority = event->priority != 0 ? event->priority : defaults->priority;
   pager->notification_items[index].ttl_ms = event->ttl_ms != 0 ? event->ttl_ms : defaults->ttl_ms;
+  pager->notification_expires_at_ms[index] =
+    notification_expiry_from_ttl(pager->notification_items[index].ttl_ms, now_ms);
   notification_rebind_slot(pager, index);
   notification_sort_by_priority(pager);
   clamp_notification_index(pager);
   return true;
+}
+
+uint8_t xiaoxin_card_pager_notification_expire(
+  xiaoxin_card_pager_t* pager,
+  int64_t now_ms
+) {
+  if (pager == NULL) {
+    return 0;
+  }
+
+  uint8_t removed = 0;
+  uint8_t index = 0;
+  while (index < pager->notification_count) {
+    const int64_t expires_at = pager->notification_expires_at_ms[index];
+    if (expires_at > 0 && now_ms >= expires_at) {
+      notification_shift_left(pager, index);
+      removed++;
+      continue;
+    }
+    index++;
+  }
+  return removed;
+}
+
+const xiaoxin_card_item_t* xiaoxin_card_pager_notification_find_by_type(
+  const xiaoxin_card_pager_t* pager,
+  xiaoxin_notification_event_type_t type
+) {
+  const int8_t index = notification_index_for_type(pager, type);
+  if (index < 0) {
+    return NULL;
+  }
+  return &pager->notification_items[(uint8_t)index];
 }
 
 bool xiaoxin_card_pager_notification_upsert_course_reminder(
