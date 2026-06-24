@@ -3,6 +3,8 @@ from pathlib import Path
 
 WIFI_BOARD_SOURCE = Path("main/boards/common/wifi_board.cc")
 APPLICATION_SOURCE = Path("main/application.cc")
+SDKCONFIG_SOURCE = Path("sdkconfig")
+SDKCONFIG_DEFAULTS_SOURCE = Path("sdkconfig.defaults")
 
 
 def read_source(path: Path) -> str:
@@ -67,10 +69,36 @@ def test_wifi_connection_starts_time_synchronization():
 
     assert "#include <esp_sntp.h>" in source
     assert "StartTimeSynchronization();" in connected_block
-    assert 'static constexpr char NTP_SERVER[] = "ntp.aliyun.com";' in source
+    assert "static constexpr const char* NTP_SERVERS[]" in source
+    assert '"ntp.aliyun.com"' in source
+    assert '"cn.pool.ntp.org"' in source
+    assert '"pool.ntp.org"' in source
+    assert "k_ntp_server_count" in source
     assert 'static constexpr char DEFAULT_TIMEZONE[] = "CST-8";' in source
     assert '#include <stdlib.h>' in source
+    assert '#include <sys/time.h>' in source
     assert '#include <time.h>' in source
     assert 'setenv("TZ", DEFAULT_TIMEZONE, 1);' in source
     assert "tzset();" in source
+    assert "esp_sntp_set_time_sync_notification_cb(OnSntpTimeSync);" in source
+    assert "for (size_t i = 0; i < k_ntp_server_count; ++i)" in source
+    assert "esp_sntp_setservername(i, NTP_SERVERS[i]);" in source
     assert "esp_sntp_init();" in source
+
+
+def test_sntp_config_allows_three_servers():
+    sdkconfig = read_source(SDKCONFIG_SOURCE)
+    sdkconfig_defaults = read_source(SDKCONFIG_DEFAULTS_SOURCE)
+
+    assert "CONFIG_LWIP_SNTP_MAX_SERVERS=3" in sdkconfig
+    assert "CONFIG_LWIP_SNTP_MAX_SERVERS=3" in sdkconfig_defaults
+
+
+def test_wifi_time_sync_updates_shared_status():
+    source = read_source(WIFI_BOARD_SOURCE)
+    cmake = Path("main/CMakeLists.txt").read_text(encoding="utf-8")
+
+    assert '#include "time_sync_status.h"' in source
+    assert "MarkTimeSyncStarted();" in source
+    assert "MarkTimeSyncSucceeded();" in source
+    assert '"boards/common/time_sync_status.cc"' in cmake

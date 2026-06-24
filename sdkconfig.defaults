@@ -39,6 +39,7 @@ CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
 
 # ── WiFi 配网方式 ─────────────────────────────────────────────
 CONFIG_USE_HOTSPOT_WIFI_PROVISIONING=y
+CONFIG_LWIP_SNTP_MAX_SERVERS=3
 
 # ── 显示风格 ──────────────────────────────────────────────────
 CONFIG_USE_DEFAULT_MESSAGE_STYLE=y

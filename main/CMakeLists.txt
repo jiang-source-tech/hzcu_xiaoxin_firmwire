@@ -45,6 +45,7 @@ set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg"
 list(APPEND SOURCES
     "boards/common/board.cc"
     "boards/common/wifi_board.cc"
+    "boards/common/time_sync_status.cc"
     "boards/common/ml307_board.cc"
     "boards/common/nt26_board.cc"
     "boards/common/dual_network_board.cc"
@@ -755,6 +756,7 @@ if(CONFIG_BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_46)
         ${CMAKE_CURRENT_SOURCE_DIR}/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_system_overlay.c
         ${CMAKE_CURRENT_SOURCE_DIR}/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_overview_model.c
         ${CMAKE_CURRENT_SOURCE_DIR}/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_settings_model.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_low_power_clock_model.c
     )
     list(REMOVE_DUPLICATES SOURCES)
     list(REMOVE_ITEM SOURCES

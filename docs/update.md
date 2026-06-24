@@ -1,5 +1,118 @@
 ﻿# Update
 
+## 2026-06-24 00:00:00 +08:00
+
+### Waveshare ESP32-S3 Touch LCD 1.46 底部字幕统一流式显示
+
+#### 背景
+
+实机反馈底部字幕观感不统一：部分对话字幕看起来是流式出现，但类似“无法连接服务，请稍后再试”的系统错误提示会一次性静态显示。根因是底部字幕原本在 `LcdDisplay::SetChatMessage()` 中直接 `lv_label_set_text()` 完整内容，而个别业务路径如果想要流式效果只能单独处理，容易漏掉 system/error 等来源。
+
+本轮把流式显示能力下沉到通用底部字幕组件，统一所有落到底部字幕条的消息来源。
+
+#### 修改内容
+
+- 底部字幕统一流式：
+  - 在 `LcdDisplay` 中新增 `chat_message_stream_timer_`、`chat_message_stream_text_` 和 `chat_message_stream_offset_`。
+  - 非 wechat 底部字幕模式下，所有非空 `SetChatMessage(role, content)` 都调用 `StartChatMessageStreamLocked(content)`。
+  - 字幕显示时先清空当前 label，再通过 LVGL timer 按 55ms 节奏逐步追加前缀文本。
+  - `system`、`assistant`、`user`、错误提示、升级进度等来源共享同一套流式路径。
+- UTF-8 安全：
+  - 新增 `NextUtf8CharacterEnd()`，按 UTF-8 字符边界推进，避免中文提示被按字节拆开。
+- 清理和取消：
+  - 空字幕和 `ClearChatMessages()` 会调用 `StopChatMessageStreamLocked()`，停止当前流式 timer 并隐藏底部栏。
+  - `LcdDisplay` 析构时删除 `chat_message_stream_timer_`，避免对象销毁后继续回调。
+- 错误提示归一：
+  - 保留 `Application` 的错误提示保持逻辑，但不在应用层做单独流式任务。
+  - 错误提示仍通过 `Alert(...)->SetChatMessage("system", message)` 进入显示层，由底部字幕组件统一流式显示。
+- 回归测试：
+  - 新增 `tests/xiaoxin_bottom_subtitle_stream_test.py`，覆盖所有底部字幕角色都走统一流式 helper、空字幕取消流式、LVGL timer 和 UTF-8 边界。
+  - 扩展 `tests/xiaoxin_error_display_path_test.py`，防止重新把错误提示流式逻辑放回应用层特例。
+
+#### 涉及文件
+
+- `main/display/lcd_display.cc`
+- `main/display/lcd_display.h`
+- `tests/xiaoxin_bottom_subtitle_stream_test.py`
+- `tests/xiaoxin_error_display_path_test.py`
+- `docs/xiaoxin-vertical-card-pager-plan.zh-CN.md`
+- `docs/update.md`
+
+#### 验证结果
+
+- `python -m pytest tests`：通过，92 passed。
+- `git diff --check -- main\display\lcd_display.cc main\display\lcd_display.h tests\xiaoxin_error_display_path_test.py tests\xiaoxin_bottom_subtitle_stream_test.py`：通过。
+- 当前 shell 中未找到 `idf.py`，因此本轮未执行完整 ESP-IDF 固件构建；需要在 ESP-IDF 环境中补跑 `idf.py build` 并在实机确认所有底部字幕来源均为流式显示。
+
+## 2026-06-24 00:00:00 +08:00
+
+### Waveshare ESP32-S3 Touch LCD 1.46 动态低功耗时钟、SNTP 与错误提示保持
+
+#### 背景
+
+上一轮低功耗时钟已经能在省电时显示时间，但实机观感仍偏小、偏静态，更像一行调试信息；同时省电调度器原来的 shutdown 阶段会进一步触发关机，不符合当前希望常驻低功耗时钟的产品行为。本轮把低功耗页面改成更醒目的动态表盘：大号居中时间、黑底、青蓝外圈圆弧，并保持 POWER 短按唤醒。
+
+另外，设备联网后的 SNTP 只有单个服务器，弱网或单点失败时校时可靠性不足；错误弹窗路径中，应用回到 idle 或音频通道关闭时可能把底部错误文案清空，导致用户看不到真实失败原因。本轮同步补齐这些稳定性问题。
+
+#### 修改内容
+
+- 低功耗时钟模型与构建接入：
+  - 新增/扩展 `xiaoxin_low_power_clock_model` 的动画相位 helper。
+  - 默认低功耗显示亮度从 `8%` 调整为 `12%`，提高黑色镜面和反光环境下可读性。
+  - 新增 `XIAOXIN_LOW_POWER_CLOCK_ARC_SPAN_DEGREES = 76`，用于外圈圆弧跨度。
+  - 将 `xiaoxin_low_power_clock_model.c` 加入 Waveshare 1.46 板级 `CMakeLists.txt` 源文件列表。
+- 低功耗时钟 LVGL 页面重做：
+  - 移除旧的“小图标在左、时间在右”布局和图标字体 fallback。
+  - 新增 `low_power_clock_arc_`，用 LVGL arc 绘制外圈青蓝动态圆弧。
+  - 时间改用 `font_puhui_basic_30_4` 并通过 transform 放大，居中略偏上显示。
+  - 底部提示保留小号 `POWER 唤醒`，避免抢占中心时间。
+  - 进入低功耗页时重置动画 tick，并立即刷新一次圆弧。
+  - 专用低功耗刷新 timer 从 `10s` 改为 `1s`，圆弧每秒推进；时间文本仍只在分钟变化时刷新。
+- 省电调度器行为调整：
+  - `PowerSaveTimer(-1, 60, 300)` 改为 `PowerSaveTimer(-1, 60, -1)`。
+  - 移除当前板级的 `OnShutdownRequest()` 关机回调，省电后停留在低功耗时钟页，不再自动关机。
+- SNTP 校时增强：
+  - 单服务器 `ntp.aliyun.com` 改为三服务器列表：`ntp.aliyun.com`、`cn.pool.ntp.org`、`pool.ntp.org`。
+  - `sdkconfig` 和 `sdkconfig.defaults` 增加 `CONFIG_LWIP_SNTP_MAX_SERVERS=3`。
+  - 增加 `OnSntpTimeSync()` 同步回调，校时成功后记录本地时间日志。
+- 错误提示保持：
+  - 新增 `Application::error_message_visible_` 状态位。
+  - `MAIN_EVENT_ERROR` 路径在回到 idle 前先标记错误文案可见，避免 idle 刷新立刻清空底部错误消息。
+  - 音频通道关闭时，如果错误文案正在显示，不再清空底部 system message。
+  - 新会话进入 connecting 时清除旧错误可见状态，避免历史错误污染下一轮连接。
+- 扩展 source-path 与模型测试：
+  - 覆盖低功耗时钟模型动画相位、亮度默认值和圆弧常量。
+  - 覆盖低功耗时钟 CMake 接入、大号居中时间、外圈 arc、1 秒刷新 cadence、移除旧图标布局。
+  - 覆盖省电调度器不再触发自动关机。
+  - 覆盖 SNTP 三服务器配置和同步回调。
+  - 新增错误提示保持路径测试，防止 idle / 音频关闭路径清空可见错误文案。
+
+#### 涉及文件
+
+- `main/CMakeLists.txt`
+- `main/application.cc`
+- `main/application.h`
+- `main/boards/common/wifi_board.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_low_power_clock_model.c`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_low_power_clock_model.h`
+- `sdkconfig`
+- `sdkconfig.defaults`
+- `tests/wifi_config_status_path_test.py`
+- `tests/xiaoxin_error_display_path_test.py`
+- `tests/xiaoxin_low_power_clock_model_test.c`
+- `tests/xiaoxin_low_power_clock_visual_path_test.py`
+- `tests/xiaoxin_settings_path_test.py`
+- `docs/superpowers/specs/2026-06-24-xiaoxin-dynamic-low-power-clock-design.zh-CN.md`
+- `docs/superpowers/plans/2026-06-24-xiaoxin-dynamic-low-power-clock.md`
+- `docs/update.md`
+
+#### 验证结果
+
+- `python -m pytest tests\xiaoxin_low_power_clock_visual_path_test.py tests\xiaoxin_settings_path_test.py tests\wifi_config_status_path_test.py tests\xiaoxin_error_display_path_test.py -q`：通过，54 passed。
+- `gcc tests\xiaoxin_low_power_clock_model_test.c main\boards\waveshare\esp32-s3-touch-lcd-1.46\xiaoxin_low_power_clock_model.c -I main\boards\waveshare\esp32-s3-touch-lcd-1.46 -o build\xiaoxin_low_power_clock_model_test.exe; .\build\xiaoxin_low_power_clock_model_test.exe`：通过，退出码 0。
+- 当前 shell 中未找到 `idf.py`，因此仍需在 ESP-IDF 环境中执行完整固件 build / flash，并在实机确认低功耗时钟大号时间、外圈动效、12% 亮度、POWER 唤醒、SNTP 日志和错误提示保持行为。
+
 ## 2026-06-23 00:00:00 +08:00
 
 ### Waveshare ESP32-S3 Touch LCD 1.46 省电设置反馈与主页电池省电色
@@ -29,8 +142,7 @@
 - 扩展设置模型纯函数：
   - 新增 `xiaoxin_settings_power_save_value_label()`，负责返回 `已开启` / `已关闭`。
   - 新增 `xiaoxin_settings_power_save_battery_color()`，负责省电色和低电色优先级选择。
-- 补充设计和实施计划文档：
-  - 记录省电设置反馈交互、主页电池省电色、低电优先级和测试策略。
+- 在本变更日志中记录省电设置反馈交互、主页电池省电色、低电优先级和测试策略。
 
 #### 涉及文件
 
@@ -39,8 +151,6 @@
 - `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_settings_model.h`
 - `tests/xiaoxin_settings_model_test.c`
 - `tests/xiaoxin_settings_path_test.py`
-- `docs/superpowers/specs/2026-06-23-xiaoxin-power-save-settings-feedback-design.zh-CN.md`
-- `docs/superpowers/plans/2026-06-23-xiaoxin-power-save-settings-feedback.md`
 - `docs/update.md`
 
 #### 验证结果
@@ -100,9 +210,6 @@
 - `tests/xiaoxin_settings_model_test.c`
 - `tests/xiaoxin_settings_path_test.py`
 - `tests/wifi_config_status_path_test.py`
-- `docs/superpowers/specs/2026-06-23-xiaoxin-dynamic-brightness-settings-design.zh-CN.md`
-- `docs/superpowers/plans/2026-06-23-xiaoxin-about-page-product-info.md`
-- `docs/superpowers/plans/2026-06-23-xiaoxin-dynamic-brightness-settings.md`
 - `docs/update.md`
 
 #### 验证结果
@@ -141,7 +248,6 @@
 
 - `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
 - `tests/xiaoxin_settings_path_test.py`
-- `docs/superpowers/plans/2026-06-22-xiaoxin-boot-settings-page.md`
 - `docs/update.md`
 
 #### 验证结果
@@ -200,10 +306,6 @@
 - 补齐本地活动唤醒：
   - BOOT 单击、BOOT 长按、PWR 单击、PWR 长按都会唤醒/重置 `PowerSaveTimer`。
   - 触摸活动只在显示锁内记录唤醒请求，真正 `WakeUp()` 延迟到显示锁释放后执行，避免 `PowerSaveTimer::WakeUp()` 同步触发显示回调造成锁重入。
-- 更新实现计划文档：
-  - `docs/superpowers/plans/2026-06-22-xiaoxin-boot-settings-page.md` 增加 `Implementation Update`。
-  - 同步任务 checkbox 进度、实现提交、验证结果和环境限制。
-
 #### 涉及文件
 
 - `main/CMakeLists.txt`
@@ -212,7 +314,6 @@
 - `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_settings_model.c`
 - `tests/xiaoxin_settings_model_test.c`
 - `tests/xiaoxin_settings_path_test.py`
-- `docs/superpowers/plans/2026-06-22-xiaoxin-boot-settings-page.md`
 - `docs/update.md`
 
 #### 验证结果
@@ -253,7 +354,6 @@ P1 宠物情绪系统接入后，BOOT 按键需要从宠物情绪和宠物动画
 - `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
 - `tests/xiaoxin_pet_mood_integration_path_test.py`
 - `docs/xiaoxin-pet-emotion-gif-mapping.zh-CN.md`
-- `docs/superpowers/specs/2026-06-21-xiaoxin-pet-mood-system-design.zh-CN.md`
 - `docs/update.md`
 
 #### 验证结果
@@ -408,8 +508,6 @@ P1 宠物情绪系统接入后，BOOT 按键需要从宠物情绪和宠物动画
 - `tests/xiaoxin_card_pager_test.c`
 - `tests/xiaoxin_notification_visual_path_test.py`
 - `tests/xiaoxin_card_pager_threshold_test.py`
-- `docs/superpowers/specs/2026-06-19-xiaoxin-real-overview-data-design.zh-CN.md`
-- `docs/superpowers/plans/2026-06-19-xiaoxin-real-overview-data.md`
 - `docs/update.md`
 
 #### 验证结果
@@ -513,7 +611,6 @@ P1 宠物情绪系统接入后，BOOT 按键需要从宠物情绪和宠物动画
 - `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.h`
 - `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.c`
 - `tests/xiaoxin_card_pager_test.c`
-- `docs/superpowers/plans/2026-06-19-xiaoxin-overview-card-density.md`
 - `docs/update.md`
 
 #### 验证结果

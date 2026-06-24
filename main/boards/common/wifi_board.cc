@@ -5,6 +5,7 @@
 #include "system_info.h"
 #include "settings.h"
 #include "assets/lang_config.h"
+#include "time_sync_status.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -12,6 +13,7 @@
 #include <esp_log.h>
 #include <esp_sntp.h>
 #include <stdlib.h>
+#include <sys/time.h>
 #include <time.h>
 #include <utility>
 
@@ -29,8 +31,29 @@ static const char *TAG = "WifiBoard";
 // Connection timeout in seconds
 static constexpr int CONNECT_TIMEOUT_SEC = 60;
 static constexpr char DEFAULT_WIFI_SSID[] = "Jiang";
-static constexpr char NTP_SERVER[] = "ntp.aliyun.com";
+static constexpr const char* NTP_SERVERS[] = {
+    "ntp.aliyun.com",
+    "cn.pool.ntp.org",
+    "pool.ntp.org",
+};
+static constexpr size_t k_ntp_server_count = sizeof(NTP_SERVERS) / sizeof(NTP_SERVERS[0]);
 static constexpr char DEFAULT_TIMEZONE[] = "CST-8";
+
+static void OnSntpTimeSync(struct timeval* tv) {
+    MarkTimeSyncSucceeded();
+
+    time_t now = tv != nullptr ? tv->tv_sec : time(nullptr);
+    struct tm timeinfo = {};
+    char time_text[24] = {};
+
+    if (localtime_r(&now, &timeinfo) != nullptr &&
+        strftime(time_text, sizeof(time_text), "%Y-%m-%d %H:%M:%S", &timeinfo) > 0) {
+        ESP_LOGI(TAG, "SNTP time synchronized: %s", time_text);
+        return;
+    }
+
+    ESP_LOGI(TAG, "SNTP time synchronized");
+}
 
 static void StartTimeSynchronization() {
     static bool sntp_started = false;
@@ -42,9 +65,13 @@ static void StartTimeSynchronization() {
         return;
     }
 
-    ESP_LOGI(TAG, "Starting SNTP time synchronization");
+    ESP_LOGI(TAG, "Starting SNTP time synchronization with %d servers", (int)k_ntp_server_count);
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    esp_sntp_setservername(0, NTP_SERVER);
+    esp_sntp_set_time_sync_notification_cb(OnSntpTimeSync);
+    for (size_t i = 0; i < k_ntp_server_count; ++i) {
+        esp_sntp_setservername(i, NTP_SERVERS[i]);
+    }
+    MarkTimeSyncStarted();
     esp_sntp_init();
     sntp_started = true;
 }

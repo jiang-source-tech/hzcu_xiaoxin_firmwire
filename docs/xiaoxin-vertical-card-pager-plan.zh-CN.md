@@ -176,6 +176,16 @@ struct CardItem {
 - 浮层位置为 `LV_ALIGN_TOP_RIGHT, -76, 50`，优先保证 1.46 寸圆屏实机可见。
 - 卡片页隐藏原 `top_bar_`、`status_bar_`、`bottom_bar_` 时，`system_overlay_` 仍会被 `RaiseOverlayObjects()` 提到前景。
 - 通知卡片内部不再单独恢复四格电量显示，避免全局电量和卡片电量重复。
+
+### 2026-06-24 底部字幕流式显示统一
+
+底部字幕的“流式出现”现在统一由通用 `LcdDisplay` 的底部字幕组件负责，而不是在某些业务路径中单独处理。
+
+- 非 wechat 底部字幕模式下，所有 `SetChatMessage(role, content)` 的非空内容都会先清空当前字幕，再通过 LVGL timer 按 UTF-8 字符边界逐步追加显示。
+- `system`、`assistant`、`user` 以及错误提示、升级进度等所有落到底部字幕条的内容共享同一套流式路径，避免出现有的字幕流式、有的字幕静止的观感割裂。
+- 空字幕和 `ClearChatMessages()` 会停止当前流式 timer 并隐藏 `bottom_bar_`，避免旧字幕继续回写。
+- UTF-8 边界由 `NextUtf8CharacterEnd()` 计算，中文提示不会被按字节拆坏。
+
 ## 2026-06-18 当前实现补充：通知页内部连续滚动
 
 ### 最新结论

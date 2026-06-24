@@ -62,7 +62,9 @@ void Backlight::SetBrightness(uint8_t brightness, bool permanent) {
 
     if (transition_timer_ != nullptr) {
         // 启动定时器，每 5ms 更新一次
-        esp_timer_start_periodic(transition_timer_, 5 * 1000);
+        if (!esp_timer_is_active(transition_timer_)) {
+            esp_timer_start_periodic(transition_timer_, 5 * 1000);
+        }
     }
     ESP_LOGI(TAG, "Set brightness to %d", brightness);
 }
