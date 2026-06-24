@@ -45,6 +45,7 @@ set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg"
 list(APPEND SOURCES
     "boards/common/board.cc"
     "boards/common/wifi_board.cc"
+    "boards/common/time_sync_status.cc"
     "boards/common/ml307_board.cc"
     "boards/common/nt26_board.cc"
     "boards/common/dual_network_board.cc"

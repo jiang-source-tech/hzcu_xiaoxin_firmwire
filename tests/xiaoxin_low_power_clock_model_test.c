@@ -32,6 +32,46 @@ static void invalid_time_uses_placeholder(void) {
   assert(strcmp(snapshot.time_text, "--:--") == 0);
 }
 
+static void valid_state_formats_orbit_secondary_text(void) {
+  xiaoxin_low_power_clock_state_t state = {
+    .time_valid = true,
+    .hour = 9,
+    .minute = 5,
+    .month = 6,
+    .day = 24,
+    .weekday = 3,
+    .battery_known = true,
+    .battery_percent = 87,
+    .sync_state = XIAOXIN_LOW_POWER_CLOCK_SYNC_SYNCED,
+  };
+  xiaoxin_low_power_clock_snapshot_t snapshot = {};
+
+  xiaoxin_low_power_clock_model_build(&state, &snapshot);
+
+  assert(strcmp(snapshot.time_text, "09:05") == 0);
+  assert(strcmp(snapshot.date_text, "WED 06/24") == 0);
+  assert(strcmp(snapshot.battery_text, "87%") == 0);
+  assert(strcmp(snapshot.sync_text, "SYNC") == 0);
+  assert(snapshot.sync_color_hex == 0x26D9FF);
+}
+
+static void invalid_time_marks_syncing_orbit_state(void) {
+  xiaoxin_low_power_clock_state_t state = {
+    .time_valid = false,
+    .battery_known = false,
+    .sync_state = XIAOXIN_LOW_POWER_CLOCK_SYNC_SYNCING,
+  };
+  xiaoxin_low_power_clock_snapshot_t snapshot = {};
+
+  xiaoxin_low_power_clock_model_build(&state, &snapshot);
+
+  assert(strcmp(snapshot.time_text, "--:--") == 0);
+  assert(strcmp(snapshot.date_text, "WAITING") == 0);
+  assert(strcmp(snapshot.battery_text, "--%") == 0);
+  assert(strcmp(snapshot.sync_text, "NTP") == 0);
+  assert(snapshot.sync_color_hex == 0xF5C542);
+}
+
 static void time_fields_are_clamped_to_displayable_range(void) {
   xiaoxin_low_power_clock_state_t state = {
     .time_valid = true,
@@ -63,6 +103,8 @@ static void animation_phase_wraps_to_circle_degrees(void) {
 int main(void) {
   valid_time_formats_as_hh_mm();
   invalid_time_uses_placeholder();
+  valid_state_formats_orbit_secondary_text();
+  invalid_time_marks_syncing_orbit_state();
   time_fields_are_clamped_to_displayable_range();
   refresh_only_when_minute_changes();
   animation_phase_wraps_to_circle_degrees();

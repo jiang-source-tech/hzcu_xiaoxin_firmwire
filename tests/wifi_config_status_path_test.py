@@ -92,3 +92,13 @@ def test_sntp_config_allows_three_servers():
 
     assert "CONFIG_LWIP_SNTP_MAX_SERVERS=3" in sdkconfig
     assert "CONFIG_LWIP_SNTP_MAX_SERVERS=3" in sdkconfig_defaults
+
+
+def test_wifi_time_sync_updates_shared_status():
+    source = read_source(WIFI_BOARD_SOURCE)
+    cmake = Path("main/CMakeLists.txt").read_text(encoding="utf-8")
+
+    assert '#include "time_sync_status.h"' in source
+    assert "MarkTimeSyncStarted();" in source
+    assert "MarkTimeSyncSucceeded();" in source
+    assert '"boards/common/time_sync_status.cc"' in cmake

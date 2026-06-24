@@ -1,6 +1,6 @@
 # 小芯宠物情绪 GIF 映射说明
 
-> 日期：2026-06-19
+> 日期：2026-06-24
 > 范围：Waveshare ESP32-S3 Touch LCD 1.46 小芯/泡泡宠物固件
 > 目标：说明不同 GIF 如何表达宠物情绪，以及服务端 `llm.emotion` 如何映射到宠物 GIF 动画。
 
@@ -92,16 +92,16 @@
 | `waiting.gif` | `SetStatus(listening)`；`PAOPAO_PET_TRIGGER_WAKE` |
 | `thinking.gif` | `SetStatus(thinking)`；`SetChatMessage(role=user)`；服务端 emotion 包含 `think`, `confused`, `curious` |
 | `speaking_fixed.gif` | `SetStatus(speaking)`；`SetChatMessage(role=assistant)` |
-| `done.gif` | 屏幕短点按；`PAOPAO_PET_TRIGGER_TASK_DONE` |
+| `done.gif` | 屏幕短点按；显式派发 `PAOPAO_PET_TRIGGER_TASK_DONE` 时作为完成/确认反馈 |
 | `sleeping.gif` | idle 安静约 60 秒；屏幕长按切换睡眠；服务端 emotion 包含 `sleep`, `sleepy`, `sleeping` |
 | `jumping.gif` | 屏幕横向拖动，左拖或右拖都会触发 |
-| `failed.gif` | `SetStatus(error)` 进入错误锁定状态；服务端 emotion 包含 `error`, `fail`, `shock` 时作为失败短反应 |
+| `failed.gif` | `SetStatus(error)` 进入错误锁定状态；语音错误经 mood 层短反应；服务端 emotion 包含 `error`, `fail`, `shock` 时作为失败短反应 |
 | `giddy.gif` | IMU 检测到设备摇晃；服务端 `giddy` 当前不会触发 |
 | `review.gif` | idle 状态保持一段时间后的空闲小动作，首次约 20 秒后触发 |
-| `happy.gif` | 服务端 emotion 包含 `happy`, `laugh`, `loving`, `excited`, `cool` |
+| `happy.gif` | 服务端 emotion 包含 `happy`, `laugh`, `loving`, `excited`, `cool`；低电量恢复；WiFi 恢复 |
 | `crying.gif` | 服务端 emotion 包含 `cry`, `sad`, `unhappy`, `upset`, `lonely` |
-| `anxiety.gif` | 服务端 emotion 包含 `anxious`, `worried`, `nervous`, `scared`, `afraid` |
-| `tired.gif` | 服务端 emotion 包含 `tired`, `weak`, `low_battery` |
+| `anxiety.gif` | 服务端 emotion 包含 `anxious`, `worried`, `nervous`, `scared`, `afraid`；WiFi 断开或配网中 |
+| `tired.gif` | 服务端 emotion 包含 `tired`, `weak`, `low_battery`；电池供电下进入低电量或严重低电量 |
 | `stamp.gif` | 服务端 emotion 包含 `angry`, `annoyed`, `frustrated`, `mad`, `impatient`；用于表达跺脚、生气、不满 |
 | `working.gif` | 状态和资源已存在，但当前状态机没有实际入口触发 |
 | `waving.gif` | 资源已存在，但当前尚未接入状态机 |
@@ -133,15 +133,31 @@
 
 P1 情绪系统在 `paopao_pet_trigger` 之前增加了 `paopao_pet_mood` 策略层。这个层不直接选择 GIF 文件，而是把设备状态和用户事件归一为现有的 `paopao_pet_trigger_event_t`，再交给 trigger 层继续做状态机和 GIF 选择。
 
-- 低电量进入：建议 `PAOPAO_PET_TRIGGER_SERVICE_TIRED`，冷却 30 秒。
-- 电量恢复：建议 `PAOPAO_PET_TRIGGER_SERVICE_HAPPY`，冷却 10 秒。
-- WiFi 断开或配网中：建议 `PAOPAO_PET_TRIGGER_SERVICE_ANXIOUS`，冷却 20 秒。
-- WiFi 恢复：建议 `PAOPAO_PET_TRIGGER_SERVICE_HAPPY`，冷却 10 秒。
-- 语音错误：建议 `PAOPAO_PET_TRIGGER_SERVICE_FAILING`，冷却 3 秒。
+- 低电量进入：电池供电下出现 low/critical 边缘时，建议 `PAOPAO_PET_TRIGGER_SERVICE_TIRED`，最终显示 `tired.gif`，冷却 30 秒。
+- 电量恢复：电池供电下从 low/critical 恢复时，建议 `PAOPAO_PET_TRIGGER_SERVICE_HAPPY`，最终显示 `happy.gif`，冷却 10 秒。
+- WiFi 断开或配网中：网络状态从 connected 变为 disconnected/configuring 时，建议 `PAOPAO_PET_TRIGGER_SERVICE_ANXIOUS`，最终显示 `anxiety.gif`，冷却 20 秒。
+- WiFi 恢复：网络状态恢复 connected 时，建议 `PAOPAO_PET_TRIGGER_SERVICE_HAPPY`，最终显示 `happy.gif`，冷却 10 秒。
+- 语音错误：`SetStatus(error)` 或错误状态文案进入显示层时，建议 `PAOPAO_PET_TRIGGER_SERVICE_FAILING`，最终显示 `failed.gif`，冷却 3 秒。
 - 服务端 `emotion`：先经 `paopao_pet_trigger_for_emotion()` 归一，再由 mood 层做 1.8 秒冷却。
 - 触摸、拖动、摇晃：继续走本地即时 trigger，同时更新 mood 分数。
 
 BOOT 按键不作为 P1 情绪系统输入。当前实现里它保留为系统、调试、设置入口或后续产品决策使用，不纳入 mood 策略映射。
+
+## 7.2 设备状态表达覆盖
+
+当前代码已经覆盖这些“设备自己表达状态”的路径：
+
+| 设备或业务状态 | 当前表达 | 是否已自动接入 |
+| --- | --- | --- |
+| 电池供电下进入低电量/严重低电量 | `tired.gif`，表现为没精神 | 已接入。由 `SyncPetMoodDeviceStateLocked()` 读取电池状态边缘后派发 |
+| 电量从低电量恢复 | `happy.gif`，表现为恢复轻反馈 | 已接入。只在此前处于低电量 mood 状态时触发 |
+| WiFi 断开或配网中 | `anxiety.gif`，表现为焦虑/担心 | 已接入。由系统浮层网络状态变化驱动 |
+| WiFi 恢复连接 | `happy.gif`，表现为轻微成功反馈 | 已接入。由网络状态恢复 connected 驱动 |
+| 语音识别或错误状态 | `failed.gif`，表现为失败/再想想 | 已接入。`SetStatus(error)` 会进入 mood 语音错误路径 |
+| 明确任务完成 | `done.gif`，表现为完成/确认 | 状态机已支持 `PAOPAO_PET_TRIGGER_TASK_DONE`，但当前没有把所有业务任务完成事件自动绑定到这个 trigger |
+| 屏幕短点按 | `done.gif`，表现为本地轻反馈 | 已接入。它复用完成动画，但语义是本地点击反馈，不等同于业务任务完成 |
+
+因此，低电量、网络异常和错误状态已经会用自己的方式表达；任务完成的表达能力已经在状态机中存在，但业务层还需要在真正的完成事件处主动派发 `PAOPAO_PET_TRIGGER_TASK_DONE`。
 
 ## 8. 缺失或待接入动画
 

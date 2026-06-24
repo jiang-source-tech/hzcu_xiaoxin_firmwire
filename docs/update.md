@@ -142,8 +142,7 @@
 - 扩展设置模型纯函数：
   - 新增 `xiaoxin_settings_power_save_value_label()`，负责返回 `已开启` / `已关闭`。
   - 新增 `xiaoxin_settings_power_save_battery_color()`，负责省电色和低电色优先级选择。
-- 补充设计和实施计划文档：
-  - 记录省电设置反馈交互、主页电池省电色、低电优先级和测试策略。
+- 在本变更日志中记录省电设置反馈交互、主页电池省电色、低电优先级和测试策略。
 
 #### 涉及文件
 
@@ -152,8 +151,6 @@
 - `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_settings_model.h`
 - `tests/xiaoxin_settings_model_test.c`
 - `tests/xiaoxin_settings_path_test.py`
-- `docs/superpowers/specs/2026-06-23-xiaoxin-power-save-settings-feedback-design.zh-CN.md`
-- `docs/superpowers/plans/2026-06-23-xiaoxin-power-save-settings-feedback.md`
 - `docs/update.md`
 
 #### 验证结果
@@ -213,9 +210,6 @@
 - `tests/xiaoxin_settings_model_test.c`
 - `tests/xiaoxin_settings_path_test.py`
 - `tests/wifi_config_status_path_test.py`
-- `docs/superpowers/specs/2026-06-23-xiaoxin-dynamic-brightness-settings-design.zh-CN.md`
-- `docs/superpowers/plans/2026-06-23-xiaoxin-about-page-product-info.md`
-- `docs/superpowers/plans/2026-06-23-xiaoxin-dynamic-brightness-settings.md`
 - `docs/update.md`
 
 #### 验证结果
@@ -254,7 +248,6 @@
 
 - `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
 - `tests/xiaoxin_settings_path_test.py`
-- `docs/superpowers/plans/2026-06-22-xiaoxin-boot-settings-page.md`
 - `docs/update.md`
 
 #### 验证结果
@@ -313,10 +306,6 @@
 - 补齐本地活动唤醒：
   - BOOT 单击、BOOT 长按、PWR 单击、PWR 长按都会唤醒/重置 `PowerSaveTimer`。
   - 触摸活动只在显示锁内记录唤醒请求，真正 `WakeUp()` 延迟到显示锁释放后执行，避免 `PowerSaveTimer::WakeUp()` 同步触发显示回调造成锁重入。
-- 更新实现计划文档：
-  - `docs/superpowers/plans/2026-06-22-xiaoxin-boot-settings-page.md` 增加 `Implementation Update`。
-  - 同步任务 checkbox 进度、实现提交、验证结果和环境限制。
-
 #### 涉及文件
 
 - `main/CMakeLists.txt`
@@ -325,7 +314,6 @@
 - `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_settings_model.c`
 - `tests/xiaoxin_settings_model_test.c`
 - `tests/xiaoxin_settings_path_test.py`
-- `docs/superpowers/plans/2026-06-22-xiaoxin-boot-settings-page.md`
 - `docs/update.md`
 
 #### 验证结果
@@ -366,7 +354,6 @@ P1 宠物情绪系统接入后，BOOT 按键需要从宠物情绪和宠物动画
 - `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
 - `tests/xiaoxin_pet_mood_integration_path_test.py`
 - `docs/xiaoxin-pet-emotion-gif-mapping.zh-CN.md`
-- `docs/superpowers/specs/2026-06-21-xiaoxin-pet-mood-system-design.zh-CN.md`
 - `docs/update.md`
 
 #### 验证结果
@@ -521,8 +508,6 @@ P1 宠物情绪系统接入后，BOOT 按键需要从宠物情绪和宠物动画
 - `tests/xiaoxin_card_pager_test.c`
 - `tests/xiaoxin_notification_visual_path_test.py`
 - `tests/xiaoxin_card_pager_threshold_test.py`
-- `docs/superpowers/specs/2026-06-19-xiaoxin-real-overview-data-design.zh-CN.md`
-- `docs/superpowers/plans/2026-06-19-xiaoxin-real-overview-data.md`
 - `docs/update.md`
 
 #### 验证结果
@@ -626,7 +611,6 @@ P1 宠物情绪系统接入后，BOOT 按键需要从宠物情绪和宠物动画
 - `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.h`
 - `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_card_pager.c`
 - `tests/xiaoxin_card_pager_test.c`
-- `docs/superpowers/plans/2026-06-19-xiaoxin-overview-card-density.md`
 - `docs/update.md`
 
 #### 验证结果

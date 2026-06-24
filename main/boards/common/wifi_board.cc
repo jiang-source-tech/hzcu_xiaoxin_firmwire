@@ -5,6 +5,7 @@
 #include "system_info.h"
 #include "settings.h"
 #include "assets/lang_config.h"
+#include "time_sync_status.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -39,6 +40,8 @@ static constexpr size_t k_ntp_server_count = sizeof(NTP_SERVERS) / sizeof(NTP_SE
 static constexpr char DEFAULT_TIMEZONE[] = "CST-8";
 
 static void OnSntpTimeSync(struct timeval* tv) {
+    MarkTimeSyncSucceeded();
+
     time_t now = tv != nullptr ? tv->tv_sec : time(nullptr);
     struct tm timeinfo = {};
     char time_text[24] = {};
@@ -68,6 +71,7 @@ static void StartTimeSynchronization() {
     for (size_t i = 0; i < k_ntp_server_count; ++i) {
         esp_sntp_setservername(i, NTP_SERVERS[i]);
     }
+    MarkTimeSyncStarted();
     esp_sntp_init();
     sntp_started = true;
 }
