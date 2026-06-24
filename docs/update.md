@@ -1,5 +1,74 @@
 ﻿# Update
 
+## 2026-06-24 00:00:00 +08:00
+
+### Waveshare ESP32-S3 Touch LCD 1.46 动态低功耗时钟、SNTP 与错误提示保持
+
+#### 背景
+
+上一轮低功耗时钟已经能在省电时显示时间，但实机观感仍偏小、偏静态，更像一行调试信息；同时省电调度器原来的 shutdown 阶段会进一步触发关机，不符合当前希望常驻低功耗时钟的产品行为。本轮把低功耗页面改成更醒目的动态表盘：大号居中时间、黑底、青蓝外圈圆弧，并保持 POWER 短按唤醒。
+
+另外，设备联网后的 SNTP 只有单个服务器，弱网或单点失败时校时可靠性不足；错误弹窗路径中，应用回到 idle 或音频通道关闭时可能把底部错误文案清空，导致用户看不到真实失败原因。本轮同步补齐这些稳定性问题。
+
+#### 修改内容
+
+- 低功耗时钟模型与构建接入：
+  - 新增/扩展 `xiaoxin_low_power_clock_model` 的动画相位 helper。
+  - 默认低功耗显示亮度从 `8%` 调整为 `12%`，提高黑色镜面和反光环境下可读性。
+  - 新增 `XIAOXIN_LOW_POWER_CLOCK_ARC_SPAN_DEGREES = 76`，用于外圈圆弧跨度。
+  - 将 `xiaoxin_low_power_clock_model.c` 加入 Waveshare 1.46 板级 `CMakeLists.txt` 源文件列表。
+- 低功耗时钟 LVGL 页面重做：
+  - 移除旧的“小图标在左、时间在右”布局和图标字体 fallback。
+  - 新增 `low_power_clock_arc_`，用 LVGL arc 绘制外圈青蓝动态圆弧。
+  - 时间改用 `font_puhui_basic_30_4` 并通过 transform 放大，居中略偏上显示。
+  - 底部提示保留小号 `POWER 唤醒`，避免抢占中心时间。
+  - 进入低功耗页时重置动画 tick，并立即刷新一次圆弧。
+  - 专用低功耗刷新 timer 从 `10s` 改为 `1s`，圆弧每秒推进；时间文本仍只在分钟变化时刷新。
+- 省电调度器行为调整：
+  - `PowerSaveTimer(-1, 60, 300)` 改为 `PowerSaveTimer(-1, 60, -1)`。
+  - 移除当前板级的 `OnShutdownRequest()` 关机回调，省电后停留在低功耗时钟页，不再自动关机。
+- SNTP 校时增强：
+  - 单服务器 `ntp.aliyun.com` 改为三服务器列表：`ntp.aliyun.com`、`cn.pool.ntp.org`、`pool.ntp.org`。
+  - `sdkconfig` 和 `sdkconfig.defaults` 增加 `CONFIG_LWIP_SNTP_MAX_SERVERS=3`。
+  - 增加 `OnSntpTimeSync()` 同步回调，校时成功后记录本地时间日志。
+- 错误提示保持：
+  - 新增 `Application::error_message_visible_` 状态位。
+  - `MAIN_EVENT_ERROR` 路径在回到 idle 前先标记错误文案可见，避免 idle 刷新立刻清空底部错误消息。
+  - 音频通道关闭时，如果错误文案正在显示，不再清空底部 system message。
+  - 新会话进入 connecting 时清除旧错误可见状态，避免历史错误污染下一轮连接。
+- 扩展 source-path 与模型测试：
+  - 覆盖低功耗时钟模型动画相位、亮度默认值和圆弧常量。
+  - 覆盖低功耗时钟 CMake 接入、大号居中时间、外圈 arc、1 秒刷新 cadence、移除旧图标布局。
+  - 覆盖省电调度器不再触发自动关机。
+  - 覆盖 SNTP 三服务器配置和同步回调。
+  - 新增错误提示保持路径测试，防止 idle / 音频关闭路径清空可见错误文案。
+
+#### 涉及文件
+
+- `main/CMakeLists.txt`
+- `main/application.cc`
+- `main/application.h`
+- `main/boards/common/wifi_board.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_low_power_clock_model.c`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_low_power_clock_model.h`
+- `sdkconfig`
+- `sdkconfig.defaults`
+- `tests/wifi_config_status_path_test.py`
+- `tests/xiaoxin_error_display_path_test.py`
+- `tests/xiaoxin_low_power_clock_model_test.c`
+- `tests/xiaoxin_low_power_clock_visual_path_test.py`
+- `tests/xiaoxin_settings_path_test.py`
+- `docs/superpowers/specs/2026-06-24-xiaoxin-dynamic-low-power-clock-design.zh-CN.md`
+- `docs/superpowers/plans/2026-06-24-xiaoxin-dynamic-low-power-clock.md`
+- `docs/update.md`
+
+#### 验证结果
+
+- `python -m pytest tests\xiaoxin_low_power_clock_visual_path_test.py tests\xiaoxin_settings_path_test.py tests\wifi_config_status_path_test.py tests\xiaoxin_error_display_path_test.py -q`：通过，54 passed。
+- `gcc tests\xiaoxin_low_power_clock_model_test.c main\boards\waveshare\esp32-s3-touch-lcd-1.46\xiaoxin_low_power_clock_model.c -I main\boards\waveshare\esp32-s3-touch-lcd-1.46 -o build\xiaoxin_low_power_clock_model_test.exe; .\build\xiaoxin_low_power_clock_model_test.exe`：通过，退出码 0。
+- 当前 shell 中未找到 `idf.py`，因此仍需在 ESP-IDF 环境中执行完整固件 build / flash，并在实机确认低功耗时钟大号时间、外圈动效、12% 亮度、POWER 唤醒、SNTP 日志和错误提示保持行为。
+
 ## 2026-06-23 00:00:00 +08:00
 
 ### Waveshare ESP32-S3 Touch LCD 1.46 省电设置反馈与主页电池省电色

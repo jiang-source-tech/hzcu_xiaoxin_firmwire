@@ -389,11 +389,13 @@ def test_power_save_setting_is_only_enabled_when_timer_is_initialized():
     caps_body = strip_cpp_comments(
         function_body(source, "xiaoxin_settings_caps_t PaopaoPetDisplay::SettingsCaps() const")
     )
+    timer_body = strip_cpp_comments(function_body(source, "void InitializePowerSaveTimer()"))
 
     assert "PowerSaveTimer* power_save_timer_" in source
     assert "InitializePowerSaveTimer()" in source
     assert ".has_power_save_scheduler = power_save_timer_ != nullptr" in caps_body
-    assert "new PowerSaveTimer(-1, 60, 300)" in source
+    assert "new PowerSaveTimer(-1, 60, -1)" in source
+    assert "OnShutdownRequest" not in timer_body
     assert "ShowLowPowerClockScreen()" in source
     assert "HideLowPowerClockScreen()" in source
     assert "SetPowerSaveMode(true)" not in source

@@ -1,38 +1,66 @@
 from pathlib import Path
 
 SOURCE = Path("main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc")
+CMAKE_SOURCE = Path("main/CMakeLists.txt")
 
 
 def read_source():
     return SOURCE.read_text(encoding="utf-8")
 
 
+def test_low_power_clock_model_is_compiled_into_main_component():
+    cmake = CMAKE_SOURCE.read_text(encoding="utf-8")
+
+    assert "xiaoxin_low_power_clock_model.c" in cmake
+
+
 def test_low_power_clock_objects_exist_and_are_hidden_by_default():
     source = read_source()
     assert "lv_obj_t* low_power_clock_layer_ = nullptr;" in source
-    assert "lv_obj_t* low_power_clock_icon_label_ = nullptr;" in source
+    assert "lv_obj_t* low_power_clock_arc_ = nullptr;" in source
     assert "lv_obj_t* low_power_clock_time_label_ = nullptr;" in source
     assert "lv_obj_t* low_power_clock_hint_label_ = nullptr;" in source
     assert "lv_obj_add_flag(low_power_clock_layer_, LV_OBJ_FLAG_HIDDEN);" in source
 
 
-def test_low_power_clock_uses_icon_left_time_right_layout():
+def test_low_power_clock_uses_large_center_time_and_arc_layout():
     source = read_source()
-    assert "lv_obj_align(low_power_clock_icon_label_, LV_ALIGN_TOP_MID" in source
-    assert "lv_obj_align_to(low_power_clock_time_label_, low_power_clock_icon_label_, LV_ALIGN_OUT_RIGHT_MID" in source
-    assert "lv_obj_set_style_text_font(low_power_clock_icon_label_, icon_font, 0);" in source
-    assert "lv_label_set_text(low_power_clock_hint_label_, low_power_clock_snapshot_.hint_text);" in source
-    assert "LV_ALIGN_BOTTOM_MID" in source
+    assert "LV_FONT_DECLARE(font_puhui_basic_30_4);" in source
+    assert "lv_obj_t* low_power_clock_arc_ = nullptr;" in source
+    assert "lv_arc_create(low_power_clock_layer_)" in source
+    assert "lv_obj_set_size(low_power_clock_arc_, DISPLAY_WIDTH - 14, DISPLAY_HEIGHT - 14);" in source
+    assert "lv_arc_set_bg_angles(low_power_clock_arc_, 0, 360);" in source
+    assert "lv_arc_set_angles(low_power_clock_arc_, 0, XIAOXIN_LOW_POWER_CLOCK_ARC_SPAN_DEGREES);" in source
+    assert "lv_obj_remove_style(low_power_clock_arc_, NULL, LV_PART_KNOB);" in source
+    assert "lv_obj_set_style_arc_color(low_power_clock_arc_, lv_color_hex(0x26D9FF), LV_PART_INDICATOR);" in source
+    assert "lv_obj_align(low_power_clock_time_label_, LV_ALIGN_CENTER, 0, -10);" in source
+    assert "const lv_font_t* clock_font = &font_puhui_basic_30_4;" in source
+    assert "lv_obj_set_style_text_font(low_power_clock_time_label_, clock_font, 0);" in source
+    assert "lv_obj_set_style_transform_scale(low_power_clock_time_label_, 384, 0);" in source
+    assert "lv_obj_set_style_transform_width(low_power_clock_time_label_, 56, 0);" in source
+    assert "lv_obj_set_style_transform_height(low_power_clock_time_label_, 20, 0);" in source
+    assert "lv_obj_set_style_transform_pivot_x(low_power_clock_time_label_, lv_obj_get_width(low_power_clock_time_label_) / 2, 0);" in source
+    assert "lv_obj_set_style_transform_pivot_y(low_power_clock_time_label_, lv_obj_get_height(low_power_clock_time_label_) / 2, 0);" in source
+    assert "lv_obj_align(low_power_clock_hint_label_, LV_ALIGN_BOTTOM_MID, 0, -18);" in source
 
 
-def test_low_power_clock_uses_fallback_icon_when_bell_glyph_is_missing():
+def test_low_power_clock_hint_keeps_smaller_theme_font():
     source = read_source()
-    assert "LowPowerClockFontHasBell" in source
-    assert "font->get_glyph_dsc(font, &glyph_dsc, 0xf0f3, 0)" in source
-    assert 'LowPowerClockFontHasBell(font) ? XIAOXIN_LOW_POWER_CLOCK_ICON_TEXT : "*"' in source
-    assert "low_power_clock_icon_text_ = LowPowerClockIconTextForFont(icon_font);" in source
-    assert "lv_label_set_text(low_power_clock_icon_label_, low_power_clock_icon_text_);" in source
-    assert "if (use_icon_font)" in source
+    init_section = source[
+        source.index("void InitializeLowPowerClockLayerLocked()"):
+        source.index("void InitializeCardPagerLayer()", source.index("void InitializeLowPowerClockLayerLocked()"))
+    ]
+
+    assert "const lv_font_t* hint_font = lvgl_theme != nullptr && lvgl_theme->text_font() != nullptr" in init_section
+    assert "lv_obj_set_style_text_font(low_power_clock_hint_label_, hint_font, 0);" in init_section
+    assert "lv_obj_set_style_text_font(low_power_clock_hint_label_, clock_font, 0);" not in init_section
+
+
+def test_low_power_clock_no_longer_uses_small_icon_left_layout():
+    source = read_source()
+    assert "lv_obj_t* low_power_clock_icon_label_ = nullptr;" not in source
+    assert "lv_obj_align_to(low_power_clock_time_label_, low_power_clock_icon_label_, LV_ALIGN_OUT_RIGHT_MID" not in source
+    assert "lv_label_set_text(low_power_clock_icon_label_" not in source
 
 
 def test_low_power_clock_enters_with_dim_backlight_and_exits_with_restore():
@@ -77,7 +105,7 @@ def test_low_power_clock_refresh_uses_dedicated_timer_with_display_lock():
     assert ".name = \"low_power_clock\"" in source
     assert "void StartLowPowerClockRefreshTimer()" in source
     assert "void StopLowPowerClockRefreshTimer()" in source
-    assert "esp_timer_start_periodic(low_power_clock_timer_, 10 * 1000 * 1000)" in source
+    assert "esp_timer_start_periodic(low_power_clock_timer_, 1000 * 1000)" in source
     assert "esp_timer_stop(low_power_clock_timer_)" in source
 
     timer_refresh_section = source[
@@ -86,7 +114,14 @@ def test_low_power_clock_refresh_uses_dedicated_timer_with_display_lock():
     ]
     assert "DisplayLockGuard lock(this);" in timer_refresh_section
     assert "if (!low_power_clock_visible_)" in timer_refresh_section
+    assert "RefreshLowPowerClockAnimationLocked();" in timer_refresh_section
     assert "RefreshLowPowerClockScreenLocked(false);" in timer_refresh_section
+
+    animation_section = source[
+        source.index("void RefreshLowPowerClockAnimationLocked()"):
+        source.index("void RefreshLowPowerClockScreenFromTimer()")
+    ]
+    assert "lv_arc_set_rotation(low_power_clock_arc_, start);" in animation_section
 
     init_section = source[
         source.index("void InitializeLowPowerClockRefreshTimer()"):

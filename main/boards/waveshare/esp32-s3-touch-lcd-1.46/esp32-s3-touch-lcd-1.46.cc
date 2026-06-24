@@ -61,6 +61,8 @@ extern "C" {
 
 #define TAG "waveshare_lcd_1_46"
 
+LV_FONT_DECLARE(font_puhui_basic_30_4);
+
 extern const uint8_t assets_images_idle_gif_start[] asm("_binary_idle_gif_start");
 extern const uint8_t assets_images_idle_gif_end[] asm("_binary_idle_gif_end");
 extern const uint8_t assets_images_working_gif_start[] asm("_binary_working_gif_start");
@@ -837,7 +839,9 @@ public:
         DisplayLockGuard lock(this);
         low_power_clock_visible_ = true;
         low_power_clock_last_minute_ = 0xff;
+        low_power_clock_animation_tick_ = 0;
         RefreshLowPowerClockScreenLocked(true);
+        RefreshLowPowerClockAnimationLocked();
         if (low_power_clock_layer_ != nullptr) {
             lv_obj_remove_flag(low_power_clock_layer_, LV_OBJ_FLAG_HIDDEN);
             lv_obj_move_foreground(low_power_clock_layer_);
@@ -907,14 +911,14 @@ private:
     lv_obj_t* settings_brightness_back_button_ = nullptr;
     lv_obj_t* settings_brightness_back_button_label_ = nullptr;
     lv_obj_t* low_power_clock_layer_ = nullptr;
-    lv_obj_t* low_power_clock_icon_label_ = nullptr;
+    lv_obj_t* low_power_clock_arc_ = nullptr;
     lv_obj_t* low_power_clock_time_label_ = nullptr;
     lv_obj_t* low_power_clock_hint_label_ = nullptr;
     SettingsRow settings_rows_[k_settings_item_max_count];
     xiaoxin_settings_item_t settings_items_[k_settings_item_max_count] = {};
     xiaoxin_low_power_clock_snapshot_t low_power_clock_snapshot_ = {};
-    const char* low_power_clock_icon_text_ = XIAOXIN_LOW_POWER_CLOCK_ICON_TEXT;
     uint8_t low_power_clock_last_minute_ = 0xff;
+    uint32_t low_power_clock_animation_tick_ = 0;
     uint8_t settings_item_count_ = 0;
     SettingsView settings_view_ = SettingsView::List;
     bool low_power_clock_visible_ = false;
@@ -997,19 +1001,6 @@ private:
         return status != nullptr && expected != nullptr && std::strcmp(status, expected) == 0;
     }
 
-    static bool LowPowerClockFontHasBell(const lv_font_t* font) {
-        if (font == nullptr || font->get_glyph_dsc == nullptr) {
-            return false;
-        }
-
-        lv_font_glyph_dsc_t glyph_dsc = {};
-        return font->get_glyph_dsc(font, &glyph_dsc, 0xf0f3, 0);
-    }
-
-    static const char* LowPowerClockIconTextForFont(const lv_font_t* font) {
-        return LowPowerClockFontHasBell(font) ? XIAOXIN_LOW_POWER_CLOCK_ICON_TEXT : "*";
-    }
-
     static xiaoxin_low_power_clock_state_t BuildLowPowerClockState() {
         xiaoxin_low_power_clock_state_t state = {};
         time_t now = 0;
@@ -1041,9 +1032,21 @@ private:
         low_power_clock_last_minute_ = current_minute;
         xiaoxin_low_power_clock_model_build(&state, &low_power_clock_snapshot_);
 
-        lv_label_set_text(low_power_clock_icon_label_, low_power_clock_icon_text_);
         lv_label_set_text(low_power_clock_time_label_, low_power_clock_snapshot_.time_text);
+        lv_obj_update_layout(low_power_clock_time_label_);
+        lv_obj_set_style_transform_pivot_x(low_power_clock_time_label_, lv_obj_get_width(low_power_clock_time_label_) / 2, 0);
+        lv_obj_set_style_transform_pivot_y(low_power_clock_time_label_, lv_obj_get_height(low_power_clock_time_label_) / 2, 0);
+        lv_obj_align(low_power_clock_time_label_, LV_ALIGN_CENTER, 0, -10);
         lv_label_set_text(low_power_clock_hint_label_, low_power_clock_snapshot_.hint_text);
+    }
+
+    void RefreshLowPowerClockAnimationLocked() {
+        if (low_power_clock_arc_ == nullptr) {
+            return;
+        }
+
+        const uint16_t start = xiaoxin_low_power_clock_animation_phase(low_power_clock_animation_tick_++);
+        lv_arc_set_rotation(low_power_clock_arc_, start);
     }
 
     void RefreshLowPowerClockScreenFromTimer() {
@@ -1052,6 +1055,7 @@ private:
             return;
         }
 
+        RefreshLowPowerClockAnimationLocked();
         RefreshLowPowerClockScreenLocked(false);
     }
 
@@ -1074,7 +1078,7 @@ private:
 
     void StartLowPowerClockRefreshTimer() {
         if (low_power_clock_timer_ != nullptr && !esp_timer_is_active(low_power_clock_timer_)) {
-            ESP_ERROR_CHECK(esp_timer_start_periodic(low_power_clock_timer_, 10 * 1000 * 1000));
+            ESP_ERROR_CHECK(esp_timer_start_periodic(low_power_clock_timer_, 1000 * 1000));
         }
     }
 
@@ -2048,9 +2052,10 @@ private:
     void InitializeLowPowerClockLayerLocked() {
         lv_obj_t* screen = lv_screen_active();
         auto lvgl_theme = static_cast<LvglTheme*>(current_theme_);
-        const lv_font_t* icon_font = lvgl_theme != nullptr ? lvgl_theme->icon_font()->font() : nullptr;
-        const bool use_icon_font = LowPowerClockFontHasBell(icon_font);
-        low_power_clock_icon_text_ = LowPowerClockIconTextForFont(icon_font);
+        const lv_font_t* clock_font = &font_puhui_basic_30_4;
+        const lv_font_t* hint_font = lvgl_theme != nullptr && lvgl_theme->text_font() != nullptr
+            ? lvgl_theme->text_font()->font()
+            : nullptr;
 
         low_power_clock_layer_ = lv_obj_create(screen);
         lv_obj_remove_style_all(low_power_clock_layer_);
@@ -2060,22 +2065,38 @@ private:
         lv_obj_clear_flag(low_power_clock_layer_, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(low_power_clock_layer_, LV_OBJ_FLAG_HIDDEN);
 
-        low_power_clock_icon_label_ = lv_label_create(low_power_clock_layer_);
-        lv_obj_set_style_text_color(low_power_clock_icon_label_, lv_color_hex(0xF6FAFF), 0);
-        lv_obj_set_style_text_opa(low_power_clock_icon_label_, LV_OPA_COVER, 0);
-        if (use_icon_font) {
-            lv_obj_set_style_text_font(low_power_clock_icon_label_, icon_font, 0);
-        }
-        lv_obj_align(low_power_clock_icon_label_, LV_ALIGN_TOP_MID, -42, 54);
+        low_power_clock_arc_ = lv_arc_create(low_power_clock_layer_);
+        lv_obj_set_size(low_power_clock_arc_, DISPLAY_WIDTH - 14, DISPLAY_HEIGHT - 14);
+        lv_obj_center(low_power_clock_arc_);
+        lv_arc_set_bg_angles(low_power_clock_arc_, 0, 360);
+        lv_arc_set_angles(low_power_clock_arc_, 0, XIAOXIN_LOW_POWER_CLOCK_ARC_SPAN_DEGREES);
+        lv_obj_remove_style(low_power_clock_arc_, NULL, LV_PART_KNOB);
+        lv_obj_clear_flag(low_power_clock_arc_, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_arc_width(low_power_clock_arc_, 5, LV_PART_MAIN);
+        lv_obj_set_style_arc_width(low_power_clock_arc_, 6, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_color(low_power_clock_arc_, lv_color_hex(0x112B36), LV_PART_MAIN);
+        lv_obj_set_style_arc_color(low_power_clock_arc_, lv_color_hex(0x26D9FF), LV_PART_INDICATOR);
+        lv_obj_set_style_arc_opa(low_power_clock_arc_, LV_OPA_50, LV_PART_MAIN);
+        lv_obj_set_style_arc_opa(low_power_clock_arc_, LV_OPA_COVER, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_rounded(low_power_clock_arc_, true, LV_PART_INDICATOR);
 
         low_power_clock_time_label_ = lv_label_create(low_power_clock_layer_);
         lv_obj_set_style_text_color(low_power_clock_time_label_, lv_color_hex(0xF6FAFF), 0);
         lv_obj_set_style_text_opa(low_power_clock_time_label_, LV_OPA_COVER, 0);
-        lv_obj_align_to(low_power_clock_time_label_, low_power_clock_icon_label_, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
+        lv_obj_set_style_text_font(low_power_clock_time_label_, clock_font, 0);
+        lv_obj_set_style_text_letter_space(low_power_clock_time_label_, 0, 0);
+        lv_obj_set_style_transform_scale(low_power_clock_time_label_, 384, 0);
+        lv_obj_set_style_transform_width(low_power_clock_time_label_, 56, 0);
+        lv_obj_set_style_transform_height(low_power_clock_time_label_, 20, 0);
+        lv_obj_align(low_power_clock_time_label_, LV_ALIGN_CENTER, 0, -10);
 
         low_power_clock_hint_label_ = lv_label_create(low_power_clock_layer_);
-        lv_obj_set_style_text_color(low_power_clock_hint_label_, lv_color_hex(0x9AA4B2), 0);
-        lv_obj_set_style_text_opa(low_power_clock_hint_label_, LV_OPA_COVER, 0);
+        lv_obj_set_style_text_color(low_power_clock_hint_label_, lv_color_hex(0x75AFC0), 0);
+        lv_obj_set_style_text_opa(low_power_clock_hint_label_, LV_OPA_70, 0);
+        if (hint_font != nullptr) {
+            lv_obj_set_style_text_font(low_power_clock_hint_label_, hint_font, 0);
+        }
+        lv_label_set_text(low_power_clock_hint_label_, "POWER \xE5\x94\xA4\xE9\x86\x92");
         lv_obj_align(low_power_clock_hint_label_, LV_ALIGN_BOTTOM_MID, 0, -18);
     }
 
@@ -4338,7 +4359,7 @@ private:
     }
 
     void InitializePowerSaveTimer() {
-        power_save_timer_ = new PowerSaveTimer(-1, 60, 300);
+        power_save_timer_ = new PowerSaveTimer(-1, 60, -1);
         power_save_timer_->OnEnterSleepMode([this]() {
             auto* display = static_cast<PaopaoPetDisplay*>(display_);
             if (display != nullptr) {
@@ -4350,9 +4371,6 @@ private:
             if (display != nullptr) {
                 display->HideLowPowerClockScreen();
             }
-        });
-        power_save_timer_->OnShutdownRequest([this]() {
-            RequestPowerOff();
         });
         power_save_timer_->SetEnabled(true);
     }

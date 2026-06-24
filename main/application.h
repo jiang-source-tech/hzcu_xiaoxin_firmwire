@@ -133,6 +133,7 @@ private:
     ListeningMode listening_mode_ = kListeningModeAutoStop;
     AecMode aec_mode_ = kAecOff;
     std::string last_error_message_;
+    bool error_message_visible_ = false;
     AudioService audio_service_;
     std::unique_ptr<Ota> ota_;
 
