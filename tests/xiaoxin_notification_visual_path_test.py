@@ -230,3 +230,70 @@ def test_battery_overlay_uses_stable_display_level():
     assert "const int level = std::max(0, std::min(4, (int)battery_snapshot_.display_level));" in body
     assert "const int inner_w = k_system_battery_w - 4;" in body
     assert "battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_UNKNOWN && battery_snapshot_.display_level == 0 ? 3 : std::max(3, (inner_w * level) / 4);" in body
+
+
+def test_notification_heads_up_uses_frosted_glass_banner_visuals():
+    source = read_source()
+    init_body = function_body(source, "void InitializeNotificationHeadsUpLayerLocked()")
+    raise_body = function_body(source, "void RaiseOverlayObjects()")
+    foreground_body = function_body(source, "void RaiseNotificationHeadsUpLayerLocked()")
+    show_body = function_body(source, "void ShowNotificationHeadsUpLocked()")
+    hide_body = function_body(source, "void HideNotificationHeadsUpLocked()")
+
+    assert '#include "xiaoxin_notification_heads_up.h"' in source
+    assert "xiaoxin_notification_heads_up_t notification_heads_up_model_ = {};" in source
+
+    assert "static constexpr int16_t k_notification_heads_up_hidden_y = -70;" in source
+    assert "static constexpr int16_t k_notification_heads_up_visible_y = 18;" in source
+    assert "lv_obj_t* notification_heads_up_layer_ = nullptr;" in source
+    assert "lv_obj_t* notification_heads_up_title_label_ = nullptr;" in source
+    assert "lv_obj_t* notification_heads_up_body_label_ = nullptr;" in source
+    assert "lv_obj_t* notification_heads_up_tag_label_ = nullptr;" in source
+
+    assert "lv_obj_t* notification_heads_up_rim_top_left_ = nullptr;" in source
+    assert "lv_obj_t* notification_heads_up_rim_bottom_right_ = nullptr;" in source
+    assert "lv_obj_t* notification_heads_up_texture_overlay_ = nullptr;" in source
+    assert "lv_obj_t* notification_heads_up_tag_capsule_ = nullptr;" in source
+    assert '#include "xiaoxin_notification_heads_up_glass_texture.c"' in source
+
+    assert "lv_obj_set_size(notification_heads_up_layer_, 250, 58);" in init_body
+    assert "lv_obj_set_style_radius(notification_heads_up_layer_, 22, 0);" in init_body
+    assert "lv_obj_set_style_bg_color(notification_heads_up_layer_, lv_color_hex(0xF4F6F9), 0);" in init_body
+    assert "lv_obj_set_style_bg_opa(notification_heads_up_layer_, static_cast<lv_opa_t>(180), 0);" in init_body
+    assert "lv_obj_set_style_bg_grad_color(notification_heads_up_layer_, lv_color_hex(0xEDF0F5), 0);" in init_body
+    assert "lv_obj_set_style_bg_grad_dir(notification_heads_up_layer_, LV_GRAD_DIR_VER, 0);" in init_body
+    assert "lv_obj_align(notification_heads_up_layer_, LV_ALIGN_TOP_MID, 0, k_notification_heads_up_hidden_y);" in init_body
+
+    assert "lv_obj_set_style_border_color(notification_heads_up_rim_top_left_, lv_color_hex(0xFFFFFF), 0);" in init_body
+    assert "lv_obj_set_style_border_opa(notification_heads_up_rim_top_left_, static_cast<lv_opa_t>(153), 0);" in init_body
+    assert "lv_obj_set_style_border_side(notification_heads_up_rim_top_left_, LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT, 0);" in init_body
+    assert "lv_obj_set_style_border_color(notification_heads_up_rim_bottom_right_, lv_color_hex(0xCDD3DC), 0);" in init_body
+    assert "lv_obj_set_style_border_opa(notification_heads_up_rim_bottom_right_, static_cast<lv_opa_t>(64), 0);" in init_body
+    assert "lv_obj_set_style_border_side(notification_heads_up_rim_bottom_right_, LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT, 0);" in init_body
+
+    assert "lv_obj_set_style_shadow_color(notification_heads_up_layer_, lv_color_hex(0x000000), 0);" in init_body
+    assert "lv_obj_set_style_shadow_opa(notification_heads_up_layer_, LV_OPA_10, 0);" in init_body
+    assert "lv_obj_set_style_shadow_width(notification_heads_up_layer_, 20, 0);" in init_body
+    assert "lv_obj_set_style_shadow_ofs_y(notification_heads_up_layer_, 3, 0);" in init_body
+
+    assert "lv_image_create(notification_heads_up_layer_);" in init_body
+    assert "xiaoxin_heads_up_glass_texture" in init_body
+    assert "lv_obj_set_style_opa(notification_heads_up_texture_overlay_, static_cast<lv_opa_t>(30), 0);" in init_body
+
+    assert "lv_obj_set_style_bg_color(notification_heads_up_tag_capsule_, lv_color_hex(0x3182CE), 0);" in init_body
+    assert "lv_obj_set_style_bg_opa(notification_heads_up_tag_capsule_, static_cast<lv_opa_t>(38), 0);" in init_body
+    assert "lv_obj_set_style_radius(notification_heads_up_tag_capsule_, 6, 0);" in init_body
+
+    assert "lv_obj_set_style_text_color(notification_heads_up_title_label_, lv_color_hex(0x111827), 0);" in init_body
+    assert "lv_obj_set_style_text_color(notification_heads_up_body_label_, lv_color_hex(0x4A5568), 0);" in init_body
+    assert "lv_obj_set_style_text_color(notification_heads_up_tag_label_, lv_color_hex(0x3182CE), 0);" in init_body
+
+    assert "RaiseNotificationHeadsUpLayerLocked();" in raise_body
+    assert "lv_obj_move_foreground(notification_heads_up_layer_);" in foreground_body
+
+    assert "lv_anim_set_values(&anim, k_notification_heads_up_hidden_y, k_notification_heads_up_visible_y);" in show_body
+    assert "lv_anim_set_values(&anim, k_notification_heads_up_visible_y, k_notification_heads_up_hidden_y);" in hide_body
+    assert "lv_anim_set_exec_cb(&fade, NotificationHeadsUpSetOpa);" in show_body
+    assert "lv_anim_set_exec_cb(&fade, NotificationHeadsUpSetOpa);" in hide_body
+    assert "lv_anim_set_values(&fade, LV_OPA_TRANSP, LV_OPA_COVER);" in show_body
+    assert "lv_anim_set_values(&fade, LV_OPA_COVER, LV_OPA_TRANSP);" in hide_body

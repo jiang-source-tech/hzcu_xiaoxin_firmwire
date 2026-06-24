@@ -54,11 +54,15 @@ extern "C" {
 #include "xiaoxin_battery_state.h"
 #include "xiaoxin_card_pager.h"
 #include "xiaoxin_overview_model.h"
+#include "xiaoxin_notification_heads_up.h"
 #include "xiaoxin_power_control.h"
 #include "xiaoxin_low_power_clock_model.h"
 #include "xiaoxin_settings_model.h"
 #include "xiaoxin_system_overlay.h"
 }
+
+#define XIAOXIN_NOTIFICATION_HEADS_UP_GLASS_TEXTURE_IMPLEMENTATION
+#include "xiaoxin_notification_heads_up_glass_texture.c"
 
 #define TAG "waveshare_lcd_1_46"
 
@@ -249,6 +253,8 @@ static constexpr int16_t k_notification_dismiss_intent_px = 18;
 static constexpr int16_t k_notification_dismiss_threshold_px = 72;
 static constexpr uint32_t k_notification_dismiss_fly_ms = 160;
 static constexpr uint32_t k_notification_dismiss_rebound_ms = 120;
+static constexpr int16_t k_notification_heads_up_hidden_y = -70;
+static constexpr int16_t k_notification_heads_up_visible_y = 18;
 static constexpr int16_t k_glass_y_start = 96;
 static constexpr int16_t k_glass_stack_pitch = 15;
 static constexpr int16_t k_notification_slide_pitch = 116;
@@ -647,6 +653,8 @@ public:
         xiaoxin_battery_state_init(&battery_context_, now_ms);
         battery_snapshot_ = xiaoxin_battery_state_snapshot(&battery_context_);
         xiaoxin_card_pager_init(&card_pager_, DISPLAY_HEIGHT);
+        xiaoxin_notification_heads_up_init(&notification_heads_up_model_);
+        InitializeNotificationHeadsUpLayerLocked();
         current_state_ = trigger_.displayed_state;
         PlayGifState(current_state_);
 
@@ -896,6 +904,14 @@ private:
     lv_obj_t* notification_clear_label_ = nullptr;
     lv_obj_t* notification_empty_panel_ = nullptr;
     lv_obj_t* notification_empty_label_ = nullptr;
+    lv_obj_t* notification_heads_up_layer_ = nullptr;
+    lv_obj_t* notification_heads_up_rim_top_left_ = nullptr;
+    lv_obj_t* notification_heads_up_rim_bottom_right_ = nullptr;
+    lv_obj_t* notification_heads_up_texture_overlay_ = nullptr;
+    lv_obj_t* notification_heads_up_tag_capsule_ = nullptr;
+    lv_obj_t* notification_heads_up_tag_label_ = nullptr;
+    lv_obj_t* notification_heads_up_title_label_ = nullptr;
+    lv_obj_t* notification_heads_up_body_label_ = nullptr;
     lv_obj_t* notification_indicator_dots_[k_notification_indicator_dot_count] = {};
     lv_obj_t* settings_layer_ = nullptr;
     lv_obj_t* settings_panel_ = nullptr;
@@ -948,6 +964,7 @@ private:
     std::unique_ptr<LvglGif> pet_gif_controller_ = nullptr;
     TouchReader* touch_ = nullptr;
     xiaoxin_card_pager_t card_pager_ = {};
+    xiaoxin_notification_heads_up_t notification_heads_up_model_ = {};
     xiaoxin_overview_snapshot_t overview_snapshot_ = {};
     paopao_pet_trigger_context_t trigger_;
     paopao_pet_mood_context_t mood_ = {};
@@ -2006,6 +2023,12 @@ private:
         }
     }
 
+    void RaiseNotificationHeadsUpLayerLocked() {
+        if (notification_heads_up_layer_ != nullptr) {
+            lv_obj_move_foreground(notification_heads_up_layer_);
+        }
+    }
+
     bool IsCardLayerVisible() const {
         return card_layer_ != nullptr && !lv_obj_has_flag(card_layer_, LV_OBJ_FLAG_HIDDEN);
     }
@@ -2057,6 +2080,7 @@ private:
             if (low_power_clock_visible_ && low_power_clock_layer_ != nullptr) {
                 lv_obj_move_foreground(low_power_clock_layer_);
             }
+            RaiseNotificationHeadsUpLayerLocked();
             return;
         }
 
@@ -2078,6 +2102,7 @@ private:
         if (low_power_clock_visible_ && low_power_clock_layer_ != nullptr) {
             lv_obj_move_foreground(low_power_clock_layer_);
         }
+        RaiseNotificationHeadsUpLayerLocked();
     }
 
     void InitializeLowPowerClockLayerLocked() {
@@ -2174,6 +2199,106 @@ private:
         }
         lv_label_set_text(low_power_clock_hint_label_, "POWER \xE5\x94\xA4\xE9\x86\x92");
         lv_obj_align(low_power_clock_hint_label_, LV_ALIGN_BOTTOM_MID, 0, -18);
+    }
+
+    void InitializeNotificationHeadsUpLayerLocked() {
+        lv_obj_t* screen = lv_screen_active();
+        auto lvgl_theme = static_cast<LvglTheme*>(current_theme_);
+        const lv_font_t* text_font = lvgl_theme != nullptr && lvgl_theme->text_font() != nullptr
+            ? lvgl_theme->text_font()->font()
+            : nullptr;
+
+        notification_heads_up_layer_ = lv_obj_create(screen);
+        lv_obj_remove_style_all(notification_heads_up_layer_);
+        lv_obj_set_size(notification_heads_up_layer_, 250, 58);
+        lv_obj_set_style_radius(notification_heads_up_layer_, 22, 0);
+        lv_obj_set_style_bg_color(notification_heads_up_layer_, lv_color_hex(0xF4F6F9), 0);
+        lv_obj_set_style_bg_opa(notification_heads_up_layer_, static_cast<lv_opa_t>(180), 0);
+        lv_obj_set_style_bg_grad_color(notification_heads_up_layer_, lv_color_hex(0xEDF0F5), 0);
+        lv_obj_set_style_bg_grad_dir(notification_heads_up_layer_, LV_GRAD_DIR_VER, 0);
+        lv_obj_set_style_bg_main_stop(notification_heads_up_layer_, 0, 0);
+        lv_obj_set_style_bg_grad_stop(notification_heads_up_layer_, 128, 0);
+        lv_obj_set_style_border_width(notification_heads_up_layer_, 0, 0);
+        lv_obj_clear_flag(notification_heads_up_layer_, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_align(notification_heads_up_layer_, LV_ALIGN_TOP_MID, 0, k_notification_heads_up_hidden_y);
+        lv_obj_set_style_opa(notification_heads_up_layer_, LV_OPA_TRANSP, 0);
+        lv_obj_add_flag(notification_heads_up_layer_, LV_OBJ_FLAG_HIDDEN);
+
+        notification_heads_up_rim_top_left_ = lv_obj_create(notification_heads_up_layer_);
+        lv_obj_remove_style_all(notification_heads_up_rim_top_left_);
+        lv_obj_set_size(notification_heads_up_rim_top_left_, 250, 58);
+        lv_obj_set_style_radius(notification_heads_up_rim_top_left_, 22, 0);
+        lv_obj_set_style_bg_opa(notification_heads_up_rim_top_left_, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_color(notification_heads_up_rim_top_left_, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_border_opa(notification_heads_up_rim_top_left_, static_cast<lv_opa_t>(153), 0);
+        lv_obj_set_style_border_width(notification_heads_up_rim_top_left_, 1, 0);
+        lv_obj_set_style_border_side(notification_heads_up_rim_top_left_, LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT, 0);
+        lv_obj_clear_flag(notification_heads_up_rim_top_left_, LV_OBJ_FLAG_SCROLLABLE);
+
+        notification_heads_up_rim_bottom_right_ = lv_obj_create(notification_heads_up_layer_);
+        lv_obj_remove_style_all(notification_heads_up_rim_bottom_right_);
+        lv_obj_set_size(notification_heads_up_rim_bottom_right_, 250, 58);
+        lv_obj_set_style_radius(notification_heads_up_rim_bottom_right_, 22, 0);
+        lv_obj_set_style_bg_opa(notification_heads_up_rim_bottom_right_, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_color(notification_heads_up_rim_bottom_right_, lv_color_hex(0xCDD3DC), 0);
+        lv_obj_set_style_border_opa(notification_heads_up_rim_bottom_right_, static_cast<lv_opa_t>(64), 0);
+        lv_obj_set_style_border_width(notification_heads_up_rim_bottom_right_, 1, 0);
+        lv_obj_set_style_border_side(notification_heads_up_rim_bottom_right_, LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT, 0);
+        lv_obj_clear_flag(notification_heads_up_rim_bottom_right_, LV_OBJ_FLAG_SCROLLABLE);
+
+        notification_heads_up_texture_overlay_ = lv_image_create(notification_heads_up_layer_);
+        lv_image_set_src(notification_heads_up_texture_overlay_, &xiaoxin_heads_up_glass_texture);
+        lv_obj_set_size(notification_heads_up_texture_overlay_, 250, 58);
+        lv_obj_set_style_opa(notification_heads_up_texture_overlay_, static_cast<lv_opa_t>(30), 0);
+        lv_obj_align(notification_heads_up_texture_overlay_, LV_ALIGN_CENTER, 0, 0);
+
+        lv_obj_set_style_shadow_color(notification_heads_up_layer_, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_shadow_opa(notification_heads_up_layer_, LV_OPA_10, 0);
+        lv_obj_set_style_shadow_width(notification_heads_up_layer_, 20, 0);
+        lv_obj_set_style_shadow_ofs_y(notification_heads_up_layer_, 3, 0);
+        lv_obj_set_style_shadow_ofs_x(notification_heads_up_layer_, 0, 0);
+
+        notification_heads_up_tag_capsule_ = lv_obj_create(notification_heads_up_layer_);
+        lv_obj_remove_style_all(notification_heads_up_tag_capsule_);
+        lv_obj_set_size(notification_heads_up_tag_capsule_, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+        lv_obj_set_style_bg_color(notification_heads_up_tag_capsule_, lv_color_hex(0x3182CE), 0);
+        lv_obj_set_style_bg_opa(notification_heads_up_tag_capsule_, static_cast<lv_opa_t>(38), 0);
+        lv_obj_set_style_radius(notification_heads_up_tag_capsule_, 6, 0);
+        lv_obj_set_style_pad_hor(notification_heads_up_tag_capsule_, 6, 0);
+        lv_obj_set_style_pad_ver(notification_heads_up_tag_capsule_, 2, 0);
+        lv_obj_set_style_border_width(notification_heads_up_tag_capsule_, 0, 0);
+        lv_obj_clear_flag(notification_heads_up_tag_capsule_, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_align(notification_heads_up_tag_capsule_, LV_ALIGN_LEFT_MID, 8, 0);
+
+        notification_heads_up_tag_label_ = lv_label_create(notification_heads_up_tag_capsule_);
+        lv_obj_set_style_text_color(notification_heads_up_tag_label_, lv_color_hex(0x3182CE), 0);
+        lv_obj_set_style_text_align(notification_heads_up_tag_label_, LV_TEXT_ALIGN_CENTER, 0);
+        if (text_font != nullptr) {
+            lv_obj_set_style_text_font(notification_heads_up_tag_label_, text_font, 0);
+        }
+        lv_label_set_text(notification_heads_up_tag_label_, "");
+
+        notification_heads_up_title_label_ = lv_label_create(notification_heads_up_layer_);
+        lv_obj_set_width(notification_heads_up_title_label_, 180);
+        lv_obj_set_style_text_color(notification_heads_up_title_label_, lv_color_hex(0x111827), 0);
+        lv_obj_set_style_text_opa(notification_heads_up_title_label_, LV_OPA_COVER, 0);
+        lv_obj_set_style_text_align(notification_heads_up_title_label_, LV_TEXT_ALIGN_LEFT, 0);
+        if (text_font != nullptr) {
+            lv_obj_set_style_text_font(notification_heads_up_title_label_, text_font, 0);
+        }
+        lv_label_set_text(notification_heads_up_title_label_, "");
+        lv_obj_align(notification_heads_up_title_label_, LV_ALIGN_TOP_LEFT, 48, 9);
+
+        notification_heads_up_body_label_ = lv_label_create(notification_heads_up_layer_);
+        lv_obj_set_width(notification_heads_up_body_label_, 180);
+        lv_obj_set_style_text_color(notification_heads_up_body_label_, lv_color_hex(0x4A5568), 0);
+        lv_obj_set_style_text_opa(notification_heads_up_body_label_, LV_OPA_COVER, 0);
+        lv_obj_set_style_text_align(notification_heads_up_body_label_, LV_TEXT_ALIGN_LEFT, 0);
+        if (text_font != nullptr) {
+            lv_obj_set_style_text_font(notification_heads_up_body_label_, text_font, 0);
+        }
+        lv_label_set_text(notification_heads_up_body_label_, "");
+        lv_obj_align(notification_heads_up_body_label_, LV_ALIGN_TOP_LEFT, 48, 31);
     }
 
     void InitializeCardPagerLayer() {
@@ -2862,6 +2987,90 @@ private:
 
     static void NotificationDismissSetOpacity(void* obj, int32_t opa) {
         lv_obj_set_style_opa(static_cast<lv_obj_t*>(obj), (lv_opa_t)opa, 0);
+    }
+
+    static void NotificationHeadsUpSetY(void* obj, int32_t y) {
+        lv_obj_align(static_cast<lv_obj_t*>(obj), LV_ALIGN_TOP_MID, 0, (int16_t)y);
+    }
+
+    static void NotificationHeadsUpSetOpa(void* obj, int32_t opa) {
+        lv_obj_set_style_opa(static_cast<lv_obj_t*>(obj), (lv_opa_t)opa, 0);
+    }
+
+    void ShowNotificationHeadsUpLocked() {
+        if (notification_heads_up_layer_ == nullptr) {
+            return;
+        }
+        lv_anim_delete(notification_heads_up_layer_, NotificationHeadsUpSetY);
+        lv_anim_delete(notification_heads_up_layer_, NotificationHeadsUpSetOpa);
+        lv_obj_clear_flag(notification_heads_up_layer_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(notification_heads_up_layer_);
+
+        lv_anim_t anim;
+        lv_anim_init(&anim);
+        lv_anim_set_var(&anim, notification_heads_up_layer_);
+        lv_anim_set_exec_cb(&anim, NotificationHeadsUpSetY);
+        lv_anim_set_values(&anim, k_notification_heads_up_hidden_y, k_notification_heads_up_visible_y);
+        lv_anim_set_time(&anim, 180);
+        lv_anim_set_path_cb(&anim, lv_anim_path_ease_out);
+        lv_anim_start(&anim);
+
+        lv_anim_t fade;
+        lv_anim_init(&fade);
+        lv_anim_set_var(&fade, notification_heads_up_layer_);
+        lv_anim_set_exec_cb(&fade, NotificationHeadsUpSetOpa);
+        lv_anim_set_values(&fade, LV_OPA_TRANSP, LV_OPA_COVER);
+        lv_anim_set_time(&fade, 180);
+        lv_anim_set_path_cb(&fade, lv_anim_path_ease_out);
+        lv_anim_start(&fade);
+    }
+
+    void HideNotificationHeadsUpLocked() {
+        if (notification_heads_up_layer_ == nullptr) {
+            return;
+        }
+        lv_anim_delete(notification_heads_up_layer_, NotificationHeadsUpSetY);
+        lv_anim_delete(notification_heads_up_layer_, NotificationHeadsUpSetOpa);
+
+        lv_anim_t anim;
+        lv_anim_init(&anim);
+        lv_anim_set_var(&anim, notification_heads_up_layer_);
+        lv_anim_set_exec_cb(&anim, NotificationHeadsUpSetY);
+        lv_anim_set_values(&anim, k_notification_heads_up_visible_y, k_notification_heads_up_hidden_y);
+        lv_anim_set_time(&anim, 160);
+        lv_anim_set_path_cb(&anim, lv_anim_path_ease_in);
+        lv_anim_start(&anim);
+
+        lv_anim_t fade;
+        lv_anim_init(&fade);
+        lv_anim_set_var(&fade, notification_heads_up_layer_);
+        lv_anim_set_exec_cb(&fade, NotificationHeadsUpSetOpa);
+        lv_anim_set_values(&fade, LV_OPA_COVER, LV_OPA_TRANSP);
+        lv_anim_set_time(&fade, 160);
+        lv_anim_set_path_cb(&fade, lv_anim_path_ease_in);
+        lv_anim_start(&fade);
+    }
+
+    void RefreshNotificationHeadsUpLocked() {
+        if (notification_heads_up_layer_ == nullptr) {
+            return;
+        }
+
+        xiaoxin_notification_heads_up_snapshot_t snapshot = {};
+        if (!xiaoxin_notification_heads_up_snapshot(&notification_heads_up_model_, &snapshot)) {
+            HideNotificationHeadsUpLocked();
+            return;
+        }
+
+        lv_label_set_text(notification_heads_up_title_label_, snapshot.title);
+        lv_label_set_text(notification_heads_up_body_label_, snapshot.body);
+        lv_label_set_text(
+            notification_heads_up_tag_label_,
+            snapshot.tag != nullptr && snapshot.tag[0] != '\0'
+                ? snapshot.tag
+                : "\xE9\x80\x9A\xE7\x9F\xA5"
+        );
+        ShowNotificationHeadsUpLocked();
     }
 
     static void NotificationDismissAnimationCompleted(lv_anim_t* anim) {
