@@ -41,6 +41,11 @@ def test_notify_test_command_registers_usb_repl_and_opens_notification_page():
     assert "esp_console_new_repl_usb_serial_jtag(" in body
     assert "esp_console_new_repl_uart(" in body
     assert "esp_console_start_repl(debug_console_repl_)" in body
+    assert "ESP_ERROR_CHECK(esp_console_new_repl_usb_serial_jtag" not in body
+    assert "ESP_ERROR_CHECK(esp_console_new_repl_uart" not in body
+    assert "ESP_ERROR_CHECK(esp_console_start_repl" not in body
+    assert "Debug console REPL unavailable" in body
+    assert "Debug console start failed" in body
     assert "UpsertNotification(" in body
     assert "debug_notify_test_seeded_" not in source
     assert "notification already shown" not in source

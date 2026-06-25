@@ -97,6 +97,7 @@ static int BoardBatteryVoltageMv();
 static PowerSaveTimer* TargetPowerSaveTimer();
 static void WakePowerSaveTimerFromTouch();
 static void RequestSettingsWifiConfigFromSettingsPage();
+static bool s_boot_on_battery = false;
 extern const uint8_t assets_images_crying_gif_start[] asm("_binary_crying_gif_start");
 extern const uint8_t assets_images_crying_gif_end[] asm("_binary_crying_gif_end");
 extern const uint8_t assets_images_anxiety_gif_start[] asm("_binary_anxiety_gif_start");
@@ -668,6 +669,7 @@ public:
                 1
             );
         }
+
     }
 
     virtual void SetStatus(const char* status) override {
@@ -4476,7 +4478,66 @@ private:
     esp_console_repl_t* debug_console_repl_ = nullptr;
     int64_t boot_press_started_us_ = 0;
     bool boot_poll_pressed_ = false;
+    bool pwr_ignore_until_release_ = false;
+    bool on_battery_ = false;
     static CustomBoard* instance_;
+
+    void InitializePowerHoldEarly() {
+        xiaoxin_power_control_init(&power_control_);
+        gpio_reset_pin(PWR_BUTTON_GPIO);
+        gpio_set_direction(PWR_BUTTON_GPIO, GPIO_MODE_INPUT);
+        gpio_set_pull_mode(PWR_BUTTON_GPIO, GPIO_PULLUP_ONLY);
+        pwr_ignore_until_release_ = gpio_get_level(PWR_BUTTON_GPIO) == 0;
+        gpio_reset_pin(PWR_Control_PIN);
+        gpio_set_direction(PWR_Control_PIN, GPIO_MODE_OUTPUT);
+        gpio_set_level(PWR_Control_PIN, 1);
+        // Allow power rail to stabilize after latch, especially on battery
+        vTaskDelay(pdMS_TO_TICKS(30));
+    }
+
+    bool ReadPwrButtonPressedForRuntime() {
+        const bool pressed = gpio_get_level(PWR_BUTTON_GPIO) == 0;
+        if (pwr_ignore_until_release_) {
+            if (!pressed) {
+                pwr_ignore_until_release_ = false;
+                ESP_LOGI(TAG, "PWR startup hold released; runtime power button enabled");
+            }
+            return false;
+        }
+
+        return pressed;
+    }
+
+    void DetectPowerSourceEarly() {
+        InitializeBatteryAdc();
+        if (!battery_adc_available_) {
+            on_battery_ = true;
+            ESP_LOGI(TAG, "[BOOT] Battery ADC unavailable; assuming battery power");
+            return;
+        }
+
+        int voltage_sum = 0;
+        uint8_t sample_count = 0;
+        for (uint8_t i = 0; i < 3; ++i) {
+            int raw_value = 0;
+            int pin_voltage_mv = 0;
+            if (adc_oneshot_read(battery_adc_handle_, k_battery_adc_channel, &raw_value) != ESP_OK) {
+                continue;
+            }
+            if (adc_cali_raw_to_voltage(battery_adc_cali_handle_, raw_value, &pin_voltage_mv) != ESP_OK) {
+                continue;
+            }
+            voltage_sum += pin_voltage_mv * k_battery_voltage_divider;
+            sample_count++;
+        }
+
+        const int voltage_mv = sample_count > 0 ? voltage_sum / sample_count : 0;
+        // Li-ion battery max ~4200mV; USB is ~5000mV. Use 4500mV as threshold.
+        on_battery_ = voltage_mv <= 4500;
+        ESP_LOGI(TAG, "[BOOT] Early power detection: %dmV → %s",
+            voltage_mv,
+            on_battery_ ? "battery" : "USB/external");
+    }
 
     void InitializeI2c() {
         // Initialize I2C peripheral
@@ -4841,8 +4902,6 @@ private:
         gpio_reset_pin(PWR_BUTTON_GPIO);                                     
         gpio_set_direction(PWR_BUTTON_GPIO, GPIO_MODE_INPUT);   
         gpio_set_pull_mode(PWR_BUTTON_GPIO, GPIO_PULLUP_ONLY);
-        gpio_reset_pin(PWR_Control_PIN);                                     
-        gpio_set_direction(PWR_Control_PIN, GPIO_MODE_OUTPUT);     
         gpio_set_level(PWR_Control_PIN, xiaoxin_power_control_power_hold(&power_control_));
     }
 
@@ -4967,7 +5026,8 @@ private:
         pwr_btn_driver_ = (button_driver_t*)calloc(1, sizeof(button_driver_t));
         pwr_btn_driver_->enable_power_save = false;
         pwr_btn_driver_->get_key_level = [](button_driver_t *button_driver) -> uint8_t {
-            return !gpio_get_level(PWR_BUTTON_GPIO);
+            auto self = CustomBoard::Instance();
+            return self != nullptr && self->ReadPwrButtonPressedForRuntime();
         };
         ESP_ERROR_CHECK(iot_button_create(&pwr_btn_config, pwr_btn_driver_, &pwr_btn));
         iot_button_register_cb(pwr_btn, BUTTON_SINGLE_CLICK, nullptr, [](void* button_handle, void* usr_data) {
@@ -5025,30 +5085,147 @@ private:
 
 #if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
         esp_console_dev_usb_serial_jtag_config_t hw_config = ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT();
-        ESP_ERROR_CHECK(esp_console_new_repl_usb_serial_jtag(&hw_config, &repl_config, &debug_console_repl_));
+        esp_err_t repl_err = esp_console_new_repl_usb_serial_jtag(&hw_config, &repl_config, &debug_console_repl_);
 #elif CONFIG_ESP_CONSOLE_UART_DEFAULT || CONFIG_ESP_CONSOLE_UART_CUSTOM
         esp_console_dev_uart_config_t hw_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
-        ESP_ERROR_CHECK(esp_console_new_repl_uart(&hw_config, &repl_config, &debug_console_repl_));
+        esp_err_t repl_err = esp_console_new_repl_uart(&hw_config, &repl_config, &debug_console_repl_);
 #else
         ESP_LOGW(TAG, "Debug console not started: no interactive console device configured.");
         return;
 #endif
-        ESP_ERROR_CHECK(esp_console_start_repl(debug_console_repl_));
+        if (repl_err != ESP_OK) {
+            debug_console_repl_ = nullptr;
+            ESP_LOGW(TAG, "Debug console REPL unavailable: %s", esp_err_to_name(repl_err));
+            return;
+        }
+
+        esp_err_t start_err = esp_console_start_repl(debug_console_repl_);
+        if (start_err != ESP_OK) {
+            debug_console_repl_ = nullptr;
+            ESP_LOGW(TAG, "Debug console start failed: %s", esp_err_to_name(start_err));
+            return;
+        }
+
         ESP_LOGI(TAG, "Debug console started. Use `notify_test` to open notification page.");
     }
 
 public:
-    CustomBoard() { 
+    CustomBoard() {
+        ESP_LOGI(TAG, "[BOOT] Stage 1/11: Power hold latch");
+        InitializePowerHoldEarly();
+
+        ESP_LOGI(TAG, "[BOOT] Stage 2/11: Early power source detection");
+        DetectPowerSourceEarly();
+        s_boot_on_battery = on_battery_;
+
+        ESP_LOGI(TAG, "[BOOT] Stage 3/11: I2C bus");
         InitializeI2c();
+
+        ESP_LOGI(TAG, "[BOOT] Stage 4/11: TCA9554 IO expander + LCD reset");
         InitializeTca9554();
+
+        ESP_LOGI(TAG, "[BOOT] Stage 5/11: QSPI bus");
         InitializeSpi();
+
+        ESP_LOGI(TAG, "[BOOT] Stage 6/11: SPD2010 display panel");
         InitializeSpd2010Display();
+
+        ESP_LOGI(TAG, "[BOOT] Stage 7/11: Backlight restore (%s)", on_battery_ ? "battery-dim" : "normal");
+        if (on_battery_) {
+            // Initial 3 blinks: constructor is alive and running
+            GetBacklight()->SetBrightness(10, false);
+            for (int i = 0; i < 3; ++i) {
+                vTaskDelay(pdMS_TO_TICKS(120));
+                GetBacklight()->SetBrightness(10, false);
+                vTaskDelay(pdMS_TO_TICKS(120));
+                GetBacklight()->SetBrightness(0, false);
+            }
+            vTaskDelay(pdMS_TO_TICKS(200));
+            GetBacklight()->SetBrightness(10, false);  // settle at 10%
+            vTaskDelay(pdMS_TO_TICKS(200));             // wait for fade to complete
+        } else {
+            GetBacklight()->RestoreBrightness();
+        }
+
+        ESP_LOGI(TAG, "[BOOT] Stage 8/11: Touch controller");
         InitializeTouch();
+        if (on_battery_) {
+            // Delimiter blink: off→on at new level
+            GetBacklight()->SetBrightness(0, false);
+            vTaskDelay(pdMS_TO_TICKS(150));
+            GetBacklight()->SetBrightness(18, false);  // Stage 8 done → 18%
+            vTaskDelay(pdMS_TO_TICKS(200));
+        }
+
+        ESP_LOGI(TAG, "[BOOT] Stage 9/11: Buttons");
         InitializeButtons();
+        if (on_battery_) {
+            GetBacklight()->SetBrightness(0, false);
+            vTaskDelay(pdMS_TO_TICKS(150));
+            GetBacklight()->SetBrightness(26, false);  // Stage 9 done → 26%
+            vTaskDelay(pdMS_TO_TICKS(200));
+        }
+
+        ESP_LOGI(TAG, "[BOOT] Stage 10/11: Power save timer");
         InitializePowerSaveTimer();
-        InitializeMotion();
+        if (on_battery_) {
+            GetBacklight()->SetBrightness(0, false);
+            vTaskDelay(pdMS_TO_TICKS(150));
+            GetBacklight()->SetBrightness(34, false);  // Stage 10 done → 34%
+            vTaskDelay(pdMS_TO_TICKS(200));
+        }
+
+        if (on_battery_) {
+            ESP_LOGI(TAG, "[BOOT] Stage 11/11: Deferring IMU init (battery power)");
+            ScheduleDeferredMotionInit();
+            GetBacklight()->SetBrightness(0, false);
+            vTaskDelay(pdMS_TO_TICKS(150));
+            GetBacklight()->SetBrightness(42, false);  // Stage 11 done → 42%
+            vTaskDelay(pdMS_TO_TICKS(200));
+        } else {
+            ESP_LOGI(TAG, "[BOOT] Stage 11/11: IMU motion sensor");
+            InitializeMotion();
+        }
+
         InitializeDebugConsole();
-        GetBacklight()->RestoreBrightness();
+        ESP_LOGI(TAG, "[BOOT] Constructor complete (on_battery=%d)", on_battery_ ? 1 : 0);
+
+        // Final delimiter + full brightness = constructor survived all stages
+        if (on_battery_) {
+            auto backlight = GetBacklight();
+            if (backlight != nullptr) {
+                backlight->SetBrightness(0, false);
+                vTaskDelay(pdMS_TO_TICKS(200));
+                backlight->RestoreBrightness();
+            }
+        }
+    }
+
+    void ScheduleDeferredMotionInit() {
+        if (motion_task_ != nullptr) {
+            return;
+        }
+        const esp_timer_create_args_t deferred_motion_args = {
+            .callback = [](void* arg) {
+                auto* self = static_cast<CustomBoard*>(arg);
+                ESP_LOGI(TAG, "[BOOT] Deferred IMU initialization starting");
+                self->InitializeMotion();
+            },
+            .arg = this,
+            .dispatch_method = ESP_TIMER_TASK,
+            .name = "defer_motion",
+            .skip_unhandled_events = true,
+        };
+        esp_timer_handle_t deferred_motion_timer = nullptr;
+        esp_err_t err = esp_timer_create(&deferred_motion_args, &deferred_motion_timer);
+        if (err == ESP_OK) {
+            // Start IMU initialization 3 seconds after boot, when power is stable
+            esp_timer_start_once(deferred_motion_timer, 3 * 1000 * 1000);
+        } else {
+            ESP_LOGW(TAG, "Failed to create deferred IMU timer: %s", esp_err_to_name(err));
+            // Fall back to immediate init
+            InitializeMotion();
+        }
     }
 
     static CustomBoard* Instance() {
@@ -5057,6 +5234,10 @@ public:
 
     bool HasPowerSaveScheduler() const {
         return power_save_timer_ != nullptr;
+    }
+
+    bool OnBattery() const {
+        return on_battery_;
     }
 
     PowerSaveTimer* PowerSaveTimerForSettings() const {
@@ -5093,9 +5274,15 @@ public:
 
         last_battery_voltage_mv_ = voltage_mv;
         level = xiaoxin_battery_percent_from_mv(voltage_mv);
-        charging = false;
-        discharging = true;
-        ESP_LOGI(TAG, "Battery voltage=%dmV level=%d%%", voltage_mv, level);
+        // Use early power detection to inform charging state.
+        // On USB, report charging so the battery state machine converges on
+        // XIAOXIN_BATTERY_POWER_EXTERNAL immediately instead of waiting 2+ minutes
+        // for voltage-trend heuristics.
+        charging = !on_battery_;
+        discharging = on_battery_;
+        ESP_LOGI(TAG, "Battery voltage=%dmV level=%d%% %s",
+            voltage_mv, level,
+            on_battery_ ? "discharging" : "charging");
         return true;
     }
 
