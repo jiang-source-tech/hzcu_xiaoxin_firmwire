@@ -1,5 +1,50 @@
 ﻿# Update
 
+## 2026-06-25 00:00:00 +08:00
+
+### Waveshare ESP32-S3 Touch LCD 1.46 通知悬浮窗调试入口与排版修正
+
+#### 背景
+
+为方便在实机上快速复现通知中心和通知悬浮窗效果，本轮加入串口调试命令 `notify_test`。实机测试后发现测试通知悬浮窗中 `Notify test`、`Debug` 和 `Serial debug notification` 的排版过于拥挤，其中标题与标签区域容易视觉重叠，正文位置也需要和标题保持一致的左边界。
+
+后续实机反馈进一步明确：`Debug` 标签本身的位置不需要调整，只需要把标题和正文排版修正为同一左对齐起点。
+
+#### 修改内容
+
+- 新增串口通知测试命令：
+  - 在 Waveshare 1.46 板级代码中接入 ESP-IDF console REPL。
+  - 注册 `notify_test` 命令，用于创建或更新一条测试通知。
+  - 测试通知内容为标题 `Notify test`、正文 `Serial debug notification`、标签 `Debug`。
+  - 命令执行后自动打开通知页，便于同时检查通知页列表和 heads-up 悬浮通知。
+- 通知悬浮窗刷新行为修正：
+  - 记录当前已渲染的 heads-up 通知快照。
+  - 相同通知重复刷新时不再反复播放进入动画。
+  - 当前通知结束或无可见通知时清空渲染快照并隐藏悬浮窗。
+- 通知悬浮窗排版修正：
+  - `Debug` 标签保持原来的左侧居中位置。
+  - `Notify test` 标题左边界调整为 `x=78`。
+  - `Serial debug notification` 正文左边界同步调整为 `x=78`，与标题左对齐。
+  - 标题和正文宽度统一为 `154`，避免后续真实通知走 heads-up 组件时出现同类不齐问题。
+- 文档补充：
+  - 新增小芯串口调试命令说明文档，记录 `notify_test` 的使用方式、成功输出和 VSCode ESP-IDF Monitor 注意事项。
+  - 补充串口通知测试实施计划，保留调试入口的实现约束和验证命令。
+
+#### 涉及文件
+
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `tests/xiaoxin_notification_visual_path_test.py`
+- `tests/xiaoxin_serial_debug_command_test.py`
+- `docs/xiaoxin-serial-debug-commands.zh-CN.md`
+- `docs/superpowers/plans/2026-06-24-xiaoxin-serial-notify-test.md`
+- `docs/update.md`
+
+#### 验证结果
+
+- `python -m pytest tests/xiaoxin_notification_visual_path_test.py`：通过，23 passed。
+- `python -m pytest tests/xiaoxin_serial_debug_command_test.py`：通过，1 passed。
+- 当前 shell 中未执行完整 ESP-IDF 固件 build / flash，因此仍需在 ESP-IDF 环境中实机确认 `notify_test` 命令、通知页打开、heads-up 悬浮窗动画和标题/正文左对齐效果。
+
 ## 2026-06-24 00:00:00 +08:00
 
 ### Waveshare ESP32-S3 Touch LCD 1.46 底部字幕统一流式显示

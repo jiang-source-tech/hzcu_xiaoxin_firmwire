@@ -88,6 +88,27 @@ def test_moving_notification_card_containers_do_not_render_shadows():
     assert "lv_obj_set_style_shadow_offset_y(card.container" not in source
 
 
+def test_heads_up_rim_border_sides_use_lvgl_enum_casts():
+    source = read_source()
+
+    assert "static_cast<lv_border_side_t>(LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT)" in source
+    assert "static_cast<lv_border_side_t>(LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT)" in source
+
+
+def test_heads_up_refresh_does_not_replay_animation_for_same_snapshot():
+    source = read_source()
+    refresh_body = function_body(source, "void RefreshNotificationHeadsUpLocked()")
+
+    assert "bool notification_heads_up_rendered_visible_ = false;" in source
+    assert "bool NotificationHeadsUpSnapshotChanged(" in source
+    assert "RememberNotificationHeadsUpSnapshot(snapshot);" in refresh_body
+    assert "if (NotificationHeadsUpSnapshotChanged(snapshot))" in refresh_body
+    assert "ShowNotificationHeadsUpLocked();" in refresh_body
+    assert "if (notification_heads_up_rendered_visible_) {" in refresh_body
+    assert "HideNotificationHeadsUpLocked();" in refresh_body
+    assert "ClearNotificationHeadsUpRenderedSnapshot();" in refresh_body
+
+
 def test_card_pager_layer_has_subtle_empty_state_background():
     source = read_source()
     body = function_body(source, "void InitializeCardPagerLayer()")
@@ -302,10 +323,10 @@ def test_notification_heads_up_uses_frosted_glass_banner_visuals():
 
     assert "lv_obj_set_style_border_color(notification_heads_up_rim_top_left_, lv_color_hex(0xFFFFFF), 0);" in init_body
     assert "lv_obj_set_style_border_opa(notification_heads_up_rim_top_left_, static_cast<lv_opa_t>(153), 0);" in init_body
-    assert "lv_obj_set_style_border_side(notification_heads_up_rim_top_left_, LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT, 0);" in init_body
+    assert "static_cast<lv_border_side_t>(LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT)" in init_body
     assert "lv_obj_set_style_border_color(notification_heads_up_rim_bottom_right_, lv_color_hex(0xCDD3DC), 0);" in init_body
     assert "lv_obj_set_style_border_opa(notification_heads_up_rim_bottom_right_, static_cast<lv_opa_t>(64), 0);" in init_body
-    assert "lv_obj_set_style_border_side(notification_heads_up_rim_bottom_right_, LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT, 0);" in init_body
+    assert "static_cast<lv_border_side_t>(LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT)" in init_body
 
     assert "lv_obj_set_style_shadow_color(notification_heads_up_layer_, lv_color_hex(0x000000), 0);" in init_body
     assert "lv_obj_set_style_shadow_opa(notification_heads_up_layer_, LV_OPA_10, 0);" in init_body
@@ -319,10 +340,15 @@ def test_notification_heads_up_uses_frosted_glass_banner_visuals():
     assert "lv_obj_set_style_bg_color(notification_heads_up_tag_capsule_, lv_color_hex(0x3182CE), 0);" in init_body
     assert "lv_obj_set_style_bg_opa(notification_heads_up_tag_capsule_, static_cast<lv_opa_t>(38), 0);" in init_body
     assert "lv_obj_set_style_radius(notification_heads_up_tag_capsule_, 6, 0);" in init_body
+    assert "lv_obj_align(notification_heads_up_tag_capsule_, LV_ALIGN_LEFT_MID, 8, 0);" in init_body
 
     assert "lv_obj_set_style_text_color(notification_heads_up_title_label_, lv_color_hex(0x111827), 0);" in init_body
     assert "lv_obj_set_style_text_color(notification_heads_up_body_label_, lv_color_hex(0x4A5568), 0);" in init_body
     assert "lv_obj_set_style_text_color(notification_heads_up_tag_label_, lv_color_hex(0x3182CE), 0);" in init_body
+    assert "lv_obj_set_width(notification_heads_up_title_label_, 154);" in init_body
+    assert "lv_obj_align(notification_heads_up_title_label_, LV_ALIGN_TOP_LEFT, 78, 7);" in init_body
+    assert "lv_obj_set_width(notification_heads_up_body_label_, 154);" in init_body
+    assert "lv_obj_align(notification_heads_up_body_label_, LV_ALIGN_TOP_LEFT, 78, 32);" in init_body
 
     assert raise_body.count("RaiseNotificationHeadsUpLayerLocked();") == 2
     early_return = raise_body.index("return;")

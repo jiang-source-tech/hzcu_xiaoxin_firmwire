@@ -15,6 +15,7 @@
 
 #include <esp_check.h>
 #include <esp_app_desc.h>
+#include <esp_console.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_rom_sys.h>
@@ -924,6 +925,11 @@ public:
                 now_ms - touch_last_active_ms_ <= k_touch_motion_suppress_ms);
     }
 
+    void OpenNotificationPageForDebug() {
+        DisplayLockGuard lock(this);
+        SetCardPagerPage(XIAOXIN_CARD_PAGE_NOTIFICATIONS);
+    }
+
 private:
     TaskHandle_t render_task_ = nullptr;
     esp_timer_handle_t low_power_clock_timer_ = nullptr;
@@ -1005,6 +1011,10 @@ private:
     TouchReader* touch_ = nullptr;
     xiaoxin_card_pager_t card_pager_ = {};
     xiaoxin_notification_heads_up_t notification_heads_up_model_ = {};
+    bool notification_heads_up_rendered_visible_ = false;
+    char notification_heads_up_rendered_title_[XIAOXIN_CARD_NOTIFICATION_TITLE_MAX] = {};
+    char notification_heads_up_rendered_body_[XIAOXIN_CARD_NOTIFICATION_BODY_MAX] = {};
+    char notification_heads_up_rendered_tag_[XIAOXIN_CARD_NOTIFICATION_TAG_MAX] = {};
     xiaoxin_overview_snapshot_t overview_snapshot_ = {};
     paopao_pet_trigger_context_t trigger_;
     paopao_pet_mood_context_t mood_ = {};
@@ -2333,7 +2343,11 @@ private:
         lv_obj_set_style_border_color(notification_heads_up_rim_top_left_, lv_color_hex(0xFFFFFF), 0);
         lv_obj_set_style_border_opa(notification_heads_up_rim_top_left_, static_cast<lv_opa_t>(153), 0);
         lv_obj_set_style_border_width(notification_heads_up_rim_top_left_, 1, 0);
-        lv_obj_set_style_border_side(notification_heads_up_rim_top_left_, LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT, 0);
+        lv_obj_set_style_border_side(
+            notification_heads_up_rim_top_left_,
+            static_cast<lv_border_side_t>(LV_BORDER_SIDE_TOP | LV_BORDER_SIDE_LEFT),
+            0
+        );
         lv_obj_clear_flag(notification_heads_up_rim_top_left_, LV_OBJ_FLAG_SCROLLABLE);
 
         notification_heads_up_rim_bottom_right_ = lv_obj_create(notification_heads_up_layer_);
@@ -2344,7 +2358,11 @@ private:
         lv_obj_set_style_border_color(notification_heads_up_rim_bottom_right_, lv_color_hex(0xCDD3DC), 0);
         lv_obj_set_style_border_opa(notification_heads_up_rim_bottom_right_, static_cast<lv_opa_t>(64), 0);
         lv_obj_set_style_border_width(notification_heads_up_rim_bottom_right_, 1, 0);
-        lv_obj_set_style_border_side(notification_heads_up_rim_bottom_right_, LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT, 0);
+        lv_obj_set_style_border_side(
+            notification_heads_up_rim_bottom_right_,
+            static_cast<lv_border_side_t>(LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_RIGHT),
+            0
+        );
         lv_obj_clear_flag(notification_heads_up_rim_bottom_right_, LV_OBJ_FLAG_SCROLLABLE);
 
         notification_heads_up_texture_overlay_ = lv_image_create(notification_heads_up_layer_);
@@ -2380,7 +2398,7 @@ private:
         lv_label_set_text(notification_heads_up_tag_label_, "");
 
         notification_heads_up_title_label_ = lv_label_create(notification_heads_up_layer_);
-        lv_obj_set_width(notification_heads_up_title_label_, 180);
+        lv_obj_set_width(notification_heads_up_title_label_, 154);
         lv_obj_set_style_text_color(notification_heads_up_title_label_, lv_color_hex(0x111827), 0);
         lv_obj_set_style_text_opa(notification_heads_up_title_label_, LV_OPA_COVER, 0);
         lv_obj_set_style_text_align(notification_heads_up_title_label_, LV_TEXT_ALIGN_LEFT, 0);
@@ -2388,10 +2406,10 @@ private:
             lv_obj_set_style_text_font(notification_heads_up_title_label_, text_font, 0);
         }
         lv_label_set_text(notification_heads_up_title_label_, "");
-        lv_obj_align(notification_heads_up_title_label_, LV_ALIGN_TOP_LEFT, 48, 9);
+        lv_obj_align(notification_heads_up_title_label_, LV_ALIGN_TOP_LEFT, 78, 7);
 
         notification_heads_up_body_label_ = lv_label_create(notification_heads_up_layer_);
-        lv_obj_set_width(notification_heads_up_body_label_, 180);
+        lv_obj_set_width(notification_heads_up_body_label_, 154);
         lv_obj_set_style_text_color(notification_heads_up_body_label_, lv_color_hex(0x4A5568), 0);
         lv_obj_set_style_text_opa(notification_heads_up_body_label_, LV_OPA_COVER, 0);
         lv_obj_set_style_text_align(notification_heads_up_body_label_, LV_TEXT_ALIGN_LEFT, 0);
@@ -2399,7 +2417,7 @@ private:
             lv_obj_set_style_text_font(notification_heads_up_body_label_, text_font, 0);
         }
         lv_label_set_text(notification_heads_up_body_label_, "");
-        lv_obj_align(notification_heads_up_body_label_, LV_ALIGN_TOP_LEFT, 48, 31);
+        lv_obj_align(notification_heads_up_body_label_, LV_ALIGN_TOP_LEFT, 78, 32);
     }
 
     void InitializeCardPagerLayer() {
@@ -3152,6 +3170,53 @@ private:
         lv_anim_start(&fade);
     }
 
+    static const char* SafeSnapshotText(const char* text) {
+        return text != nullptr ? text : "";
+    }
+
+    bool NotificationHeadsUpSnapshotChanged(
+        const xiaoxin_notification_heads_up_snapshot_t& snapshot
+    ) const {
+        if (!notification_heads_up_rendered_visible_) {
+            return true;
+        }
+
+        return std::strcmp(notification_heads_up_rendered_title_, SafeSnapshotText(snapshot.title)) != 0 ||
+               std::strcmp(notification_heads_up_rendered_body_, SafeSnapshotText(snapshot.body)) != 0 ||
+               std::strcmp(notification_heads_up_rendered_tag_, SafeSnapshotText(snapshot.tag)) != 0;
+    }
+
+    void RememberNotificationHeadsUpSnapshot(
+        const xiaoxin_notification_heads_up_snapshot_t& snapshot
+    ) {
+        std::snprintf(
+            notification_heads_up_rendered_title_,
+            sizeof(notification_heads_up_rendered_title_),
+            "%s",
+            SafeSnapshotText(snapshot.title)
+        );
+        std::snprintf(
+            notification_heads_up_rendered_body_,
+            sizeof(notification_heads_up_rendered_body_),
+            "%s",
+            SafeSnapshotText(snapshot.body)
+        );
+        std::snprintf(
+            notification_heads_up_rendered_tag_,
+            sizeof(notification_heads_up_rendered_tag_),
+            "%s",
+            SafeSnapshotText(snapshot.tag)
+        );
+        notification_heads_up_rendered_visible_ = true;
+    }
+
+    void ClearNotificationHeadsUpRenderedSnapshot() {
+        notification_heads_up_rendered_visible_ = false;
+        notification_heads_up_rendered_title_[0] = '\0';
+        notification_heads_up_rendered_body_[0] = '\0';
+        notification_heads_up_rendered_tag_[0] = '\0';
+    }
+
     void RefreshNotificationHeadsUpLocked() {
         if (notification_heads_up_layer_ == nullptr) {
             return;
@@ -3159,7 +3224,10 @@ private:
 
         xiaoxin_notification_heads_up_snapshot_t snapshot = {};
         if (!xiaoxin_notification_heads_up_snapshot(&notification_heads_up_model_, &snapshot)) {
-            HideNotificationHeadsUpLocked();
+            if (notification_heads_up_rendered_visible_) {
+                HideNotificationHeadsUpLocked();
+                ClearNotificationHeadsUpRenderedSnapshot();
+            }
             return;
         }
 
@@ -3171,7 +3239,10 @@ private:
                 ? snapshot.tag
                 : "\xE9\x80\x9A\xE7\x9F\xA5"
         );
-        ShowNotificationHeadsUpLocked();
+        if (NotificationHeadsUpSnapshotChanged(snapshot)) {
+            RememberNotificationHeadsUpSnapshot(snapshot);
+            ShowNotificationHeadsUpLocked();
+        }
     }
 
     static void NotificationDismissAnimationCompleted(lv_anim_t* anim) {
@@ -4402,6 +4473,7 @@ private:
     button_driver_t* pwr_btn_driver_ = nullptr;
     bool boot_long_press_handled_ = false;
     esp_timer_handle_t boot_poll_timer_ = nullptr;
+    esp_console_repl_t* debug_console_repl_ = nullptr;
     int64_t boot_press_started_us_ = 0;
     bool boot_poll_pressed_ = false;
     static CustomBoard* instance_;
@@ -4910,6 +4982,61 @@ private:
         }, this);
     }
 
+    void InitializeDebugConsole() {
+        if (debug_console_repl_ != nullptr) {
+            return;
+        }
+
+        const esp_console_cmd_t notify_test_cmd = {
+            .command = "notify_test",
+            .help = "show a test notification and open the notification page",
+            .hint = nullptr,
+            .func = nullptr,
+            .argtable = nullptr,
+            .func_w_context = [](void* context, int argc, char** argv) -> int {
+                (void)argc;
+                (void)argv;
+                auto* self = static_cast<CustomBoard*>(context);
+                auto* display = static_cast<PaopaoPetDisplay*>(self->display_);
+                if (display == nullptr) {
+                    printf("notify_test: display is not ready\n");
+                    return 1;
+                }
+
+                display->UpsertNotification(
+                    "ota_update",
+                    "Notify test",
+                    "Serial debug notification",
+                    "Debug",
+                    4,
+                    0
+                );
+                display->OpenNotificationPageForDebug();
+                printf("notify_test: opened notification page\n");
+                return 0;
+            },
+            .context = this,
+        };
+        ESP_ERROR_CHECK(esp_console_cmd_register(&notify_test_cmd));
+
+        esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
+        repl_config.max_cmdline_length = 128;
+        repl_config.prompt = "xiaoxin>";
+
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+        esp_console_dev_usb_serial_jtag_config_t hw_config = ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT();
+        ESP_ERROR_CHECK(esp_console_new_repl_usb_serial_jtag(&hw_config, &repl_config, &debug_console_repl_));
+#elif CONFIG_ESP_CONSOLE_UART_DEFAULT || CONFIG_ESP_CONSOLE_UART_CUSTOM
+        esp_console_dev_uart_config_t hw_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
+        ESP_ERROR_CHECK(esp_console_new_repl_uart(&hw_config, &repl_config, &debug_console_repl_));
+#else
+        ESP_LOGW(TAG, "Debug console not started: no interactive console device configured.");
+        return;
+#endif
+        ESP_ERROR_CHECK(esp_console_start_repl(debug_console_repl_));
+        ESP_LOGI(TAG, "Debug console started. Use `notify_test` to open notification page.");
+    }
+
 public:
     CustomBoard() { 
         InitializeI2c();
@@ -4920,6 +5047,7 @@ public:
         InitializeButtons();
         InitializePowerSaveTimer();
         InitializeMotion();
+        InitializeDebugConsole();
         GetBacklight()->RestoreBrightness();
     }
 
