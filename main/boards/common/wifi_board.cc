@@ -33,8 +33,8 @@ static constexpr int CONNECT_TIMEOUT_SEC = 60;
 static constexpr char DEFAULT_WIFI_SSID[] = "Jiang";
 static constexpr const char* NTP_SERVERS[] = {
     "ntp.aliyun.com",
-    "cn.pool.ntp.org",
-    "pool.ntp.org",
+    "ntp.tencent.com",
+    "ntp.ntsc.ac.cn",
 };
 static constexpr size_t k_ntp_server_count = sizeof(NTP_SERVERS) / sizeof(NTP_SERVERS[0]);
 static constexpr char DEFAULT_TIMEZONE[] = "CST-8";

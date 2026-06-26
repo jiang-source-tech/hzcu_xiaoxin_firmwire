@@ -23,7 +23,7 @@ def test_application_reports_ota_states_to_display_notifications() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     source = (repo_root / "main" / "application.cc").read_text(encoding="utf-8")
 
-    assert 'display->UpsertNotification("ota_update", "OTA 鏇存柊", "鍙戠幇鏂扮増鏈?", "绯荤粺", 4, 0);' in source
-    assert 'display->UpsertNotification("ota_update", "OTA 鏇存柊", "姝ｅ湪涓嬭浇骞跺畨瑁呮洿鏂?", "绯荤粺", 4, 0);' in source
-    assert 'display->UpsertNotification("ota_update", "OTA 鏇存柊", "鍗囩骇澶辫触锛岃绋嶅悗閲嶈瘯", "绯荤粺", 4, 0);' in source
+    assert 'display->UpsertNotification("ota_update", "OTA 更新", "发现新版本", "系统", 4, 0);' in source
+    assert 'display->UpsertNotification("ota_update", "OTA 更新", "正在下载并安装更新", "系统", 4, 0);' in source
+    assert 'display->UpsertNotification("ota_update", "OTA 更新", "升级失败，请稍后重试", "系统", 4, 0);' in source
     assert 'display->RemoveNotification("ota_update");' in source

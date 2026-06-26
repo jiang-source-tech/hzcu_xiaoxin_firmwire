@@ -71,8 +71,10 @@ def test_wifi_connection_starts_time_synchronization():
     assert "StartTimeSynchronization();" in connected_block
     assert "static constexpr const char* NTP_SERVERS[]" in source
     assert '"ntp.aliyun.com"' in source
-    assert '"cn.pool.ntp.org"' in source
-    assert '"pool.ntp.org"' in source
+    assert '"ntp.tencent.com"' in source
+    assert '"ntp.ntsc.ac.cn"' in source
+    assert '"cn.pool.ntp.org"' not in source
+    assert '"pool.ntp.org"' not in source
     assert "k_ntp_server_count" in source
     assert 'static constexpr char DEFAULT_TIMEZONE[] = "CST-8";' in source
     assert '#include <stdlib.h>' in source

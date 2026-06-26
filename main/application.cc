@@ -434,7 +434,7 @@ void Application::CheckNewVersion() {
         retry_delay = 10; // Reset retry delay
 
         if (ota_->HasNewVersion()) {
-            display->UpsertNotification("ota_update", "OTA 鏇存柊", "鍙戠幇鏂扮増鏈?", "绯荤粺", 4, 0);
+            display->UpsertNotification("ota_update", "OTA 更新", "发现新版本", "系统", 4, 0);
             if (UpgradeFirmware(ota_->GetFirmwareUrl(), ota_->GetFirmwareVersion())) {
                 return; // This line will never be reached after reboot
             }
@@ -988,7 +988,7 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
     }
     ESP_LOGI(TAG, "Starting firmware upgrade from URL: %s", upgrade_url.c_str());
 
-    display->UpsertNotification("ota_update", "OTA 鏇存柊", "姝ｅ湪涓嬭浇骞跺畨瑁呮洿鏂?", "绯荤粺", 4, 0);
+    display->UpsertNotification("ota_update", "OTA 更新", "正在下载并安装更新", "系统", 4, 0);
     Alert(Lang::Strings::OTA_UPGRADE, Lang::Strings::UPGRADING, "download", Lang::Sounds::OGG_UPGRADE);
     vTaskDelay(pdMS_TO_TICKS(3000));
 
@@ -1014,7 +1014,7 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
         ESP_LOGE(TAG, "Firmware upgrade failed, restarting audio service and continuing operation...");
         audio_service_.Start(); // Restart audio service
         board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER); // Restore power save level
-        display->UpsertNotification("ota_update", "OTA 鏇存柊", "鍗囩骇澶辫触锛岃绋嶅悗閲嶈瘯", "绯荤粺", 4, 0);
+        display->UpsertNotification("ota_update", "OTA 更新", "升级失败，请稍后重试", "系统", 4, 0);
         Alert(Lang::Strings::ERROR, Lang::Strings::UPGRADE_FAILED, "circle_xmark", Lang::Sounds::OGG_EXCLAMATION);
         vTaskDelay(pdMS_TO_TICKS(3000));
         return false;
