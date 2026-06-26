@@ -62,6 +62,23 @@ def test_wifi_config_state_refreshes_status_bar_immediately():
     assert "display->UpdateStatusBar(true);" in wifi_config_block
 
 
+def test_wifi_scan_and_connect_update_top_status_instead_of_leaving_initializing():
+    body = function_body(read_source(APPLICATION_SOURCE), "void Application::Initialize()")
+    scanning_block = block_after(body, "case NetworkEvent::Scanning:", length=260)
+    connecting_block = block_after(body, "case NetworkEvent::Connecting:", length=520)
+
+    assert "display->SetStatus(Lang::Strings::SCANNING_WIFI);" in scanning_block
+    assert "display->SetStatus(Lang::Strings::CONNECTING);" in connecting_block
+
+
+def test_application_leaves_initializing_status_before_starting_network():
+    body = function_body(read_source(APPLICATION_SOURCE), "void Application::Initialize()")
+    before_start_network = body[: body.index("board.StartNetwork();")]
+
+    assert "display->SetStatus(Lang::Strings::SCANNING_WIFI);" in before_start_network
+    assert "display->UpdateStatusBar(true);" in before_start_network
+
+
 def test_wifi_connection_starts_time_synchronization():
     source = read_source(WIFI_BOARD_SOURCE)
     body = function_body(source, "void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data)")

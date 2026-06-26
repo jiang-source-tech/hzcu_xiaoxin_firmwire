@@ -21,6 +21,12 @@ typedef enum {
 } xiaoxin_battery_power_source_t;
 
 typedef enum {
+  XIAOXIN_BATTERY_POWER_HINT_UNKNOWN = 0,
+  XIAOXIN_BATTERY_POWER_HINT_BATTERY,
+  XIAOXIN_BATTERY_POWER_HINT_EXTERNAL,
+} xiaoxin_battery_power_hint_t;
+
+typedef enum {
   XIAOXIN_BATTERY_LOAD_IDLE = 0,
   XIAOXIN_BATTERY_LOAD_VOICE_ACTIVE,
 } xiaoxin_battery_load_t;
@@ -81,6 +87,7 @@ xiaoxin_battery_snapshot_t xiaoxin_battery_state_update(
   xiaoxin_battery_context_t* ctx,
   int voltage_mv,
   bool sample_valid,
+  xiaoxin_battery_power_hint_t power_hint,
   xiaoxin_battery_load_t load,
   uint32_t now_ms
 );

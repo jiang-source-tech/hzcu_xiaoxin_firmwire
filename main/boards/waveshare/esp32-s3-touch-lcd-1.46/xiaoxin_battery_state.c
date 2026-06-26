@@ -271,6 +271,36 @@ static void reset_power_source_candidate(
   ctx->candidate_power_count = 0;
 }
 
+static void confirm_power_source(
+  xiaoxin_battery_context_t* ctx,
+  xiaoxin_battery_power_source_t source,
+  uint32_t now_ms
+) {
+  if (ctx->power_source == source) {
+    ctx->candidate_power_source = source;
+    ctx->candidate_power_count = 0;
+    return;
+  }
+
+  ctx->power_source = source;
+  ctx->candidate_power_source = source;
+  ctx->candidate_power_count = 0;
+  ctx->power_source_since_ms = now_ms;
+  ctx->unknown_since_ms = 0;
+  ctx->battery_candidate_since_ms = 0;
+  reset_discharge_window(ctx);
+
+  if (source == XIAOXIN_BATTERY_POWER_BATTERY) {
+    ctx->state_edges_suppressed_until_reconfirmed = true;
+    ctx->candidate_state = ctx->state;
+    ctx->candidate_since_ms = now_ms;
+  } else if (source == XIAOXIN_BATTERY_POWER_EXTERNAL) {
+    ctx->percent_reliable = false;
+    ctx->display_level = 4;
+    ctx->state_edges_suppressed_until_reconfirmed = false;
+  }
+}
+
 void xiaoxin_battery_state_init(
   xiaoxin_battery_context_t* ctx,
   uint32_t now_ms
@@ -326,6 +356,7 @@ xiaoxin_battery_snapshot_t xiaoxin_battery_state_update(
   xiaoxin_battery_context_t* ctx,
   int voltage_mv,
   bool sample_valid,
+  xiaoxin_battery_power_hint_t power_hint,
   xiaoxin_battery_load_t load,
   uint32_t now_ms
 ) {
@@ -418,6 +449,18 @@ xiaoxin_battery_snapshot_t xiaoxin_battery_state_update(
       ctx->trend_window_min_mv = 0;
       ctx->trend_window_max_mv = 0;
     }
+  }
+
+  if (power_hint == XIAOXIN_BATTERY_POWER_HINT_EXTERNAL) {
+    confirm_power_source(ctx, XIAOXIN_BATTERY_POWER_EXTERNAL, now_ms);
+  } else if (
+    power_hint == XIAOXIN_BATTERY_POWER_HINT_BATTERY &&
+    (
+      ctx->power_source != XIAOXIN_BATTERY_POWER_EXTERNAL ||
+      elapsed(ctx->power_source_since_ms, now_ms, k_external_minimum_hold_ms)
+    )
+  ) {
+    confirm_power_source(ctx, XIAOXIN_BATTERY_POWER_BATTERY, now_ms);
   }
 
   const bool condition_a = ctx->high_sample_count >= 3;

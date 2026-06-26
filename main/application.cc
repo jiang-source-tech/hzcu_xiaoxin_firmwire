@@ -104,10 +104,12 @@ void Application::Initialize() {
         
         switch (event) {
             case NetworkEvent::Scanning:
+                display->SetStatus(Lang::Strings::SCANNING_WIFI);
                 display->ShowNotification(Lang::Strings::SCANNING_WIFI, 30000);
                 xEventGroupSetBits(event_group_, MAIN_EVENT_NETWORK_DISCONNECTED);
                 break;
             case NetworkEvent::Connecting: {
+                display->SetStatus(Lang::Strings::CONNECTING);
                 if (data.empty()) {
                     // Cellular network - registering without carrier info yet
                     display->SetStatus(Lang::Strings::REGISTERING_NETWORK);
@@ -156,6 +158,8 @@ void Application::Initialize() {
     });
 
     // Start network asynchronously
+    display->SetStatus(Lang::Strings::SCANNING_WIFI);
+    display->UpdateStatusBar(true);
     board.StartNetwork();
 
     // Update the status bar immediately to show the network state

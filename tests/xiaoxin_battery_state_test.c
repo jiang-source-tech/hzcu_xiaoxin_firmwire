@@ -11,7 +11,30 @@ static xiaoxin_battery_snapshot_t feed(
   xiaoxin_battery_load_t load,
   uint32_t now_ms
 ) {
-  return xiaoxin_battery_state_update(ctx, voltage_mv, true, load, now_ms);
+  return xiaoxin_battery_state_update(
+    ctx,
+    voltage_mv,
+    true,
+    XIAOXIN_BATTERY_POWER_HINT_UNKNOWN,
+    load,
+    now_ms
+  );
+}
+
+static xiaoxin_battery_snapshot_t feed_with_power_hint(
+  xiaoxin_battery_context_t* ctx,
+  int voltage_mv,
+  xiaoxin_battery_power_hint_t power_hint,
+  uint32_t now_ms
+) {
+  return xiaoxin_battery_state_update(
+    ctx,
+    voltage_mv,
+    true,
+    power_hint,
+    XIAOXIN_BATTERY_LOAD_IDLE,
+    now_ms
+  );
 }
 
 static xiaoxin_battery_snapshot_t enter_external_with_high_samples(
@@ -205,6 +228,7 @@ static void invalid_and_nonpositive_samples_do_not_change_state_or_ema(void) {
     &ctx,
     0,
     true,
+    XIAOXIN_BATTERY_POWER_HINT_UNKNOWN,
     XIAOXIN_BATTERY_LOAD_IDLE,
     18000
   );
@@ -225,6 +249,7 @@ static void invalid_and_nonpositive_samples_do_not_change_state_or_ema(void) {
     &ctx,
     0,
     false,
+    XIAOXIN_BATTERY_POWER_HINT_UNKNOWN,
     XIAOXIN_BATTERY_LOAD_IDLE,
     33000
   );
@@ -248,6 +273,7 @@ static void extreme_low_samples_do_not_change_state_or_ema(void) {
     &ctx,
     2000,
     true,
+    XIAOXIN_BATTERY_POWER_HINT_UNKNOWN,
     XIAOXIN_BATTERY_LOAD_IDLE,
     18000
   );
@@ -315,6 +341,7 @@ static void high_untrusted_samples_do_not_show_full_battery(void) {
     &ctx,
     4500,
     true,
+    XIAOXIN_BATTERY_POWER_HINT_UNKNOWN,
     XIAOXIN_BATTERY_LOAD_IDLE,
     18000
   );
@@ -383,6 +410,45 @@ static void high_voltage_requires_three_qualifying_proposals(void) {
   assert(snapshot.power_source == XIAOXIN_BATTERY_POWER_EXTERNAL);
   assert(snapshot.display_level == 4);
   assert(!snapshot.percent_reliable);
+}
+
+static void external_power_hint_enters_external_immediately(void) {
+  xiaoxin_battery_context_t ctx;
+  xiaoxin_battery_state_init(&ctx, 0);
+
+  xiaoxin_battery_snapshot_t snapshot = feed_with_power_hint(
+    &ctx,
+    3900,
+    XIAOXIN_BATTERY_POWER_HINT_EXTERNAL,
+    1000
+  );
+
+  assert(snapshot.power_source == XIAOXIN_BATTERY_POWER_EXTERNAL);
+  assert(snapshot.display_level == 4);
+  assert(!snapshot.percent_reliable);
+}
+
+static void battery_power_hint_returns_from_external_after_hold(void) {
+  xiaoxin_battery_context_t ctx;
+  xiaoxin_battery_state_init(&ctx, 0);
+
+  xiaoxin_battery_snapshot_t snapshot = feed_with_power_hint(
+    &ctx,
+    3900,
+    XIAOXIN_BATTERY_POWER_HINT_EXTERNAL,
+    1000
+  );
+  assert(snapshot.power_source == XIAOXIN_BATTERY_POWER_EXTERNAL);
+
+  snapshot = feed_with_power_hint(
+    &ctx,
+    3900,
+    XIAOXIN_BATTERY_POWER_HINT_BATTERY,
+    32000
+  );
+
+  assert(snapshot.power_source == XIAOXIN_BATTERY_POWER_BATTERY);
+  assert(snapshot.percent_reliable);
 }
 
 static void rapid_rise_enters_external_after_confirmation(void) {
@@ -491,6 +557,7 @@ static void invalid_samples_enter_unknown_after_ten_reads(void) {
       &ctx,
       0,
       true,
+      XIAOXIN_BATTERY_POWER_HINT_UNKNOWN,
       XIAOXIN_BATTERY_LOAD_IDLE,
       now_ms
     );
@@ -505,11 +572,11 @@ static void unknown_display_level_drops_after_ten_seconds(void) {
   xiaoxin_battery_state_init(&ctx, 0);
   enter_battery_from_startup(&ctx);
   for (uint32_t now_ms = 18000; now_ms <= 27000; now_ms += 1000) {
-    xiaoxin_battery_state_update(&ctx, 0, true, XIAOXIN_BATTERY_LOAD_IDLE, now_ms);
+    xiaoxin_battery_state_update(&ctx, 0, true, XIAOXIN_BATTERY_POWER_HINT_UNKNOWN, XIAOXIN_BATTERY_LOAD_IDLE, now_ms);
   }
 
   xiaoxin_battery_snapshot_t snapshot =
-    xiaoxin_battery_state_update(&ctx, 0, true, XIAOXIN_BATTERY_LOAD_IDLE, 38000);
+    xiaoxin_battery_state_update(&ctx, 0, true, XIAOXIN_BATTERY_POWER_HINT_UNKNOWN, XIAOXIN_BATTERY_LOAD_IDLE, 38000);
   assert(snapshot.power_source == XIAOXIN_BATTERY_POWER_UNKNOWN);
   assert(snapshot.display_level == 0);
   assert(!snapshot.percent_reliable);
@@ -539,6 +606,7 @@ static void external_invalid_samples_do_not_break_minimum_hold(void) {
       &ctx,
       0,
       false,
+      XIAOXIN_BATTERY_POWER_HINT_UNKNOWN,
       XIAOXIN_BATTERY_LOAD_IDLE,
       now_ms
     );
@@ -625,6 +693,7 @@ static void external_exit_window_requires_continuous_valid_samples(void) {
     &ctx,
     0,
     false,
+    XIAOXIN_BATTERY_POWER_HINT_UNKNOWN,
     XIAOXIN_BATTERY_LOAD_IDLE,
     50000
   );
@@ -647,6 +716,7 @@ static void unknown_exit_window_requires_continuous_valid_samples(void) {
       &ctx,
       0,
       true,
+      XIAOXIN_BATTERY_POWER_HINT_UNKNOWN,
       XIAOXIN_BATTERY_LOAD_IDLE,
       now_ms
     );
@@ -662,6 +732,7 @@ static void unknown_exit_window_requires_continuous_valid_samples(void) {
     &ctx,
     0,
     false,
+    XIAOXIN_BATTERY_POWER_HINT_UNKNOWN,
     XIAOXIN_BATTERY_LOAD_IDLE,
     40000
   );
@@ -763,6 +834,8 @@ int main(void) {
   extreme_low_sample_does_not_update_ema_or_state();
   single_high_voltage_spike_does_not_enter_external();
   high_voltage_requires_three_qualifying_proposals();
+  external_power_hint_enters_external_immediately();
+  battery_power_hint_returns_from_external_after_hold();
   rapid_rise_enters_external_after_confirmation();
   steady_high_voltage_enters_external();
   alternating_sample_types_enter_external();

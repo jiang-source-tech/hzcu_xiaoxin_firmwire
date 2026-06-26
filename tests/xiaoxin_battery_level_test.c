@@ -5,8 +5,10 @@
 
 static void maps_common_lipo_voltage_to_percent(void) {
     assert(xiaoxin_battery_percent_from_mv(4200) == 100);
-    assert(xiaoxin_battery_percent_from_mv(3900) > 50);
-    assert(xiaoxin_battery_percent_from_mv(3600) < 50);
+    assert(xiaoxin_battery_percent_from_mv(4100) == 90);
+    assert(xiaoxin_battery_percent_from_mv(3900) == 60);
+    assert(xiaoxin_battery_percent_from_mv(3700) == 20);
+    assert(xiaoxin_battery_percent_from_mv(3600) == 10);
     assert(xiaoxin_battery_percent_from_mv(3200) == 0);
 }
 

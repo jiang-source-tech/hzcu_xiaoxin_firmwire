@@ -1293,10 +1293,16 @@ private:
         bool discharging = true;
         const bool sample_valid = Board::GetInstance().GetBatteryLevel(level, charging, discharging);
         const int voltage_mv = sample_valid ? BoardBatteryVoltageMv() : 0;
+        const xiaoxin_battery_power_hint_t power_hint = !sample_valid
+            ? XIAOXIN_BATTERY_POWER_HINT_UNKNOWN
+            : (charging
+                ? XIAOXIN_BATTERY_POWER_HINT_EXTERNAL
+                : (discharging ? XIAOXIN_BATTERY_POWER_HINT_BATTERY : XIAOXIN_BATTERY_POWER_HINT_UNKNOWN));
         battery_snapshot_ = xiaoxin_battery_state_update(
             &battery_context_,
             voltage_mv,
             sample_valid,
+            power_hint,
             CurrentBatteryLoad(),
             NowMs()
         );
@@ -4761,6 +4767,8 @@ private:
         }
 
         int voltage_sum = 0;
+        int voltage_min = 0;
+        int voltage_max = 0;
         uint8_t sample_count = 0;
         for (uint8_t i = 0; i < k_battery_adc_samples; ++i) {
             int raw_value = 0;
@@ -4771,8 +4779,20 @@ private:
             if (adc_cali_raw_to_voltage(battery_adc_cali_handle_, raw_value, &pin_voltage_mv) != ESP_OK) {
                 continue;
             }
-            voltage_sum += pin_voltage_mv * k_battery_voltage_divider;
+            const int voltage_mv = pin_voltage_mv * k_battery_voltage_divider;
+            voltage_sum += voltage_mv;
+            if (sample_count == 0 || voltage_mv < voltage_min) {
+                voltage_min = voltage_mv;
+            }
+            if (sample_count == 0 || voltage_mv > voltage_max) {
+                voltage_max = voltage_mv;
+            }
             sample_count++;
+        }
+
+        if (sample_count >= 3) {
+            voltage_sum -= voltage_min + voltage_max;
+            sample_count -= 2;
         }
 
         return sample_count > 0 ? voltage_sum / sample_count : 0;
@@ -5132,56 +5152,28 @@ public:
 
         ESP_LOGI(TAG, "[BOOT] Stage 7/11: Backlight restore (%s)", on_battery_ ? "battery-dim" : "normal");
         if (on_battery_) {
-            // Initial 3 blinks: constructor is alive and running
             GetBacklight()->SetBrightness(10, false);
-            for (int i = 0; i < 3; ++i) {
-                vTaskDelay(pdMS_TO_TICKS(120));
-                GetBacklight()->SetBrightness(10, false);
-                vTaskDelay(pdMS_TO_TICKS(120));
-                GetBacklight()->SetBrightness(0, false);
-            }
             vTaskDelay(pdMS_TO_TICKS(200));
-            GetBacklight()->SetBrightness(10, false);  // settle at 10%
-            vTaskDelay(pdMS_TO_TICKS(200));             // wait for fade to complete
         } else {
             GetBacklight()->RestoreBrightness();
         }
 
         ESP_LOGI(TAG, "[BOOT] Stage 8/11: Touch controller");
         InitializeTouch();
-        if (on_battery_) {
-            // Delimiter blink: off→on at new level
-            GetBacklight()->SetBrightness(0, false);
-            vTaskDelay(pdMS_TO_TICKS(150));
-            GetBacklight()->SetBrightness(18, false);  // Stage 8 done → 18%
-            vTaskDelay(pdMS_TO_TICKS(200));
-        }
+        StabilizeBatteryBootStage();
 
         ESP_LOGI(TAG, "[BOOT] Stage 9/11: Buttons");
         InitializeButtons();
-        if (on_battery_) {
-            GetBacklight()->SetBrightness(0, false);
-            vTaskDelay(pdMS_TO_TICKS(150));
-            GetBacklight()->SetBrightness(26, false);  // Stage 9 done → 26%
-            vTaskDelay(pdMS_TO_TICKS(200));
-        }
+        StabilizeBatteryBootStage();
 
         ESP_LOGI(TAG, "[BOOT] Stage 10/11: Power save timer");
         InitializePowerSaveTimer();
-        if (on_battery_) {
-            GetBacklight()->SetBrightness(0, false);
-            vTaskDelay(pdMS_TO_TICKS(150));
-            GetBacklight()->SetBrightness(34, false);  // Stage 10 done → 34%
-            vTaskDelay(pdMS_TO_TICKS(200));
-        }
+        StabilizeBatteryBootStage();
 
         if (on_battery_) {
             ESP_LOGI(TAG, "[BOOT] Stage 11/11: Deferring IMU init (battery power)");
             ScheduleDeferredMotionInit();
-            GetBacklight()->SetBrightness(0, false);
-            vTaskDelay(pdMS_TO_TICKS(150));
-            GetBacklight()->SetBrightness(42, false);  // Stage 11 done → 42%
-            vTaskDelay(pdMS_TO_TICKS(200));
+            StabilizeBatteryBootStage();
         } else {
             ESP_LOGI(TAG, "[BOOT] Stage 11/11: IMU motion sensor");
             InitializeMotion();
@@ -5189,15 +5181,11 @@ public:
 
         InitializeDebugConsole();
         ESP_LOGI(TAG, "[BOOT] Constructor complete (on_battery=%d)", on_battery_ ? 1 : 0);
+    }
 
-        // Final delimiter + full brightness = constructor survived all stages
+    void StabilizeBatteryBootStage() {
         if (on_battery_) {
-            auto backlight = GetBacklight();
-            if (backlight != nullptr) {
-                backlight->SetBrightness(0, false);
-                vTaskDelay(pdMS_TO_TICKS(200));
-                backlight->RestoreBrightness();
-            }
+            vTaskDelay(pdMS_TO_TICKS(150));
         }
     }
 
@@ -5258,9 +5246,38 @@ public:
         EnterWifiConfigMode();
     }
 
+    void StartNetwork() override {
+        if (on_battery_) {
+            auto* backlight = GetBacklight();
+            if (backlight != nullptr) {
+                backlight->SetBrightness(10, false);
+            }
+            vTaskDelay(pdMS_TO_TICKS(300));
+        }
+
+        WifiBoard::StartNetwork();
+
+        if (on_battery_) {
+            xTaskCreate([](void* arg) {
+                auto* self = static_cast<CustomBoard*>(arg);
+                vTaskDelay(pdMS_TO_TICKS(3000));
+                auto* backlight = self->GetBacklight();
+                if (backlight != nullptr) {
+                    backlight->RestoreBrightness();
+                }
+                vTaskDelete(nullptr);
+            }, "wifi_bright", 2048, this, 1, nullptr);
+        }
+    }
+
     virtual AudioCodec* GetAudioCodec() override {
         static NoAudioCodecSimplex audio_codec(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
             AUDIO_I2S_SPK_GPIO_BCLK, AUDIO_I2S_SPK_GPIO_LRCK, AUDIO_I2S_SPK_GPIO_DOUT, I2S_STD_SLOT_LEFT, AUDIO_I2S_MIC_GPIO_SCK, AUDIO_I2S_MIC_GPIO_WS, AUDIO_I2S_MIC_GPIO_DIN, I2S_STD_SLOT_RIGHT); // I2S_STD_SLOT_LEFT / I2S_STD_SLOT_RIGHT / I2S_STD_SLOT_BOTH
+        static bool output_volume_configured = []() {
+            audio_codec.SetOutputVolume(100);
+            return true;
+        }();
+        (void)output_volume_configured;
 
         return &audio_codec;
     }
@@ -5274,10 +5291,11 @@ public:
 
         last_battery_voltage_mv_ = voltage_mv;
         level = xiaoxin_battery_percent_from_mv(voltage_mv);
-        // Use early power detection to inform charging state.
+        on_battery_ = voltage_mv <= 4500;
+        // Use the current voltage-derived power source to inform charging state.
         // On USB, report charging so the battery state machine converges on
-        // XIAOXIN_BATTERY_POWER_EXTERNAL immediately instead of waiting 2+ minutes
-        // for voltage-trend heuristics.
+        // XIAOXIN_BATTERY_POWER_EXTERNAL immediately instead of waiting for
+        // voltage-trend heuristics.
         charging = !on_battery_;
         discharging = on_battery_;
         ESP_LOGI(TAG, "Battery voltage=%dmV level=%d%% %s",

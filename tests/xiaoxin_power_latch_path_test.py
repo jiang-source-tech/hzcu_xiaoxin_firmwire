@@ -81,6 +81,62 @@ def test_backlight_is_restored_immediately_after_lcd_initialization():
         "First backlight init must happen before touch init"
 
 
+def test_battery_network_start_uses_low_current_ramp_before_wifi():
+    source = read_source()
+
+    assert "void StartNetwork() override" in source
+    start_network = function_body(source, "void StartNetwork() override")
+
+    assert "if (on_battery_)" in start_network
+    assert "backlight->SetBrightness(10, false);" in start_network
+    assert "vTaskDelay(pdMS_TO_TICKS(300));" in start_network
+    assert "WifiBoard::StartNetwork();" in start_network
+    assert start_network.index("backlight->SetBrightness(10, false);") < start_network.index(
+        "WifiBoard::StartNetwork();"
+    )
+    assert start_network.index("vTaskDelay(pdMS_TO_TICKS(300));") < start_network.index(
+        "WifiBoard::StartNetwork();"
+    )
+    assert "vTaskDelay(pdMS_TO_TICKS(3000));" in start_network
+
+
+def test_battery_boot_does_not_use_diagnostic_backlight_blinks():
+    source = read_source()
+    constructor = function_body(source, "CustomBoard()")
+
+    assert "Initial 3 blinks" not in constructor
+    assert "Delimiter blink" not in constructor
+    assert "Stage 8 done" not in constructor
+    assert "Stage 9 done" not in constructor
+    assert "Stage 10 done" not in constructor
+    assert "Stage 11 done" not in constructor
+    assert "GetBacklight()->SetBrightness(0, false);" not in constructor
+    assert "backlight->SetBrightness(0, false);" not in constructor
+
+
+def test_battery_boot_keeps_invisible_power_settling_delays_between_stages():
+    source = read_source()
+    constructor = function_body(source, "CustomBoard()")
+    settle = function_body(source, "void StabilizeBatteryBootStage()")
+
+    assert "if (on_battery_)" in settle
+    assert "vTaskDelay(pdMS_TO_TICKS(150));" in settle
+    assert constructor.count("StabilizeBatteryBootStage();") >= 4
+    assert constructor.index("InitializeTouch();") < constructor.index("StabilizeBatteryBootStage();")
+    assert constructor.index("InitializeButtons();") < constructor.index(
+        "StabilizeBatteryBootStage();",
+        constructor.index("InitializeButtons();"),
+    )
+    assert constructor.index("InitializePowerSaveTimer();") < constructor.index(
+        "StabilizeBatteryBootStage();",
+        constructor.index("InitializePowerSaveTimer();"),
+    )
+    assert constructor.index("ScheduleDeferredMotionInit();") < constructor.index(
+        "StabilizeBatteryBootStage();",
+        constructor.index("ScheduleDeferredMotionInit();"),
+    )
+
+
 def test_runtime_power_button_handles_press_level_directly():
     source = read_source()
     runtime_reader = function_body(source, "bool ReadPwrButtonPressedForRuntime()")
