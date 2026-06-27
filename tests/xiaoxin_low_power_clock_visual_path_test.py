@@ -213,8 +213,18 @@ def test_low_power_clock_refresh_is_not_in_hot_render_loop():
 
 def test_low_power_clock_snake_background_uses_single_drawn_object():
     source = read_source()
+    clock_section = source[
+        source.index("void InitializeLowPowerClockLayerLocked()"):
+        source.index("void InitializeNotificationHeadsUpLayerLocked()", source.index("void InitializeLowPowerClockLayerLocked()"))
+    ]
+
     assert "lv_obj_t* low_power_clock_snake_bg_ = nullptr;" in source
-    assert "low_power_clock_snake_bg_ = lv_obj_create(low_power_clock_layer_);" in source
+    assert "InitializeLowPowerSnakeBackgroundLocked();" in clock_section
+    assert "low_power_clock_snake_bg_ = lv_obj_create(low_power_clock_layer_);" in clock_section
+    assert clock_section.count("lv_obj_create(low_power_clock_layer_)") == 2
+    assert clock_section.count("lv_arc_create(low_power_clock_layer_)") == 2
+    assert clock_section.count("lv_label_create(low_power_clock_layer_)") == 5
+    assert clock_section.count("lv_obj_create(screen)") == 1
     assert "lv_obj_add_event_cb(low_power_clock_snake_bg_, LowPowerSnakeDrawEvent, LV_EVENT_DRAW_MAIN, this);" in source
     assert "lv_event_get_layer(e)" in source
     assert "lv_draw_rect(" in source
