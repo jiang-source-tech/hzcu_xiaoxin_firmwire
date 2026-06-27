@@ -38,7 +38,8 @@ def test_low_power_clock_uses_large_center_time_and_arc_layout():
     assert "lv_arc_set_bg_angles(low_power_clock_inner_arc_, 0, 360);" in source
     assert "lv_arc_set_angles(low_power_clock_inner_arc_, 0, XIAOXIN_LOW_POWER_CLOCK_ARC_SPAN_DEGREES);" in source
     assert "lv_obj_remove_style(low_power_clock_inner_arc_, NULL, LV_PART_KNOB);" in source
-    assert "lv_obj_set_style_arc_color(low_power_clock_inner_arc_, lv_color_hex(0x26D9FF), LV_PART_INDICATOR);" in source
+    assert "lv_obj_set_style_arc_color(low_power_clock_inner_arc_, lv_color_hex(0x1C6B4A), LV_PART_INDICATOR);" in source
+    assert "lv_obj_set_style_arc_opa(low_power_clock_inner_arc_, LowPowerClockOpaPercent(55), LV_PART_INDICATOR);" in source
     assert "lv_obj_align(low_power_clock_time_label_, LV_ALIGN_CENTER, 0, -10);" in source
     assert "const lv_font_t* clock_font = &font_puhui_basic_30_4;" in source
     assert "lv_obj_set_style_text_font(low_power_clock_time_label_, clock_font, 0);" in source
@@ -58,8 +59,10 @@ def test_low_power_clock_uses_orbit_aod_visual_language():
     assert "lv_obj_t* low_power_clock_date_label_ = nullptr;" in source
     assert "lv_obj_t* low_power_clock_sync_dot_ = nullptr;" in source
     assert "lv_obj_t* low_power_clock_sync_label_ = nullptr;" in source
-    assert "lv_obj_set_style_arc_color(low_power_clock_outer_arc_, lv_color_hex(0x102A35), LV_PART_MAIN);" in source
-    assert "lv_obj_set_style_arc_color(low_power_clock_inner_arc_, lv_color_hex(0x26D9FF), LV_PART_INDICATOR);" in source
+    assert "lv_obj_set_style_arc_color(low_power_clock_outer_arc_, lv_color_hex(0x071015), LV_PART_MAIN);" in source
+    assert "lv_obj_set_style_arc_opa(low_power_clock_outer_arc_, LowPowerClockOpaPercent(35), LV_PART_MAIN);" in source
+    assert "lv_obj_set_style_arc_color(low_power_clock_inner_arc_, lv_color_hex(0x1C6B4A), LV_PART_INDICATOR);" in source
+    assert "lv_obj_set_style_arc_opa(low_power_clock_inner_arc_, LowPowerClockOpaPercent(55), LV_PART_INDICATOR);" in source
     assert "lv_obj_align(low_power_clock_date_label_, LV_ALIGN_TOP_MID, 0, 34);" in source
     assert "lv_obj_align(low_power_clock_sync_label_, LV_ALIGN_BOTTOM_RIGHT, -22, -20);" in source
 
@@ -205,3 +208,79 @@ def test_low_power_clock_refresh_is_not_in_hot_render_loop():
         source.index("static void RenderTask", source.index("void RunRenderLoop()"))
     ]
     assert "RefreshLowPowerClockScreenLocked(false);" not in render_loop_section
+
+
+def test_low_power_clock_snake_background_uses_single_drawn_object():
+    source = read_source()
+    clock_section = source[
+        source.index("void InitializeLowPowerClockLayerLocked()"):
+        source.index("void InitializeNotificationHeadsUpLayerLocked()", source.index("void InitializeLowPowerClockLayerLocked()"))
+    ]
+    create_call_lines = [
+        line.strip()
+        for line in source.splitlines()
+        if "lv_obj_create(low_power_clock_layer_)" in line
+    ]
+
+    assert "lv_obj_t* low_power_clock_snake_bg_ = nullptr;" in source
+    assert "InitializeLowPowerSnakeBackgroundLocked();" in clock_section
+    assert create_call_lines == [
+        "low_power_clock_sync_dot_ = lv_obj_create(low_power_clock_layer_);",
+        "low_power_clock_snake_bg_ = lv_obj_create(low_power_clock_layer_);",
+    ]
+    assert clock_section.count("lv_arc_create(low_power_clock_layer_)") == 2
+    assert clock_section.count("lv_label_create(low_power_clock_layer_)") == 4
+    assert "low_power_clock_time_label_ = lv_label_create(low_power_clock_layer_);" in clock_section
+    assert "low_power_clock_date_label_ = lv_label_create(low_power_clock_layer_);" in clock_section
+    assert "low_power_clock_sync_label_ = lv_label_create(low_power_clock_layer_);" in clock_section
+    assert "low_power_clock_hint_label_ = lv_label_create(low_power_clock_layer_);" in clock_section
+    assert clock_section.count("lv_obj_create(screen)") == 1
+    assert "lv_obj_add_event_cb(low_power_clock_snake_bg_, LowPowerSnakeDrawEvent, LV_EVENT_DRAW_MAIN, this);" in source
+    assert "lv_event_get_layer(e)" in source
+    assert "lv_draw_rect(" in source
+    assert "lv_draw_rect_dsc_init(" in source
+    assert "lv_canvas_create" not in source
+    assert "low_power_clock_snake_cells_" not in source
+
+
+def test_low_power_clock_snake_background_is_created_before_foreground_labels():
+    source = read_source()
+    init_section = source[
+        source.index("void InitializeLowPowerClockLayerLocked()"):
+        source.index("void InitializeCardPagerLayer()", source.index("void InitializeLowPowerClockLayerLocked()"))
+    ]
+
+    assert init_section.index("InitializeLowPowerSnakeBackgroundLocked();") < init_section.index("low_power_clock_outer_arc_ = lv_arc_create(low_power_clock_layer_);")
+    assert init_section.index("InitializeLowPowerSnakeBackgroundLocked();") < init_section.index("low_power_clock_time_label_ = lv_label_create(low_power_clock_layer_);")
+
+
+def test_low_power_clock_snake_path_clips_circle_and_text_safe_areas():
+    source = read_source()
+    path_start = source.index("static uint16_t BuildLowPowerSnakePath(")
+    fallback_comment = "    // If typewriter jumps around the center read poorly on hardware, use a concentric ring path.\n"
+    path_end = source.index("    return count;\n}", source.index(fallback_comment, path_start)) + len("    return count;\n}")
+    path_section = source[path_start:path_end]
+
+    assert "BuildLowPowerSnakePath(" in path_section
+    assert "LowPowerSnakeCellInCircle(col, row)" in path_section
+    assert "LowPowerSnakeCellInSnakeSafeArea(col, row)" in path_section
+
+
+def test_low_power_clock_snake_animation_invalidates_background_only():
+    source = read_source()
+    animation_section = source[
+        source.index("void RefreshLowPowerClockAnimationLocked()"):
+        source.index("void RefreshLowPowerClockScreenFromTimer()")
+    ]
+
+    assert "low_power_clock_snake_tick_++" in animation_section
+    assert "lv_obj_invalidate(low_power_clock_snake_bg_);" in animation_section
+    assert "lv_obj_create(low_power_clock_layer_)" not in animation_section
+
+
+def test_low_power_clock_snake_uses_supported_lvgl_opacity_values():
+    source = read_source()
+
+    assert "static constexpr lv_opa_t LowPowerClockOpaPercent(uint8_t percent)" in source
+    for unsupported_opa in ("LV_OPA_35", "LV_OPA_55", "LV_OPA_75", "LV_OPA_85", "LV_OPA_95"):
+        assert unsupported_opa not in source

@@ -1,5 +1,42 @@
 ﻿# Update
 
+## 2026-06-27 00:00:00 +08:00
+
+### Waveshare ESP32-S3 Touch LCD 1.46 低功耗贪吃蛇屏保合并
+
+#### 背景
+
+本轮将 worktree 分支 `codex/xiaoxin-snake-screensaver` 合并到 `main`，把低功耗时钟页的黑底动态表盘扩展为带贪吃蛇像素背景的 AOD 屏保效果。合并时 `main` 已包含后续的演示控制和低功耗 UI 调整，因此对测试 guardrail 做了适配：保留当前 main 的 4 个低功耗前景文本标签结构，不重新引入分支中较早版本的电池标签。
+
+#### 修改内容
+
+- 低功耗时钟页新增贪吃蛇背景绘制：
+  - 新增蛇身网格、圆形屏幕裁剪和底部提示安全区判断。
+  - 用单个 `low_power_clock_snake_bg_` LVGL 绘制对象承载背景绘制，避免为每个格子创建独立对象。
+  - 通过 `LV_EVENT_DRAW_MAIN` 和 `lv_draw_rect()` 绘制背景格子、蛇头和蛇身。
+  - 低功耗刷新 tick 推进蛇身路径，并 invalidate 背景对象形成动画。
+- LVGL opacity 兼容修正：
+  - 新增 `LowPowerClockOpaPercent()`，将 55%、85%、95% 等透明度转换为 `lv_opa_t` 数值。
+  - 避免使用当前 LVGL 版本未提供的 `LV_OPA_55`、`LV_OPA_85`、`LV_OPA_95` 常量。
+- 测试 guardrail 加强：
+  - 扩展 `tests/xiaoxin_low_power_clock_visual_path_test.py`，覆盖贪吃蛇背景只创建一个绘制对象、路径裁剪圆屏边界、避开底部提示区域和禁用 canvas/多对象格子方案。
+  - 合并后将 label 数量断言适配为当前 main 的 4 个前景文本标签，并显式校验时间、日期、同步状态和 POWER 唤醒提示标签。
+- 合并处理：
+  - 解决 `esp32-s3-touch-lcd-1.46.cc` 中低功耗透明度 helper 和 LVGL opacity 常量的冲突。
+  - 保留 `main` 当前低功耗时钟的视觉结构，同时合入 snake 分支的背景绘制和路径 guardrail。
+
+#### 涉及文件
+
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `tests/xiaoxin_low_power_clock_visual_path_test.py`
+- `.superpowers/sdd/final-review-fix-report.md`
+- `docs/update.md`
+
+#### 验证结果
+
+- `python -m pytest tests/xiaoxin_low_power_clock_visual_path_test.py -q`：通过，21 passed。
+- 当前 shell 中未找到 `idf.py`，因此本轮未执行完整 ESP-IDF 固件 build / flash；仍需在 ESP-IDF 环境中实机确认低功耗贪吃蛇背景、低功耗时间页层级和 POWER 唤醒行为。
+
 ## 2026-06-25 00:00:00 +08:00
 
 ### Waveshare ESP32-S3 Touch LCD 1.46 通知悬浮窗调试入口与排版修正
