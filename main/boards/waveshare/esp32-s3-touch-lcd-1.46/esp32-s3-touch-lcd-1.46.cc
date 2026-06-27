@@ -12,6 +12,7 @@
 #include "settings.h"
 #include "time_sync_status.h"
 #include "assets/lang_config.h"
+#include "boot_diagnostics.h"
 
 #include <esp_check.h>
 #include <esp_app_desc.h>
@@ -126,6 +127,9 @@ static constexpr uint16_t k_pet_target_visual_longest = 162;
 static constexpr uint16_t k_card_snap_min_anim_ms = 150;
 static constexpr uint16_t k_card_snap_max_anim_ms = 240;
 static constexpr uint32_t k_boot_splash_duration_ms = 2400;
+static constexpr uint32_t k_boot_splash_ready_hold_timeout_ms = 120000;
+static constexpr uint32_t k_boot_splash_ui_ready_reveal_delay_ms = 180;
+static constexpr int k_boot_splash_brightness_percent = 100;
 static constexpr uint8_t k_card_glass_count = XIAOXIN_CARD_NOTIFICATION_MAX;
 static constexpr uint8_t k_notification_indicator_dot_count = XIAOXIN_CARD_NOTIFICATION_MAX;
 static constexpr uint8_t k_overview_row_count = 4;
@@ -748,6 +752,7 @@ public:
         current_state_ = trigger_.displayed_state;
         PlayGifState(current_state_);
         ShowBootSplashLocked();
+        ScheduleBootSplashRevealAfterUiReadyLocked();
 
         if (render_task_ == nullptr) {
             xTaskCreatePinnedToCore(
@@ -761,6 +766,20 @@ public:
             );
         }
 
+    }
+
+    virtual void CompleteBootSplash() override {
+        DisplayLockGuard lock(this);
+        boot_splash_wait_for_ready_ = false;
+        if (boot_splash_timer_ != nullptr) {
+            esp_timer_stop(boot_splash_timer_);
+        }
+        HideBootSplashLocked();
+
+        auto backlight = Board::GetInstance().GetBacklight();
+        if (backlight != nullptr) {
+            backlight->RestoreBrightness();
+        }
     }
 
     virtual void SetStatus(const char* status) override {
@@ -1102,6 +1121,7 @@ private:
     std::unique_ptr<LvglGif> boot_splash_controller_ = nullptr;
     esp_timer_handle_t boot_splash_timer_ = nullptr;
     bool boot_splash_visible_ = false;
+    bool boot_splash_wait_for_ready_ = false;
     TouchReader* touch_ = nullptr;
     xiaoxin_card_pager_t card_pager_ = {};
     xiaoxin_notification_heads_up_t notification_heads_up_model_ = {};
@@ -2262,11 +2282,13 @@ private:
             return;
         }
 
+        boot_splash_wait_for_ready_ = s_boot_on_battery;
+
         lv_obj_t* screen = lv_screen_active();
         boot_splash_layer_ = lv_obj_create(screen);
         lv_obj_set_size(boot_splash_layer_, DISPLAY_WIDTH, DISPLAY_HEIGHT);
         lv_obj_set_style_radius(boot_splash_layer_, 0, 0);
-        lv_obj_set_style_bg_color(boot_splash_layer_, lv_color_white(), 0);
+        lv_obj_set_style_bg_color(boot_splash_layer_, lv_color_hex(0x000000), 0);
         lv_obj_set_style_bg_opa(boot_splash_layer_, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(boot_splash_layer_, 0, 0);
         lv_obj_set_style_pad_all(boot_splash_layer_, 0, 0);
@@ -2282,7 +2304,7 @@ private:
         boot_splash_source_dsc_.data_size = gif_size;
         boot_splash_source_dsc_.data = assets_images_boot_gif_start;
 
-        boot_splash_controller_ = std::make_unique<LvglGif>(&boot_splash_source_dsc_, true, 0xFFFFFF, true);
+        boot_splash_controller_ = std::make_unique<LvglGif>(&boot_splash_source_dsc_, true, 0x000000, true);
         if (boot_splash_controller_ == nullptr || !boot_splash_controller_->IsLoaded()) {
             ESP_LOGW(TAG, "Boot splash GIF failed to load");
             HideBootSplashLocked();
@@ -2316,11 +2338,33 @@ private:
         }
 
         esp_timer_stop(boot_splash_timer_);
-        ESP_ERROR_CHECK(esp_timer_start_once(boot_splash_timer_, k_boot_splash_duration_ms * 1000ULL));
+        const uint32_t splash_duration_ms = boot_splash_wait_for_ready_
+            ? k_boot_splash_ready_hold_timeout_ms
+            : k_boot_splash_duration_ms;
+        ESP_ERROR_CHECK(esp_timer_start_once(boot_splash_timer_, splash_duration_ms * 1000ULL));
+    }
+
+    void ScheduleBootSplashRevealAfterUiReadyLocked() {
+        if (!boot_splash_visible_) {
+            return;
+        }
+        if (boot_splash_timer_ == nullptr) {
+            HideBootSplashLocked();
+            return;
+        }
+
+        boot_splash_wait_for_ready_ = false;
+        esp_timer_stop(boot_splash_timer_);
+        esp_err_t err = esp_timer_start_once(boot_splash_timer_, k_boot_splash_ui_ready_reveal_delay_ms * 1000ULL);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Boot splash UI-ready reveal timer start failed: %s", esp_err_to_name(err));
+            HideBootSplashLocked();
+        }
     }
 
     void HideBootSplashLocked() {
         boot_splash_visible_ = false;
+        boot_splash_wait_for_ready_ = false;
         boot_splash_controller_.reset();
         if (boot_splash_layer_ != nullptr) {
             lv_obj_del(boot_splash_layer_);
@@ -2333,6 +2377,9 @@ private:
     void HideBootSplashFromTimer() {
         DisplayLockGuard lock(this);
         if (!boot_splash_visible_) {
+            return;
+        }
+        if (boot_splash_wait_for_ready_) {
             return;
         }
         HideBootSplashLocked();
@@ -4560,6 +4607,7 @@ private:
     Qmi8658Motion motion_;
     TaskHandle_t motion_task_ = nullptr;
     TaskHandle_t power_off_task_ = nullptr;
+    TaskHandle_t debug_console_task_ = nullptr;
     PowerSaveTimer* power_save_timer_ = nullptr;
     xiaoxin_power_control_t power_control_ = {};
     adc_oneshot_unit_handle_t battery_adc_handle_ = nullptr;
@@ -5151,6 +5199,38 @@ private:
         };
         ESP_ERROR_CHECK(esp_console_cmd_register(&notify_test_cmd));
 
+        const esp_console_cmd_t boot_diag_cmd = {
+            .command = "boot_diag",
+            .help = "print previous boot and current boot diagnostics",
+            .hint = nullptr,
+            .func = nullptr,
+            .argtable = nullptr,
+            .func_w_context = [](void* context, int argc, char** argv) -> int {
+                (void)context;
+                (void)argc;
+                (void)argv;
+
+                char trace[BOOT_DIAGNOSTICS_TRACE_MAX] = {};
+                bool on_battery = false;
+                if (BootDiagnosticsReadPrevious(trace, sizeof(trace), &on_battery)) {
+                    printf("previous boot (%s): %s\n", on_battery ? "battery" : "usb", trace);
+                } else {
+                    printf("previous boot: <empty>\n");
+                }
+
+                trace[0] = '\0';
+                on_battery = false;
+                if (BootDiagnosticsReadCurrent(trace, sizeof(trace), &on_battery)) {
+                    printf("current boot (%s): %s\n", on_battery ? "battery" : "usb", trace);
+                } else {
+                    printf("current boot: <empty>\n");
+                }
+                return 0;
+            },
+            .context = this,
+        };
+        ESP_ERROR_CHECK(esp_console_cmd_register(&boot_diag_cmd));
+
         esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
         repl_config.max_cmdline_length = 128;
         repl_config.prompt = "xiaoxin>";
@@ -5181,6 +5261,20 @@ private:
         ESP_LOGI(TAG, "Debug console started. Use `notify_test` to open notification page.");
     }
 
+    void ScheduleDeferredDebugConsole() {
+        if (debug_console_task_ != nullptr || debug_console_repl_ != nullptr) {
+            return;
+        }
+
+        xTaskCreate([](void* arg) {
+            auto* self = static_cast<CustomBoard*>(arg);
+            vTaskDelay(pdMS_TO_TICKS(2000));
+            self->InitializeDebugConsole();
+            self->debug_console_task_ = nullptr;
+            vTaskDelete(nullptr);
+        }, "debug_console", 4096, this, 1, &debug_console_task_);
+    }
+
 public:
     CustomBoard() {
         ESP_LOGI(TAG, "[BOOT] Stage 1/11: Power hold latch");
@@ -5188,50 +5282,68 @@ public:
 
         ESP_LOGI(TAG, "[BOOT] Stage 2/11: Early power source detection");
         DetectPowerSourceEarly();
+        BootDiagnosticsStart(on_battery_);
+        BootDiagnosticsMark("board_power_source_detected");
         s_boot_on_battery = on_battery_;
 
         ESP_LOGI(TAG, "[BOOT] Stage 3/11: I2C bus");
+        BootDiagnosticsMark("board_i2c_start");
         InitializeI2c();
 
         ESP_LOGI(TAG, "[BOOT] Stage 4/11: TCA9554 IO expander + LCD reset");
+        BootDiagnosticsMark("board_io_expander_start");
         InitializeTca9554();
 
         ESP_LOGI(TAG, "[BOOT] Stage 5/11: QSPI bus");
+        BootDiagnosticsMark("board_qspi_start");
         InitializeSpi();
 
         ESP_LOGI(TAG, "[BOOT] Stage 6/11: SPD2010 display panel");
+        BootDiagnosticsMark("board_display_start");
         InitializeSpd2010Display();
 
-        ESP_LOGI(TAG, "[BOOT] Stage 7/11: Backlight restore (%s)", on_battery_ ? "battery-dim" : "normal");
+        ESP_LOGI(TAG, "[BOOT] Stage 7/11: Backlight restore (%s)", on_battery_ ? "battery-splash" : "normal");
+        BootDiagnosticsMark("board_backlight_ready");
         if (on_battery_) {
-            GetBacklight()->SetBrightness(10, false);
+            GetBacklight()->SetBrightness(k_boot_splash_brightness_percent, false);
             vTaskDelay(pdMS_TO_TICKS(200));
         } else {
             GetBacklight()->RestoreBrightness();
         }
 
         ESP_LOGI(TAG, "[BOOT] Stage 8/11: Touch controller");
+        BootDiagnosticsMark("board_touch_start");
         InitializeTouch();
         StabilizeBatteryBootStage();
 
         ESP_LOGI(TAG, "[BOOT] Stage 9/11: Buttons");
+        BootDiagnosticsMark("board_buttons_start");
         InitializeButtons();
         StabilizeBatteryBootStage();
 
         ESP_LOGI(TAG, "[BOOT] Stage 10/11: Power save timer");
+        BootDiagnosticsMark("board_power_save_timer_start");
         InitializePowerSaveTimer();
         StabilizeBatteryBootStage();
 
         if (on_battery_) {
             ESP_LOGI(TAG, "[BOOT] Stage 11/11: Deferring IMU init (battery power)");
+            BootDiagnosticsMark("board_imu_deferred");
             ScheduleDeferredMotionInit();
             StabilizeBatteryBootStage();
         } else {
             ESP_LOGI(TAG, "[BOOT] Stage 11/11: IMU motion sensor");
+            BootDiagnosticsMark("board_imu_start");
             InitializeMotion();
         }
 
-        InitializeDebugConsole();
+        if (on_battery_) {
+            ScheduleDeferredDebugConsole();
+        } else {
+            InitializeDebugConsole();
+        }
+        BootDiagnosticsMark("board_constructor_done");
+        BootDiagnosticsFlush();
         ESP_LOGI(TAG, "[BOOT] Constructor complete (on_battery=%d)", on_battery_ ? 1 : 0);
     }
 
@@ -5249,6 +5361,7 @@ public:
             .callback = [](void* arg) {
                 auto* self = static_cast<CustomBoard*>(arg);
                 ESP_LOGI(TAG, "[BOOT] Deferred IMU initialization starting");
+                BootDiagnosticsMark("board_imu_deferred_start");
                 self->InitializeMotion();
             },
             .arg = this,
@@ -5300,26 +5413,10 @@ public:
 
     void StartNetwork() override {
         if (on_battery_) {
-            auto* backlight = GetBacklight();
-            if (backlight != nullptr) {
-                backlight->SetBrightness(10, false);
-            }
             vTaskDelay(pdMS_TO_TICKS(300));
         }
 
         WifiBoard::StartNetwork();
-
-        if (on_battery_) {
-            xTaskCreate([](void* arg) {
-                auto* self = static_cast<CustomBoard*>(arg);
-                vTaskDelay(pdMS_TO_TICKS(3000));
-                auto* backlight = self->GetBacklight();
-                if (backlight != nullptr) {
-                    backlight->RestoreBrightness();
-                }
-                vTaskDelete(nullptr);
-            }, "wifi_bright", 2048, this, 1, nullptr);
-        }
     }
 
     virtual AudioCodec* GetAudioCodec() override {
