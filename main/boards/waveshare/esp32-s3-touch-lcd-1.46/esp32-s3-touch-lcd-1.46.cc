@@ -2459,6 +2459,12 @@ private:
         system_bars_hidden_for_card_ = false;
     }
 
+    void RaiseBootSplashLayerLocked() {
+        if (boot_splash_visible_ && boot_splash_layer_ != nullptr) {
+            lv_obj_move_foreground(boot_splash_layer_);
+        }
+    }
+
     void RaiseOverlayObjects() {
         HideLegacyLowBatteryPopupLocked();
         ApplySystemBarsForCardPager();
@@ -2468,6 +2474,7 @@ private:
                 lv_obj_move_foreground(low_power_clock_layer_);
             }
             RaiseNotificationHeadsUpLayerLocked();
+            RaiseBootSplashLayerLocked();
             return;
         }
 
@@ -2487,6 +2494,7 @@ private:
             lv_obj_move_foreground(low_power_clock_layer_);
         }
         RaiseNotificationHeadsUpLayerLocked();
+        RaiseBootSplashLayerLocked();
     }
 
     void InitializeLowPowerClockLayerLocked() {

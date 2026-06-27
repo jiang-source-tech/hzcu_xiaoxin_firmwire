@@ -35,3 +35,23 @@ def test_boot_gif_has_transparent_background_and_visible_logo_pixels():
 
     assert visible_pixels > 0
     assert visible_pixels < total_pixels * 0.75
+
+
+def test_boot_gif_has_no_lower_white_rule_artifacts():
+    image = Image.open(BOOT_GIF)
+    frames = [frame.convert("RGBA") for frame in ImageSequence.Iterator(image)]
+
+    assert frames, "boot.gif must contain at least one frame"
+
+    for frame_index, frame in enumerate(frames):
+        width, height = frame.size
+        for y in range(height // 2, height):
+            near_white_visible = 0
+            for x in range(width):
+                red, green, blue, alpha = frame.getpixel((x, y))
+                if alpha > 0 and red >= 180 and green >= 180 and blue >= 180:
+                    near_white_visible += 1
+            assert near_white_visible < 64, (
+                f"frame {frame_index} row {y} has a lower white rule artifact "
+                f"({near_white_visible} visible near-white pixels)"
+            )

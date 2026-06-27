@@ -257,3 +257,21 @@ def test_xiaoxin_boot_splash_reveals_after_normal_ui_first_frame_is_ready():
     assert "esp_timer_stop(boot_splash_timer_);" in reveal
     assert "esp_timer_start_once(boot_splash_timer_, k_boot_splash_ui_ready_reveal_delay_ms * 1000ULL)" in reveal
     assert "HideBootSplashLocked();" in reveal
+
+
+def test_xiaoxin_boot_splash_stays_above_system_bars_while_visible():
+    source = read_source(BOARD_SOURCE)
+    raise_boot = function_body(source, "void RaiseBootSplashLayerLocked()")
+    raise_overlays = function_body(source, "void RaiseOverlayObjects()")
+
+    assert "boot_splash_visible_" in raise_boot
+    assert "boot_splash_layer_ != nullptr" in raise_boot
+    assert "lv_obj_move_foreground(boot_splash_layer_);" in raise_boot
+    assert "RaiseBootSplashLayerLocked();" in raise_overlays
+    assert raise_overlays.count("RaiseBootSplashLayerLocked();") >= 2
+    assert raise_overlays.index("lv_obj_move_foreground(bottom_bar_);") < raise_overlays.rindex(
+        "RaiseBootSplashLayerLocked();"
+    )
+    card_branch = block_after(raise_overlays, "if (IsCardLayerVisible())", length=420)
+    assert "RaiseBootSplashLayerLocked();" in card_branch
+    assert card_branch.index("RaiseBootSplashLayerLocked();") < card_branch.index("return;")
