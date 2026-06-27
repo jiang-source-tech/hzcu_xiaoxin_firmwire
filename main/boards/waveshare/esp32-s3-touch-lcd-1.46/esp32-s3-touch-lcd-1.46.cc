@@ -770,15 +770,18 @@ public:
 
     virtual void CompleteBootSplash() override {
         DisplayLockGuard lock(this);
+        const bool restore_boot_brightness = boot_splash_visible_;
         boot_splash_wait_for_ready_ = false;
         if (boot_splash_timer_ != nullptr) {
             esp_timer_stop(boot_splash_timer_);
         }
         HideBootSplashLocked();
 
-        auto backlight = Board::GetInstance().GetBacklight();
-        if (backlight != nullptr) {
-            backlight->RestoreBrightness();
+        if (restore_boot_brightness) {
+            auto backlight = Board::GetInstance().GetBacklight();
+            if (backlight != nullptr) {
+                backlight->RestoreBrightness();
+            }
         }
     }
 

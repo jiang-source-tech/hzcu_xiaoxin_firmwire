@@ -210,6 +210,21 @@ def test_battery_boot_splash_is_black_high_brightness_and_held_until_ready():
     assert "RestoreBrightness();" not in start_network
 
 
+def test_complete_boot_splash_only_restores_brightness_when_splash_was_visible():
+    source = read_source(BOARD_SOURCE)
+    complete_splash = function_body(source, "void CompleteBootSplash()")
+
+    assert "const bool restore_boot_brightness = boot_splash_visible_;" in complete_splash
+    assert complete_splash.index("const bool restore_boot_brightness = boot_splash_visible_;") < complete_splash.index(
+        "HideBootSplashLocked();"
+    )
+    assert "if (restore_boot_brightness)" in complete_splash
+    assert complete_splash.index("if (restore_boot_brightness)") < complete_splash.index(
+        "backlight->RestoreBrightness();"
+    )
+    assert "if (backlight != nullptr)" in complete_splash
+
+
 def test_application_completes_boot_splash_when_ui_can_be_revealed():
     display_header = read_source(Path("main/display/display.h"))
     application = read_source(APPLICATION_SOURCE)

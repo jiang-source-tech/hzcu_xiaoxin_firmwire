@@ -11,3 +11,18 @@ Verification:
 
 Concerns:
 - None beyond the fact that these are test guardrails only; production code was intentionally left untouched.
+
+---
+
+Status: fixed
+
+Changed:
+- Added a focused regression test that requires `CompleteBootSplash()` to snapshot `boot_splash_visible_` into `restore_boot_brightness` before hiding the splash, and to guard `backlight->RestoreBrightness();` behind that captured flag.
+- Updated `CompleteBootSplash()` so it only restores brightness when it is actually completing a visible boot splash, keeping repeated/idempotent calls side-effect free for brightness.
+
+Verification:
+- `python -m pytest tests/xiaoxin_boot_diagnostics_path_test.py -q` -> 13 passed
+- `python -m pytest tests/xiaoxin_boot_diagnostics_path_test.py tests/xiaoxin_power_latch_path_test.py -q` -> 20 passed
+
+Concerns:
+- None beyond the existing reliance on source-text assertions for this board-specific regression.
