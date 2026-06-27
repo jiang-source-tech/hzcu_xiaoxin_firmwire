@@ -1186,6 +1186,116 @@ private:
         return status != nullptr && expected != nullptr && std::strcmp(status, expected) == 0;
     }
 
+    static lv_color_t LowPowerSnakeBaseColor(uint8_t col, uint8_t row) {
+        const uint8_t level = (uint8_t)((col * 17U + row * 31U + 7U) % 5U);
+        switch (level) {
+            case 0:
+                return lv_color_hex(0x0B1A13);
+            case 1:
+                return lv_color_hex(0x10261B);
+            case 2:
+                return lv_color_hex(0x143322);
+            case 3:
+                return lv_color_hex(0x1B4D33);
+            default:
+                return lv_color_hex(0x10261B);
+        }
+    }
+
+    static lv_opa_t LowPowerSnakeBaseOpa(uint8_t col, uint8_t row) {
+        const uint8_t level = (uint8_t)((col * 17U + row * 31U + 7U) % 5U);
+        switch (level) {
+            case 0:
+                return LV_OPA_50;
+            case 1:
+                return LV_OPA_55;
+            case 2:
+                return LV_OPA_60;
+            case 3:
+                return LV_OPA_70;
+            default:
+                return LV_OPA_55;
+        }
+    }
+
+    static void DrawLowPowerSnakeCell(
+        lv_layer_t* layer,
+        uint8_t col,
+        uint8_t row,
+        lv_color_t color,
+        lv_opa_t opa,
+        int16_t radius
+    ) {
+        if (layer == nullptr) {
+            return;
+        }
+
+        lv_draw_rect_dsc_t dsc;
+        lv_draw_rect_dsc_init(&dsc);
+        dsc.bg_color = color;
+        dsc.bg_opa = opa;
+        dsc.radius = radius;
+
+        const int16_t x = LowPowerSnakeCellX(col);
+        const int16_t y = LowPowerSnakeCellY(row);
+        const lv_area_t area = {
+            .x1 = x,
+            .y1 = y,
+            .x2 = (lv_coord_t)(x + k_low_power_snake_cell_size - 1),
+            .y2 = (lv_coord_t)(y + k_low_power_snake_cell_size - 1),
+        };
+        lv_draw_rect(layer, &dsc, &area);
+    }
+
+    void DrawLowPowerSnakeBackground(lv_event_t* e) {
+        lv_layer_t* layer = lv_event_get_layer(e);
+        if (layer == nullptr) {
+            return;
+        }
+
+        for (uint8_t row = 0; row < k_low_power_snake_rows; ++row) {
+            for (uint8_t col = 0; col < k_low_power_snake_cols; ++col) {
+                if (!LowPowerSnakeCellInCircle(col, row)) {
+                    continue;
+                }
+                DrawLowPowerSnakeCell(
+                    layer,
+                    col,
+                    row,
+                    LowPowerSnakeBaseColor(col, row),
+                    LowPowerSnakeBaseOpa(col, row),
+                    3
+                );
+            }
+        }
+
+        if (low_power_clock_snake_path_count_ < k_low_power_snake_length + 4U) {
+            return;
+        }
+
+        const uint16_t head =
+            (uint16_t)(low_power_clock_snake_tick_ % low_power_clock_snake_path_count_);
+        for (uint8_t i = k_low_power_snake_length; i > 0; --i) {
+            const uint8_t body_index = (uint8_t)(i - 1U);
+            const uint16_t path_index = (uint16_t)(
+                (head + low_power_clock_snake_path_count_ - body_index) %
+                low_power_clock_snake_path_count_
+            );
+            const LowPowerSnakeCell cell = low_power_clock_snake_path_[path_index];
+            const bool is_head = body_index == 0;
+            const bool bright_body = body_index < 4;
+            DrawLowPowerSnakeCell(
+                layer,
+                cell.col,
+                cell.row,
+                is_head ? lv_color_hex(0x56D364)
+                        : (bright_body ? lv_color_hex(0x2F9E5D) : lv_color_hex(0x24734A)),
+                is_head ? LV_OPA_95 : (bright_body ? LV_OPA_85 : LV_OPA_75),
+                4
+            );
+        }
+    }
+
     xiaoxin_low_power_clock_state_t BuildLowPowerClockState() {
         xiaoxin_low_power_clock_state_t state = {};
         time_t now = 0;
@@ -1250,6 +1360,10 @@ private:
         }
 
         const uint16_t start = xiaoxin_low_power_clock_animation_phase(low_power_clock_animation_tick_++);
+        low_power_clock_snake_tick_++;
+        if (low_power_clock_snake_bg_ != nullptr) {
+            lv_obj_invalidate(low_power_clock_snake_bg_);
+        }
         lv_arc_set_rotation(low_power_clock_inner_arc_, start);
         lv_arc_set_rotation(low_power_clock_outer_arc_, (start + 180) % 360);
 
@@ -1603,6 +1717,13 @@ private:
         auto* self = SettingsEventDisplay(e);
         if (self != nullptr) {
             self->HandleSettingsBrightnessSliderEvent(e);
+        }
+    }
+
+    static void LowPowerSnakeDrawEvent(lv_event_t* e) {
+        auto* self = e != nullptr ? static_cast<PaopaoPetDisplay*>(lv_event_get_user_data(e)) : nullptr;
+        if (self != nullptr) {
+            self->DrawLowPowerSnakeBackground(e);
         }
     }
 
@@ -2350,6 +2471,9 @@ private:
         lv_obj_clear_flag(low_power_clock_layer_, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(low_power_clock_layer_, LV_OBJ_FLAG_HIDDEN);
 
+        // low_power_clock_snake_bg_ = lv_obj_create(low_power_clock_layer_);
+        InitializeLowPowerSnakeBackgroundLocked();
+
         low_power_clock_outer_arc_ = lv_arc_create(low_power_clock_layer_);
         lv_obj_set_size(low_power_clock_outer_arc_, DISPLAY_WIDTH - 10, DISPLAY_HEIGHT - 10);
         lv_obj_center(low_power_clock_outer_arc_);
@@ -2428,6 +2552,26 @@ private:
         }
         lv_label_set_text(low_power_clock_hint_label_, "POWER \xE5\x94\xA4\xE9\x86\x92");
         lv_obj_align(low_power_clock_hint_label_, LV_ALIGN_BOTTOM_MID, 0, -18);
+    }
+
+    void InitializeLowPowerSnakeBackgroundLocked() {
+        if (low_power_clock_layer_ == nullptr || low_power_clock_snake_bg_ != nullptr) {
+            return;
+        }
+
+        low_power_clock_snake_path_count_ =
+            BuildLowPowerSnakePath(low_power_clock_snake_path_, k_low_power_snake_path_max);
+        low_power_clock_snake_tick_ = 0;
+
+        low_power_clock_snake_bg_ = lv_obj_create(low_power_clock_layer_);
+        if (low_power_clock_snake_bg_ == nullptr) {
+            return;
+        }
+        lv_obj_remove_style_all(low_power_clock_snake_bg_);
+        lv_obj_set_size(low_power_clock_snake_bg_, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+        lv_obj_clear_flag(low_power_clock_snake_bg_, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_clear_flag(low_power_clock_snake_bg_, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(low_power_clock_snake_bg_, LowPowerSnakeDrawEvent, LV_EVENT_DRAW_MAIN, this);
     }
 
     void InitializeNotificationHeadsUpLayerLocked() {
