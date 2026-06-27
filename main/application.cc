@@ -9,6 +9,7 @@
 #include "mcp_server.h"
 #include "assets.h"
 #include "settings.h"
+#include "boot_diagnostics.h"
 
 #include <cstring>
 #include <esp_log.h>
@@ -60,15 +61,22 @@ bool Application::SetDeviceState(DeviceState state) {
 
 void Application::Initialize() {
     auto& board = Board::GetInstance();
+    BootDiagnosticsMark("app_initialize_start");
     SetDeviceState(kDeviceStateStarting);
 
     // Setup the display
     auto display = board.GetDisplay();
     display->SetupUI();
+    BootDiagnosticsMark("app_ui_ready");
+    display->SetStatus("Boot: UI");
+    display->UpdateStatusBar(true);
     // Print board name/version info
     display->SetChatMessage("system", SystemInfo::GetUserAgent().c_str());
 
     // Setup the audio service
+    BootDiagnosticsMark("app_audio_start");
+    display->SetStatus("Boot: Audio");
+    display->UpdateStatusBar(true);
     auto codec = board.GetAudioCodec();
     audio_service_.Initialize(codec);
     audio_service_.Start();
@@ -140,24 +148,32 @@ void Application::Initialize() {
                 break;
             // Cellular modem specific events
             case NetworkEvent::ModemDetecting:
+                BootDiagnosticsMark("modem_detecting");
                 display->SetStatus(Lang::Strings::DETECTING_MODULE);
                 break;
             case NetworkEvent::ModemErrorNoSim:
+                BootDiagnosticsMark("modem_error_no_sim");
                 Alert(Lang::Strings::ERROR, Lang::Strings::PIN_ERROR, "triangle_exclamation", Lang::Sounds::OGG_ERR_PIN);
                 break;
             case NetworkEvent::ModemErrorRegDenied:
+                BootDiagnosticsMark("modem_error_reg_denied");
                 Alert(Lang::Strings::ERROR, Lang::Strings::REG_ERROR, "triangle_exclamation", Lang::Sounds::OGG_ERR_REG);
                 break;
             case NetworkEvent::ModemErrorInitFailed:
+                BootDiagnosticsMark("modem_error_init_failed");
                 Alert(Lang::Strings::ERROR, Lang::Strings::MODEM_INIT_ERROR, "triangle_exclamation", Lang::Sounds::OGG_EXCLAMATION);
                 break;
             case NetworkEvent::ModemErrorTimeout:
+                BootDiagnosticsMark("modem_error_timeout");
                 display->SetStatus(Lang::Strings::REGISTERING_NETWORK);
                 break;
         }
     });
 
     // Start network asynchronously
+    BootDiagnosticsMark("app_network_start");
+    display->SetStatus("Boot: Wi-Fi");
+    display->UpdateStatusBar(true);
     display->SetStatus(Lang::Strings::SCANNING_WIFI);
     display->UpdateStatusBar(true);
     board.StartNetwork();
@@ -310,6 +326,7 @@ void Application::HandleActivationDoneEvent() {
     has_server_time_ = ota_->HasServerTime();
 
     auto display = Board::GetInstance().GetDisplay();
+    display->CompleteBootSplash();
     std::string message = std::string(Lang::Strings::VERSION) + ota_->GetCurrentVersion();
     display->ShowNotification(message.c_str());
     display->SetChatMessage("system", "");
@@ -326,6 +343,7 @@ void Application::HandleActivationDoneEvent() {
 }
 
 void Application::ActivationTask() {
+    BootDiagnosticsMark("activation_task_start");
     // Create OTA object for activation process
     ota_ = std::make_unique<Ota>();
 
@@ -410,8 +428,10 @@ void Application::CheckNewVersion() {
         auto display = board.GetDisplay();
         display->SetStatus(Lang::Strings::CHECKING_NEW_VERSION);
 
+        BootDiagnosticsMark("ota_check_start");
         esp_err_t err = ota_->CheckVersion();
         if (err != ESP_OK) {
+            BootDiagnosticsMarkError("ota_check_failed", err);
             retry_count++;
             if (retry_count >= MAX_RETRY) {
                 ESP_LOGE(TAG, "Too many retries, exit version check");
@@ -434,6 +454,7 @@ void Application::CheckNewVersion() {
             retry_delay *= 2; // Double the retry delay
             continue;
         }
+        BootDiagnosticsMark("ota_check_done");
         retry_count = 0;
         retry_delay = 10; // Reset retry delay
 
@@ -455,18 +476,23 @@ void Application::CheckNewVersion() {
         display->SetStatus(Lang::Strings::ACTIVATION);
         // Activation code is shown to the user and waiting for the user to input
         if (ota_->HasActivationCode()) {
+            display->CompleteBootSplash();
             ShowActivationCode(ota_->GetActivationCode(), ota_->GetActivationMessage());
         }
 
         // This will block the loop until the activation is done or timeout
         for (int i = 0; i < 10; ++i) {
             ESP_LOGI(TAG, "Activating... %d/%d", i + 1, 10);
+            BootDiagnosticsMark("activation_poll_start");
             esp_err_t err = ota_->Activate();
             if (err == ESP_OK) {
+                BootDiagnosticsMark("activation_poll_done");
                 break;
             } else if (err == ESP_ERR_TIMEOUT) {
+                BootDiagnosticsMarkError("activation_poll_failed", err);
                 vTaskDelay(pdMS_TO_TICKS(3000));
             } else {
+                BootDiagnosticsMarkError("activation_poll_failed", err);
                 vTaskDelay(pdMS_TO_TICKS(10000));
             }
             if (GetDeviceState() == kDeviceStateIdle) {
@@ -481,6 +507,7 @@ void Application::InitializeProtocol() {
     auto display = board.GetDisplay();
     auto codec = board.GetAudioCodec();
 
+    BootDiagnosticsMark("protocol_initialize_start");
     display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
 
     if (ota_->HasMqttConfig()) {
@@ -615,6 +642,7 @@ void Application::InitializeProtocol() {
     });
     
     protocol_->Start();
+    BootDiagnosticsMark("protocol_start_done");
 }
 
 void Application::ShowActivationCode(const std::string& code, const std::string& message) {
@@ -929,6 +957,7 @@ void Application::HandleStateChangedEvent() {
             audio_service_.ResetDecoder();
             break;
         case kDeviceStateWifiConfiguring:
+            display->CompleteBootSplash();
             display->SetStatus(Lang::Strings::WIFI_CONFIG_MODE);
             display->UpdateStatusBar(true);
             audio_service_.EnableVoiceProcessing(false);

@@ -81,23 +81,21 @@ def test_backlight_is_restored_immediately_after_lcd_initialization():
         "First backlight init must happen before touch init"
 
 
-def test_battery_network_start_uses_low_current_ramp_before_wifi():
+def test_battery_network_start_keeps_settling_delay_without_dimming_splash():
     source = read_source()
 
     assert "void StartNetwork() override" in source
     start_network = function_body(source, "void StartNetwork() override")
 
     assert "if (on_battery_)" in start_network
-    assert "backlight->SetBrightness(10, false);" in start_network
     assert "vTaskDelay(pdMS_TO_TICKS(300));" in start_network
     assert "WifiBoard::StartNetwork();" in start_network
-    assert start_network.index("backlight->SetBrightness(10, false);") < start_network.index(
-        "WifiBoard::StartNetwork();"
-    )
     assert start_network.index("vTaskDelay(pdMS_TO_TICKS(300));") < start_network.index(
         "WifiBoard::StartNetwork();"
     )
-    assert "vTaskDelay(pdMS_TO_TICKS(3000));" in start_network
+    assert "SetBrightness(10, false)" not in start_network
+    assert "RestoreBrightness();" not in start_network
+    assert "vTaskDelay(pdMS_TO_TICKS(3000));" not in start_network
 
 
 def test_runtime_battery_level_reporting_is_disabled_but_boot_power_detection_remains():

@@ -6,6 +6,7 @@
 #include "settings.h"
 #include "assets/lang_config.h"
 #include "time_sync_status.h"
+#include "boot_diagnostics.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -173,6 +174,7 @@ void WifiBoard::TryWifiConnect() {
 void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
     switch (event) {
         case NetworkEvent::Connected:
+            BootDiagnosticsMark("wifi_connected");
             // Stop timeout timer
             esp_timer_stop(connect_timer_);
 #ifdef CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING
@@ -184,19 +186,24 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
             ESP_LOGI(TAG, "Connected to WiFi: %s", data.c_str());
             break;
         case NetworkEvent::Scanning:
+            BootDiagnosticsMark("wifi_scanning");
             ESP_LOGI(TAG, "WiFi scanning");
             break;
         case NetworkEvent::Connecting:
+            BootDiagnosticsMark("wifi_connecting");
             ESP_LOGI(TAG, "WiFi connecting to %s", data.c_str());
             break;
         case NetworkEvent::Disconnected:
+            BootDiagnosticsMark("wifi_disconnected");
             ESP_LOGW(TAG, "WiFi disconnected");
             break;
         case NetworkEvent::WifiConfigModeEnter:
+            BootDiagnosticsMark("wifi_config_mode_enter");
             ESP_LOGI(TAG, "WiFi config mode entered");
             in_config_mode_ = true;
             break;
         case NetworkEvent::WifiConfigModeExit:
+            BootDiagnosticsMark("wifi_config_mode_exit");
             ESP_LOGI(TAG, "WiFi config mode exited");
             in_config_mode_ = false;
             // Try to connect with the new credentials
@@ -219,6 +226,7 @@ void WifiBoard::SetNetworkEventCallback(NetworkEventCallback callback) {
 void WifiBoard::OnWifiConnectTimeout(void* arg) {
     auto* board = static_cast<WifiBoard*>(arg);
     ESP_LOGW(TAG, "WiFi connection timeout, entering config mode");
+    BootDiagnosticsMark("wifi_connect_timeout");
 
     WifiManager::GetInstance().StopStation();
     board->StartWifiConfigMode();

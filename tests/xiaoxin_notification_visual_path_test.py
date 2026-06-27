@@ -350,7 +350,10 @@ def test_notification_heads_up_uses_frosted_glass_banner_visuals():
     early_return = raise_body.index("return;")
     early_raise = raise_body.index("RaiseNotificationHeadsUpLayerLocked();")
     assert early_raise < early_return
-    assert normalize_whitespace(raise_body).endswith("RaiseNotificationHeadsUpLayerLocked();")
+    assert raise_body.index("RaiseNotificationHeadsUpLayerLocked();") < raise_body.index(
+        "RaiseBootSplashLayerLocked();"
+    )
+    assert normalize_whitespace(raise_body).endswith("RaiseBootSplashLayerLocked();")
     assert "lv_obj_move_foreground(notification_heads_up_layer_);" in foreground_body
 
     assert "lv_anim_set_values(&anim, k_notification_heads_up_hidden_y, k_notification_heads_up_visible_y);" in show_body

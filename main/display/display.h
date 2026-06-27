@@ -52,6 +52,7 @@ public:
     virtual void SetupUI() { 
         setup_ui_called_ = true;
     }
+    virtual void CompleteBootSplash() {}
 
     inline int width() const { return width_; }
     inline int height() const { return height_; }
