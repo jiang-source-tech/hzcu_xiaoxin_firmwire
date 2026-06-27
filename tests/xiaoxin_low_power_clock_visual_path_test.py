@@ -253,10 +253,10 @@ def test_low_power_clock_snake_background_is_created_before_foreground_labels():
 
 def test_low_power_clock_snake_path_clips_circle_and_text_safe_areas():
     source = read_source()
-    path_section = source[
-        source.index("static uint16_t BuildLowPowerSnakePath("):
-        source.index("static void LowPowerSnakeDrawEvent", source.index("static uint16_t BuildLowPowerSnakePath("))
-    ]
+    path_start = source.index("static uint16_t BuildLowPowerSnakePath(")
+    fallback_comment = "    // If typewriter jumps around the center read poorly on hardware, use a concentric ring path.\n"
+    path_end = source.index("    return count;\n}", source.index(fallback_comment, path_start)) + len("    return count;\n}")
+    path_section = source[path_start:path_end]
 
     assert "BuildLowPowerSnakePath(" in path_section
     assert "LowPowerSnakeCellInCircle(col, row)" in path_section
