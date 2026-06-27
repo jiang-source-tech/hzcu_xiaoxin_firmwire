@@ -22,30 +22,6 @@ static void copy_detail(xiaoxin_overview_snapshot_t* snapshot, uint8_t index, co
   snprintf(snapshot->detail_storage[index], XIAOXIN_OVERVIEW_DETAIL_MAX, "%s", text);
 }
 
-static const char* battery_status_text(
-  xiaoxin_battery_state_t state,
-  xiaoxin_battery_power_source_t power_source
-) {
-  if (power_source == XIAOXIN_BATTERY_POWER_EXTERNAL) {
-    return "外接电源中";
-  }
-  if (power_source == XIAOXIN_BATTERY_POWER_UNKNOWN) {
-    return "电量状态未知";
-  }
-
-  switch (state) {
-    case XIAOXIN_BATTERY_STATE_NORMAL:
-      return "电量正常";
-    case XIAOXIN_BATTERY_STATE_LOW:
-      return "电量偏低";
-    case XIAOXIN_BATTERY_STATE_CRITICAL:
-      return "请尽快充电";
-    case XIAOXIN_BATTERY_STATE_UNKNOWN:
-    default:
-      return "电量未知";
-  }
-}
-
 static int clamp_two_digit(int value) {
   if (value < 0) {
     return 0;
@@ -193,10 +169,6 @@ static void build_device_item(
   xiaoxin_overview_snapshot_t* snapshot
 ) {
   const bool network_connected = state != NULL && state->network_connected;
-  const xiaoxin_battery_power_source_t power_source =
-    state != NULL ? state->battery_power_source : XIAOXIN_BATTERY_POWER_UNKNOWN;
-  const xiaoxin_battery_state_t battery_state =
-    state != NULL ? state->battery_state : XIAOXIN_BATTERY_STATE_UNKNOWN;
 
   copy_body(
     snapshot,
@@ -207,7 +179,7 @@ static void build_device_item(
   copy_detail(
     snapshot,
     XIAOXIN_OVERVIEW_DEVICE_INDEX,
-    battery_status_text(battery_state, power_source)
+    network_connected ? "设备运行中" : "等待联网"
   );
 }
 

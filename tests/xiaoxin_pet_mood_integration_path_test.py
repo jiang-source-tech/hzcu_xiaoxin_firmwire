@@ -48,32 +48,20 @@ def test_status_and_chat_events_update_mood_without_bypassing_trigger_state():
     assert "DispatchPetMoodEvent(PAOPAO_PET_MOOD_EVENT_ASSISTANT_REPLY);" in chat_body
 
 
-def test_device_status_refresh_syncs_mood_edges_from_battery_snapshot():
+def test_device_status_refresh_no_longer_syncs_mood_edges_from_battery_snapshot():
     body = function_body(source=read_source(), signature="virtual void UpdateStatusBar(bool update_all = false) override")
 
-    assert "RefreshBatterySnapshotLocked();" in body
-    assert "SyncPetMoodDeviceStateLocked();" in body
+    assert "RefreshBatterySnapshotLocked();" not in body
+    assert "SyncPetMoodDeviceStateLocked();" not in body
 
 
-def test_pet_mood_uses_battery_state_edges_not_percent_thresholds():
-    body = function_body(source=read_source(), signature="void SyncPetMoodDeviceStateLocked()")
-
-    assert "battery_snapshot_.low_edge" in body
-    assert "battery_snapshot_.critical_edge" in body
-    assert "battery_snapshot_.recovered_edge" in body
-    assert "battery_level <=" not in body
-
-
-def test_pet_mood_battery_edges_require_battery_power_source():
+def test_pet_mood_battery_edge_runtime_path_is_removed():
     source = read_source()
-    start = source.index("void SyncPetMoodDeviceStateLocked()")
-    end = source.index("void ApplyBatteryOverlayLevel()", start)
-    body = source[start:end]
 
-    assert "battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_BATTERY" in body
-    assert "battery_snapshot_.low_edge" in body
-    assert "battery_snapshot_.critical_edge" in body
-    assert "battery_snapshot_.recovered_edge" in body
+    assert "void SyncPetMoodDeviceStateLocked()" not in source
+    assert "battery_snapshot_.low_edge" not in source
+    assert "battery_snapshot_.critical_edge" not in source
+    assert "battery_snapshot_.recovered_edge" not in source
 
 
 def test_touch_and_motion_update_mood_but_boot_button_does_not():

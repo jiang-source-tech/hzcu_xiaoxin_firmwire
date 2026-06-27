@@ -168,6 +168,18 @@ def test_status_bar_refreshes_visible_overview_snapshot():
     assert "RenderCardPage(XIAOXIN_CARD_PAGE_OVERVIEW, false);" in refresh_body
 
 
+def test_home_screen_does_not_create_wifi_status_overlay():
+    source = read_source()
+    status_body = function_body(source, "virtual void UpdateStatusBar(bool update_all = false) override")
+
+    assert "lv_obj_t* system_overlay_ = nullptr;" not in source
+    assert "system_overlay_ = lv_obj_create" not in source
+    assert "network_label_ = lv_label_create(system_overlay_)" not in source
+    assert "lv_label_set_text(network_label_" not in source
+    assert "ApplySystemOverlayNetworkStyle();" not in status_body
+    assert "SyncNetworkStatusLocked();" in status_body
+
+
 def test_empty_notifications_use_prominent_panel():
     source = read_source()
     init_body = function_body(source, "void InitializeCardPagerLayer()")
@@ -234,56 +246,40 @@ def test_legacy_low_battery_popup_is_suppressed_to_protect_subtitle():
 def test_low_battery_notification_uses_status_copy_without_percent():
     source = read_source()
     status_body = function_body(source, "virtual void UpdateStatusBar(bool update_all = false) override")
-    overlay_body = function_body(source, "void ApplyBatteryOverlayLevel()")
-    notification_body = function_body(source, "void SyncLowBatteryNotificationLocked()")
 
-    assert '#include "xiaoxin_battery_state.h"' in source
-    assert "xiaoxin_battery_context_t battery_context_ = {};" in source
-    assert "xiaoxin_battery_snapshot_t battery_snapshot_ = {};" in source
-    assert "RefreshBatterySnapshotLocked();" in status_body
-    assert "xiaoxin_system_overlay_style(" in overlay_body
-    assert "SystemOverlayNetworkState()," in overlay_body
-    assert "battery_snapshot_.state," in overlay_body
-    assert "battery_snapshot_.power_source" in overlay_body
-    assert "battery_snapshot_.state == XIAOXIN_BATTERY_STATE_LOW" in notification_body
-    assert "battery_snapshot_.state == XIAOXIN_BATTERY_STATE_CRITICAL" in notification_body
-    assert "level <= 20" not in notification_body
-    assert "剩余 %d%%" not in notification_body
-    assert "电量偏低，请尽快充电" in notification_body
+    assert '#include "xiaoxin_battery_state.h"' not in source
+    assert "xiaoxin_battery_context_t battery_context_ = {};" not in source
+    assert "xiaoxin_battery_snapshot_t battery_snapshot_ = {};" not in source
+    assert "RefreshBatterySnapshotLocked();" not in status_body
+    assert "ApplyBatteryOverlayLevel();" not in status_body
+    assert "SyncLowBatteryNotificationLocked();" not in status_body
 
 
 def test_low_battery_notification_requires_battery_power_source():
     source = read_source()
-    start = source.index("void SyncLowBatteryNotificationLocked()")
-    end = source.index("void ApplySystemOverlayNetworkStyle()", start)
-    body = source[start:end]
 
-    assert "battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_BATTERY" in body
-    assert "battery_snapshot_.estimated_percent <= 20" not in body
+    assert "void SyncLowBatteryNotificationLocked()" not in source
+    assert "XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY" not in source
+    assert "low_battery_notification_active_" not in source
+    assert "last_low_battery_notification_" not in source
 
 
 def test_low_battery_notification_reacts_to_state_changes_at_same_percent():
     source = read_source()
-    notification_body = function_body(source, "void SyncLowBatteryNotificationLocked()")
 
-    assert "last_low_battery_notification_state_" in source
-    assert "last_low_battery_notification_state_ = battery_snapshot_.state" in notification_body
-    assert "last_low_battery_notification_state_ == battery_snapshot_.state" in notification_body
-    assert "last_low_battery_notification_level_ == battery_snapshot_.estimated_percent" in notification_body
+    assert "lv_obj_t* battery_overlay_" not in source
+    assert "battery_overlay_ = lv_obj_create" not in source
+    assert "battery_overlay_box_" not in source
+    assert "battery_overlay_fill_" not in source
+    assert "battery_overlay_cap_" not in source
 
 
 def test_battery_overlay_uses_stable_display_level():
     source = read_source()
-    start = source.index("void ApplyBatteryOverlayLevel()")
-    end = source.index("static uint32_t OverviewIconBgColorForTag", start)
-    body = normalize_whitespace(source[start:end])
 
-    assert "battery_snapshot_.display_level" in body
-    assert "battery_snapshot_.estimated_percent" not in body
-    assert "battery_snapshot_.power_source" in body
-    assert "const int level = std::max(0, std::min(4, (int)battery_snapshot_.display_level));" in body
-    assert "const int inner_w = k_system_battery_w - 4;" in body
-    assert "battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_UNKNOWN && battery_snapshot_.display_level == 0 ? 3 : std::max(3, (inner_w * level) / 4);" in body
+    assert "void ApplyBatteryOverlayLevel()" not in source
+    assert "battery_snapshot_.display_level" not in source
+    assert "k_system_battery_w" not in source
 
 
 def test_notification_heads_up_uses_frosted_glass_banner_visuals():

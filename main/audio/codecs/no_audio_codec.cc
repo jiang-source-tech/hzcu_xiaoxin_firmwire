@@ -15,6 +15,12 @@ NoAudioCodec::~NoAudioCodec() {
     }
 }
 
+void NoAudioCodec::SetOutputBoost(float boost) {
+    std::lock_guard<std::mutex> lock(data_if_mutex_);
+    output_boost_ = boost > 0.0f ? boost : 1.0f;
+    ESP_LOGI(TAG, "Set output boost to %.2f", output_boost_);
+}
+
 NoAudioCodecDuplex::NoAudioCodecDuplex(int input_sample_rate, int output_sample_rate, gpio_num_t bclk, gpio_num_t ws, gpio_num_t dout, gpio_num_t din) {
     duplex_ = true;
     input_sample_rate_ = input_sample_rate;
@@ -222,7 +228,7 @@ int NoAudioCodec::Write(const int16_t* data, int samples) {
     // volume_factor_: 0-65536
     int32_t volume_factor = pow(double(output_volume_) / 100.0, 2) * 65536;
     for (int i = 0; i < samples; i++) {
-        int64_t temp = int64_t(data[i]) * volume_factor; // 使用 int64_t 进行乘法运算
+        int64_t temp = static_cast<int64_t>(int64_t(data[i]) * volume_factor * output_boost_); // 使用 int64_t 进行乘法运算
         if (temp > INT32_MAX) {
             buffer[i] = INT32_MAX;
         } else if (temp < INT32_MIN) {

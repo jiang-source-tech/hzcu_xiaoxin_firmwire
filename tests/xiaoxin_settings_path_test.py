@@ -452,17 +452,12 @@ def test_power_save_toggle_does_not_use_bottom_hint_that_overlaps_exit_button():
     assert "省电已关闭" not in source
 
 
-def test_power_save_enabled_tints_home_battery_amber_without_overriding_low_battery():
+def test_power_save_no_longer_tints_removed_home_battery_meter():
     source = read_source(BOARD_SOURCE)
-    body = strip_cpp_comments(function_body(source, "void ApplyBatteryOverlayLevel()"))
 
-    assert "k_battery_meter_power_save" in source
-    assert "xiaoxin_settings_power_save_battery_color(" in body
-    assert "SettingsPowerSaveEnabled()" in body
-    assert "battery_snapshot_.state == XIAOXIN_BATTERY_STATE_LOW" in body
-    assert "battery_snapshot_.state == XIAOXIN_BATTERY_STATE_CRITICAL" in body
-    assert "style.battery_color" in body
-    assert "k_battery_meter_power_save" in body
+    assert "void ApplyBatteryOverlayLevel()" not in source
+    assert "k_battery_meter_power_save" not in source
+    assert "xiaoxin_settings_power_save_battery_color(" not in source
 
 
 def test_about_page_prioritizes_xiaoxin_product_identity():

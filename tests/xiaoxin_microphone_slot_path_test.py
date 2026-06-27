@@ -51,22 +51,24 @@ def test_waveshare_1_46_speaker_forces_full_software_output_volume():
     assert body.index("audio_codec.SetOutputVolume(100);") > body.index("NoAudioCodecSimplex audio_codec")
 
 
-def test_waveshare_1_46_speaker_does_not_apply_output_boost():
+def test_waveshare_1_46_speaker_keeps_neutral_output_boost():
     source = read_source()
     body = function_body(source, "virtual AudioCodec* GetAudioCodec() override")
 
-    assert "SetOutputBoost" not in body
+    assert "audio_codec.SetOutputBoost(1.0f);" in body
+    assert body.index("audio_codec.SetOutputBoost(1.0f);") > body.index("NoAudioCodecSimplex audio_codec")
 
 
-def test_no_audio_codec_write_uses_only_output_volume_scaling():
+def test_no_audio_codec_output_boost_is_applied_before_clipping():
     source = read_file(NO_AUDIO_CODEC_SOURCE)
     header = read_file(NO_AUDIO_CODEC_HEADER)
     body = function_body(source, "int NoAudioCodec::Write(const int16_t* data, int samples)")
 
-    assert "SetOutputBoost" not in header
-    assert "output_boost_" not in header
-    assert "output_boost_" not in body
-    assert "int64_t(data[i]) * volume_factor" in body
+    assert "void SetOutputBoost(float boost)" in header
+    assert "float output_boost_ = 1.0f;" in header
+    assert "output_boost_" in body
+    assert "volume_factor * output_boost_" in body
+    assert body.index("volume_factor * output_boost_") < body.index("if (temp > INT32_MAX)")
 
 
 def test_waveshare_1_46_microphone_does_not_set_input_gain_for_speaker_volume_issue():

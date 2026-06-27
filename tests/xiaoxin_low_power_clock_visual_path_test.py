@@ -21,7 +21,6 @@ def test_low_power_clock_objects_exist_and_are_hidden_by_default():
     assert "lv_obj_t* low_power_clock_inner_arc_ = nullptr;" in source
     assert "lv_obj_t* low_power_clock_time_label_ = nullptr;" in source
     assert "lv_obj_t* low_power_clock_date_label_ = nullptr;" in source
-    assert "lv_obj_t* low_power_clock_battery_label_ = nullptr;" in source
     assert "lv_obj_t* low_power_clock_sync_dot_ = nullptr;" in source
     assert "lv_obj_t* low_power_clock_sync_label_ = nullptr;" in source
     assert "lv_obj_t* low_power_clock_hint_label_ = nullptr;" in source
@@ -57,13 +56,11 @@ def test_low_power_clock_uses_orbit_aod_visual_language():
     assert "lv_obj_t* low_power_clock_outer_arc_ = nullptr;" in source
     assert "lv_obj_t* low_power_clock_inner_arc_ = nullptr;" in source
     assert "lv_obj_t* low_power_clock_date_label_ = nullptr;" in source
-    assert "lv_obj_t* low_power_clock_battery_label_ = nullptr;" in source
     assert "lv_obj_t* low_power_clock_sync_dot_ = nullptr;" in source
     assert "lv_obj_t* low_power_clock_sync_label_ = nullptr;" in source
     assert "lv_obj_set_style_arc_color(low_power_clock_outer_arc_, lv_color_hex(0x102A35), LV_PART_MAIN);" in source
     assert "lv_obj_set_style_arc_color(low_power_clock_inner_arc_, lv_color_hex(0x26D9FF), LV_PART_INDICATOR);" in source
     assert "lv_obj_align(low_power_clock_date_label_, LV_ALIGN_TOP_MID, 0, 34);" in source
-    assert "lv_obj_align(low_power_clock_battery_label_, LV_ALIGN_BOTTOM_LEFT, 22, -20);" in source
     assert "lv_obj_align(low_power_clock_sync_label_, LV_ALIGN_BOTTOM_RIGHT, -22, -20);" in source
 
 
@@ -79,19 +76,20 @@ def test_low_power_clock_hint_keeps_smaller_theme_font():
     assert "lv_obj_set_style_text_font(low_power_clock_hint_label_, clock_font, 0);" not in init_section
 
 
-def test_low_power_clock_state_includes_date_battery_and_sync_status():
+def test_low_power_clock_state_includes_date_and_sync_status_without_battery_monitoring():
     source = read_source()
     build_state_section = source[
         source.index("xiaoxin_low_power_clock_state_t BuildLowPowerClockState("):
         source.index("void RefreshLowPowerClockScreenLocked(bool force)")
     ]
 
-    assert "battery_snapshot_" in build_state_section
+    assert "battery_snapshot_" not in build_state_section
     assert "GetTimeSyncStatus()" in build_state_section
     assert "state.month = timeinfo.tm_mon + 1;" in build_state_section
     assert "state.day = timeinfo.tm_mday;" in build_state_section
     assert "state.weekday = timeinfo.tm_wday;" in build_state_section
-    assert "state.battery_percent = battery_snapshot_.estimated_percent;" in build_state_section
+    assert "state.battery_known" not in build_state_section
+    assert "state.battery_percent" not in build_state_section
 
 
 def test_low_power_clock_refresh_updates_orbit_secondary_labels():
@@ -102,7 +100,8 @@ def test_low_power_clock_refresh_updates_orbit_secondary_labels():
     ]
 
     assert "lv_label_set_text(low_power_clock_date_label_, low_power_clock_snapshot_.date_text);" in refresh_section
-    assert "lv_label_set_text(low_power_clock_battery_label_, low_power_clock_snapshot_.battery_text);" in refresh_section
+    assert "low_power_clock_battery_label_" not in refresh_section
+    assert "low_power_clock_snapshot_.battery_text" not in refresh_section
     assert "lv_label_set_text(low_power_clock_sync_label_, low_power_clock_snapshot_.sync_text);" in refresh_section
     assert "lv_obj_set_style_bg_color(low_power_clock_sync_dot_, lv_color_hex(low_power_clock_snapshot_.sync_color_hex), 0);" in refresh_section
 

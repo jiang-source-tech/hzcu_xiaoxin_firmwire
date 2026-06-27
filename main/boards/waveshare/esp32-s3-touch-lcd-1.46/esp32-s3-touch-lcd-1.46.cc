@@ -51,8 +51,6 @@ extern "C" {
 #include "paopao_pet_gif_assets.h"
 #include "paopao_pet_state.h"
 #include "paopao_pet_trigger.h"
-#include "xiaoxin_battery_level.h"
-#include "xiaoxin_battery_state.h"
 #include "xiaoxin_card_pager.h"
 #include "xiaoxin_overview_model.h"
 #include "xiaoxin_notification_heads_up.h"
@@ -93,7 +91,6 @@ extern const uint8_t assets_images_happy_gif_start[] asm("_binary_happy_gif_star
 extern const uint8_t assets_images_happy_gif_end[] asm("_binary_happy_gif_end");
 
 class CustomBoard;
-static int BoardBatteryVoltageMv();
 static PowerSaveTimer* TargetPowerSaveTimer();
 static void WakePowerSaveTimerFromTouch();
 static void RequestSettingsWifiConfigFromSettingsPage();
@@ -112,10 +109,8 @@ static constexpr int16_t k_touch_drag_min_px = 42;
 static constexpr uint32_t k_touch_motion_suppress_ms = 600;
 static constexpr uint32_t k_touch_poll_ms = 16;
 static constexpr uint32_t k_pet_render_task_stack_bytes = 12 * 1024;
-static constexpr int k_pet_mood_low_battery_percent = 20;
 static constexpr uint32_t k_power_off_release_poll_ms = 20;
 static constexpr adc_channel_t k_battery_adc_channel = ADC_CHANNEL_7;
-static constexpr uint8_t k_battery_adc_samples = 10;
 static constexpr int k_battery_voltage_divider = 3;
 static constexpr uint32_t k_motion_poll_ms = 50;
 static constexpr uint32_t k_shake_cooldown_ms = 1800;
@@ -195,33 +190,12 @@ static constexpr int16_t k_glass_text_w = 218;
 static constexpr int16_t k_glass_tag_x = 154;
 static constexpr int16_t k_glass_tag_w = 38;
 static constexpr int16_t k_glass_arrow_x = 200;
-static constexpr int16_t k_battery_meter_x = 154;
-static constexpr int16_t k_battery_meter_y = 8;
-static constexpr int16_t k_battery_meter_w = 48;
-static constexpr int16_t k_battery_meter_h = 18;
-static constexpr int16_t k_battery_segment_w = 8;
-static constexpr int16_t k_battery_segment_h = 10;
-static constexpr int16_t k_battery_segment_gap = 2;
-static constexpr int16_t k_system_battery_w = 34;
-static constexpr int16_t k_system_battery_h = 16;
-static constexpr int16_t k_system_battery_tip_w = 3;
-static constexpr int16_t k_system_overlay_w = 76;
-static constexpr int16_t k_system_overlay_h = 24;
-static constexpr int16_t k_system_overlay_right = 76;
-static constexpr int16_t k_system_overlay_top = 50;
-static constexpr int16_t k_system_wifi_w = 24;
-static constexpr int16_t k_system_battery_x = 32;
 static constexpr int16_t k_notification_icon_size = 46;
 static constexpr int16_t k_notification_indicator_dot_size = 5;
 static constexpr int16_t k_dot_size = 8;
 static constexpr uint32_t k_dot_color_urgent = 0xff5e5b;
 static constexpr uint32_t k_dot_color_warning = 0xffb84d;
 static constexpr uint32_t k_dot_color_info = 0x4fc3f7;
-static constexpr uint32_t k_battery_meter_border = XIAOXIN_SYSTEM_OVERLAY_ACTIVE_COLOR;
-static constexpr uint32_t k_battery_meter_fill = XIAOXIN_SYSTEM_OVERLAY_ACTIVE_COLOR;
-static constexpr uint32_t k_battery_meter_low = XIAOXIN_SYSTEM_OVERLAY_LOW_BATTERY_COLOR;
-static constexpr uint32_t k_battery_meter_power_save = 0xffb84d;
-static constexpr uint32_t k_battery_meter_empty = 0x27413a;
 static constexpr int16_t k_ov_icon_size = 30;
 static constexpr int16_t k_ov_icon_radius = 10;
 static constexpr int16_t k_overview_row_w = 270;
@@ -650,8 +624,6 @@ public:
         const uint32_t now_ms = NowMs();
         paopao_pet_trigger_init(&trigger_, now_ms);
         paopao_pet_mood_init(&mood_, now_ms);
-        xiaoxin_battery_state_init(&battery_context_, now_ms);
-        battery_snapshot_ = xiaoxin_battery_state_snapshot(&battery_context_);
         xiaoxin_card_pager_init(&card_pager_, DISPLAY_HEIGHT);
         xiaoxin_notification_heads_up_init(&notification_heads_up_model_);
         InitializeNotificationHeadsUpLayerLocked();
@@ -814,12 +786,9 @@ public:
         LcdDisplay::UpdateStatusBar(update_all);
         {
             DisplayLockGuard lock(this);
-            RefreshBatterySnapshotLocked();
             HideLegacyLowBatteryPopupLocked();
-            ApplySystemOverlayNetworkStyle();
-            ApplyBatteryOverlayLevel();
-            SyncLowBatteryNotificationLocked();
-            SyncPetMoodDeviceStateLocked();
+            SyncNetworkStatusLocked();
+            SyncPetMoodNetworkStateLocked();
             RefreshOverviewPageIfVisible();
             RaiseOverlayObjects();
         }
@@ -938,11 +907,6 @@ private:
     esp_timer_handle_t notification_maintenance_timer_ = nullptr;
     lv_obj_t* pet_image_ = nullptr;
     lv_obj_t* card_layer_ = nullptr;
-    lv_obj_t* system_overlay_ = nullptr;
-    lv_obj_t* battery_overlay_ = nullptr;
-    lv_obj_t* battery_overlay_box_ = nullptr;
-    lv_obj_t* battery_overlay_fill_ = nullptr;
-    lv_obj_t* battery_overlay_cap_ = nullptr;
     lv_obj_t* card_title_label_ = nullptr;
     lv_obj_t* overview_time_label_ = nullptr;
     lv_obj_t* overview_date_label_ = nullptr;
@@ -980,7 +944,6 @@ private:
     lv_obj_t* low_power_clock_inner_arc_ = nullptr;
     lv_obj_t* low_power_clock_time_label_ = nullptr;
     lv_obj_t* low_power_clock_date_label_ = nullptr;
-    lv_obj_t* low_power_clock_battery_label_ = nullptr;
     lv_obj_t* low_power_clock_sync_dot_ = nullptr;
     lv_obj_t* low_power_clock_sync_label_ = nullptr;
     lv_obj_t* low_power_clock_hint_label_ = nullptr;
@@ -1020,8 +983,6 @@ private:
     xiaoxin_overview_snapshot_t overview_snapshot_ = {};
     paopao_pet_trigger_context_t trigger_;
     paopao_pet_mood_context_t mood_ = {};
-    xiaoxin_battery_context_t battery_context_ = {};
-    xiaoxin_battery_snapshot_t battery_snapshot_ = {};
     paopao_pet_state_t current_state_ = PAOPAO_PET_STATE_IDLE;
     bool touch_pressed_ = false;
     uint16_t touch_start_x_ = 0;
@@ -1056,10 +1017,6 @@ private:
     int16_t notification_card_drag_x_ = 0;
     bool notification_dismiss_animating_ = false;
     uint8_t notification_animating_visible_index_ = 0xff;
-    bool low_battery_notification_active_ = false;
-    int last_low_battery_notification_level_ = -1;
-    xiaoxin_battery_state_t last_low_battery_notification_state_ =
-        XIAOXIN_BATTERY_STATE_UNKNOWN;
     bool network_notification_active_ = false;
     xiaoxin_system_overlay_network_state_t last_network_notification_state_ =
         XIAOXIN_SYSTEM_OVERLAY_NETWORK_CONNECTED;
@@ -1074,6 +1031,116 @@ private:
 
     static bool StatusEquals(const char* status, const char* expected) {
         return status != nullptr && expected != nullptr && std::strcmp(status, expected) == 0;
+    }
+
+    static lv_color_t LowPowerSnakeBaseColor(uint8_t col, uint8_t row) {
+        const uint8_t level = (uint8_t)((col * 17U + row * 31U + 7U) % 5U);
+        switch (level) {
+            case 0:
+                return lv_color_hex(0x0B1A13);
+            case 1:
+                return lv_color_hex(0x10261B);
+            case 2:
+                return lv_color_hex(0x143322);
+            case 3:
+                return lv_color_hex(0x1B4D33);
+            default:
+                return lv_color_hex(0x10261B);
+        }
+    }
+
+    static lv_opa_t LowPowerSnakeBaseOpa(uint8_t col, uint8_t row) {
+        const uint8_t level = (uint8_t)((col * 17U + row * 31U + 7U) % 5U);
+        switch (level) {
+            case 0:
+                return LV_OPA_50;
+            case 1:
+                return LV_OPA_55;
+            case 2:
+                return LV_OPA_60;
+            case 3:
+                return LV_OPA_70;
+            default:
+                return LV_OPA_55;
+        }
+    }
+
+    static void DrawLowPowerSnakeCell(
+        lv_layer_t* layer,
+        uint8_t col,
+        uint8_t row,
+        lv_color_t color,
+        lv_opa_t opa,
+        int16_t radius
+    ) {
+        if (layer == nullptr) {
+            return;
+        }
+
+        lv_draw_rect_dsc_t dsc;
+        lv_draw_rect_dsc_init(&dsc);
+        dsc.bg_color = color;
+        dsc.bg_opa = opa;
+        dsc.radius = radius;
+
+        const int16_t x = LowPowerSnakeCellX(col);
+        const int16_t y = LowPowerSnakeCellY(row);
+        const lv_area_t area = {
+            .x1 = x,
+            .y1 = y,
+            .x2 = (lv_coord_t)(x + k_low_power_snake_cell_size - 1),
+            .y2 = (lv_coord_t)(y + k_low_power_snake_cell_size - 1),
+        };
+        lv_draw_rect(layer, &dsc, &area);
+    }
+
+    void DrawLowPowerSnakeBackground(lv_event_t* e) {
+        lv_layer_t* layer = lv_event_get_layer(e);
+        if (layer == nullptr) {
+            return;
+        }
+
+        for (uint8_t row = 0; row < k_low_power_snake_rows; ++row) {
+            for (uint8_t col = 0; col < k_low_power_snake_cols; ++col) {
+                if (!LowPowerSnakeCellInCircle(col, row)) {
+                    continue;
+                }
+                DrawLowPowerSnakeCell(
+                    layer,
+                    col,
+                    row,
+                    LowPowerSnakeBaseColor(col, row),
+                    LowPowerSnakeBaseOpa(col, row),
+                    3
+                );
+            }
+        }
+
+        if (low_power_clock_snake_path_count_ < k_low_power_snake_length + 4U) {
+            return;
+        }
+
+        const uint16_t head =
+            (uint16_t)(low_power_clock_snake_tick_ % low_power_clock_snake_path_count_);
+        for (uint8_t i = k_low_power_snake_length; i > 0; --i) {
+            const uint8_t body_index = (uint8_t)(i - 1U);
+            const uint16_t path_index = (uint16_t)(
+                (head + low_power_clock_snake_path_count_ - body_index) %
+                low_power_clock_snake_path_count_
+            );
+            const LowPowerSnakeCell cell = low_power_clock_snake_path_[path_index];
+            const bool is_head = body_index == 0;
+            const bool bright_body = body_index < 4;
+            DrawLowPowerSnakeCell(
+                layer,
+                cell.col,
+                cell.row,
+                is_head ? lv_color_hex(0x56D364)
+                        : (bright_body ? lv_color_hex(0x2F9E5D) : lv_color_hex(0x24734A)),
+                is_head ? LV_OPA_95 : (bright_body ? LV_OPA_85 : LV_OPA_75),
+                4
+            );
+        }
     }
 
     xiaoxin_low_power_clock_state_t BuildLowPowerClockState() {
@@ -1092,9 +1159,6 @@ private:
             state.day = timeinfo.tm_mday;
             state.weekday = timeinfo.tm_wday;
         }
-
-        state.battery_known = battery_snapshot_.state != XIAOXIN_BATTERY_STATE_UNKNOWN;
-        state.battery_percent = battery_snapshot_.estimated_percent;
 
         const TimeSyncStatus sync_status = GetTimeSyncStatus();
         if (sync_status == TimeSyncStatus::Synced) {
@@ -1128,7 +1192,6 @@ private:
         lv_obj_set_style_transform_pivot_y(low_power_clock_time_label_, lv_obj_get_height(low_power_clock_time_label_) / 2, 0);
         lv_obj_align(low_power_clock_time_label_, LV_ALIGN_CENTER, 0, -10);
         lv_label_set_text(low_power_clock_date_label_, low_power_clock_snapshot_.date_text);
-        lv_label_set_text(low_power_clock_battery_label_, low_power_clock_snapshot_.battery_text);
         lv_label_set_text(low_power_clock_sync_label_, low_power_clock_snapshot_.sync_text);
         lv_obj_set_style_bg_color(low_power_clock_sync_dot_, lv_color_hex(low_power_clock_snapshot_.sync_color_hex), 0);
         lv_label_set_text(low_power_clock_hint_label_, low_power_clock_snapshot_.hint_text);
@@ -1140,6 +1203,10 @@ private:
         }
 
         const uint16_t start = xiaoxin_low_power_clock_animation_phase(low_power_clock_animation_tick_++);
+        low_power_clock_snake_tick_++;
+        if (low_power_clock_snake_bg_ != nullptr) {
+            lv_obj_invalidate(low_power_clock_snake_bg_);
+        }
         lv_arc_set_rotation(low_power_clock_inner_arc_, start);
         lv_arc_set_rotation(low_power_clock_outer_arc_, (start + 180) % 360);
 
@@ -1274,79 +1341,6 @@ private:
             );
             RefreshNotificationPageIfVisibleLocked();
         }
-    }
-
-    xiaoxin_battery_load_t CurrentBatteryLoad() const {
-        const auto state = Application::GetInstance().GetDeviceState();
-        switch (state) {
-            case kDeviceStateListening:
-            case kDeviceStateSpeaking:
-                return XIAOXIN_BATTERY_LOAD_VOICE_ACTIVE;
-            default:
-                return XIAOXIN_BATTERY_LOAD_IDLE;
-        }
-    }
-
-    void RefreshBatterySnapshotLocked() {
-        int level = 0;
-        bool charging = false;
-        bool discharging = true;
-        const bool sample_valid = Board::GetInstance().GetBatteryLevel(level, charging, discharging);
-        const int voltage_mv = sample_valid ? BoardBatteryVoltageMv() : 0;
-        const xiaoxin_battery_power_hint_t power_hint = !sample_valid
-            ? XIAOXIN_BATTERY_POWER_HINT_UNKNOWN
-            : (charging
-                ? XIAOXIN_BATTERY_POWER_HINT_EXTERNAL
-                : (discharging ? XIAOXIN_BATTERY_POWER_HINT_BATTERY : XIAOXIN_BATTERY_POWER_HINT_UNKNOWN));
-        battery_snapshot_ = xiaoxin_battery_state_update(
-            &battery_context_,
-            voltage_mv,
-            sample_valid,
-            power_hint,
-            CurrentBatteryLoad(),
-            NowMs()
-        );
-    }
-
-    void SyncLowBatteryNotificationLocked() {
-        const bool battery_powered =
-            battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_BATTERY;
-        const bool low =
-            battery_powered &&
-            (battery_snapshot_.state == XIAOXIN_BATTERY_STATE_LOW ||
-             battery_snapshot_.state == XIAOXIN_BATTERY_STATE_CRITICAL);
-        if (!low) {
-            if (low_battery_notification_active_) {
-                RemoveNotificationEventLocked(XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY);
-            }
-            low_battery_notification_active_ = false;
-            last_low_battery_notification_level_ = battery_snapshot_.estimated_percent;
-            last_low_battery_notification_state_ = battery_snapshot_.state;
-            return;
-        }
-
-        const char* body = battery_snapshot_.state == XIAOXIN_BATTERY_STATE_CRITICAL
-            ? "电量很低，请尽快充电"
-            : "电量偏低，请尽快充电";
-
-        if (low_battery_notification_active_ &&
-            last_low_battery_notification_level_ == battery_snapshot_.estimated_percent &&
-            last_low_battery_notification_state_ == battery_snapshot_.state) {
-            return;
-        }
-
-        const xiaoxin_notification_event_t event = {
-            .type = XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY,
-            .title = nullptr,
-            .body = body,
-            .tag = nullptr,
-            .priority = 0,
-            .ttl_ms = 0,
-        };
-        UpsertNotificationEventLocked(event);
-        low_battery_notification_active_ = true;
-        last_low_battery_notification_level_ = battery_snapshot_.estimated_percent;
-        last_low_battery_notification_state_ = battery_snapshot_.state;
     }
 
     void SyncNetworkNotificationLocked(xiaoxin_system_overlay_network_state_t state) {
@@ -1493,6 +1487,13 @@ private:
         auto* self = SettingsEventDisplay(e);
         if (self != nullptr) {
             self->HandleSettingsBrightnessSliderEvent(e);
+        }
+    }
+
+    static void LowPowerSnakeDrawEvent(lv_event_t* e) {
+        auto* self = e != nullptr ? static_cast<PaopaoPetDisplay*>(lv_event_get_user_data(e)) : nullptr;
+        if (self != nullptr) {
+            self->DrawLowPowerSnakeBackground(e);
         }
     }
 
@@ -2193,9 +2194,6 @@ private:
         ApplySystemBarsForCardPager();
         if (IsCardLayerVisible()) {
             lv_obj_move_foreground(card_layer_);
-            if (system_overlay_ != nullptr) {
-                lv_obj_move_foreground(system_overlay_);
-            }
             if (low_power_clock_visible_ && low_power_clock_layer_ != nullptr) {
                 lv_obj_move_foreground(low_power_clock_layer_);
             }
@@ -2211,9 +2209,6 @@ private:
         }
         if (bottom_bar_ != nullptr) {
             lv_obj_move_foreground(bottom_bar_);
-        }
-        if (system_overlay_ != nullptr) {
-            lv_obj_move_foreground(system_overlay_);
         }
         if (settings_open_ && settings_layer_ != nullptr) {
             lv_obj_move_foreground(settings_layer_);
@@ -2239,6 +2234,8 @@ private:
         lv_obj_set_style_bg_opa(low_power_clock_layer_, LV_OPA_COVER, 0);
         lv_obj_clear_flag(low_power_clock_layer_, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(low_power_clock_layer_, LV_OBJ_FLAG_HIDDEN);
+
+        InitializeLowPowerSnakeBackgroundLocked();
 
         low_power_clock_outer_arc_ = lv_arc_create(low_power_clock_layer_);
         lv_obj_set_size(low_power_clock_outer_arc_, DISPLAY_WIDTH - 10, DISPLAY_HEIGHT - 10);
@@ -2287,14 +2284,6 @@ private:
         }
         lv_obj_align(low_power_clock_date_label_, LV_ALIGN_TOP_MID, 0, 34);
 
-        low_power_clock_battery_label_ = lv_label_create(low_power_clock_layer_);
-        lv_obj_set_style_text_color(low_power_clock_battery_label_, lv_color_hex(0x8BE7B1), 0);
-        lv_obj_set_style_text_opa(low_power_clock_battery_label_, LV_OPA_80, 0);
-        if (hint_font != nullptr) {
-            lv_obj_set_style_text_font(low_power_clock_battery_label_, hint_font, 0);
-        }
-        lv_obj_align(low_power_clock_battery_label_, LV_ALIGN_BOTTOM_LEFT, 22, -20);
-
         low_power_clock_sync_dot_ = lv_obj_create(low_power_clock_layer_);
         lv_obj_remove_style_all(low_power_clock_sync_dot_);
         lv_obj_set_size(low_power_clock_sync_dot_, 6, 6);
@@ -2318,6 +2307,26 @@ private:
         }
         lv_label_set_text(low_power_clock_hint_label_, "POWER \xE5\x94\xA4\xE9\x86\x92");
         lv_obj_align(low_power_clock_hint_label_, LV_ALIGN_BOTTOM_MID, 0, -18);
+    }
+
+    void InitializeLowPowerSnakeBackgroundLocked() {
+        if (low_power_clock_layer_ == nullptr || low_power_clock_snake_bg_ != nullptr) {
+            return;
+        }
+
+        low_power_clock_snake_path_count_ =
+            BuildLowPowerSnakePath(low_power_clock_snake_path_, k_low_power_snake_path_max);
+        low_power_clock_snake_tick_ = 0;
+
+        low_power_clock_snake_bg_ = lv_obj_create(low_power_clock_layer_);
+        if (low_power_clock_snake_bg_ == nullptr) {
+            return;
+        }
+        lv_obj_remove_style_all(low_power_clock_snake_bg_);
+        lv_obj_set_size(low_power_clock_snake_bg_, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+        lv_obj_clear_flag(low_power_clock_snake_bg_, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_clear_flag(low_power_clock_snake_bg_, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(low_power_clock_snake_bg_, LowPowerSnakeDrawEvent, LV_EVENT_DRAW_MAIN, this);
     }
 
     void InitializeNotificationHeadsUpLayerLocked() {
@@ -2439,63 +2448,7 @@ private:
         }
 
         auto lvgl_theme = static_cast<LvglTheme*>(current_theme_);
-        const lv_font_t* icon_font = lvgl_theme != nullptr ? lvgl_theme->icon_font()->font() : nullptr;
-
-        system_overlay_ = lv_obj_create(screen);
-        lv_obj_remove_style_all(system_overlay_);
-        lv_obj_set_size(system_overlay_, k_system_overlay_w, k_system_overlay_h);
-        lv_obj_set_style_bg_opa(system_overlay_, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_pad_all(system_overlay_, 0, 0);
-        lv_obj_set_style_layout(system_overlay_, LV_LAYOUT_NONE, 0);
-        lv_obj_clear_flag(system_overlay_, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_align(system_overlay_, LV_ALIGN_TOP_RIGHT, -k_system_overlay_right, k_system_overlay_top);
-
-        network_label_ = lv_label_create(system_overlay_);
-        lv_obj_set_width(network_label_, k_system_wifi_w);
-        lv_obj_set_style_text_align(network_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_style_text_color(network_label_, lv_color_hex(k_battery_meter_fill), 0);
-        lv_obj_set_style_text_opa(network_label_, XIAOXIN_SYSTEM_OVERLAY_ACTIVE_OPA, 0);
-        if (icon_font != nullptr) {
-            lv_obj_set_style_text_font(network_label_, icon_font, 0);
-        }
-        lv_label_set_text(network_label_, network_icon_ != nullptr ? network_icon_ : "");
-        lv_obj_align(network_label_, LV_ALIGN_LEFT_MID, 0, 0);
-
-        battery_overlay_ = lv_obj_create(system_overlay_);
-        lv_obj_remove_style_all(battery_overlay_);
-        lv_obj_set_size(battery_overlay_, k_system_battery_w + k_system_battery_tip_w + 6, k_system_battery_h + 4);
-        lv_obj_set_style_bg_opa(battery_overlay_, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_pad_all(battery_overlay_, 0, 0);
-        lv_obj_clear_flag(battery_overlay_, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_align(battery_overlay_, LV_ALIGN_LEFT_MID, k_system_battery_x, 0);
-
-        battery_overlay_box_ = lv_obj_create(battery_overlay_);
-        lv_obj_remove_style_all(battery_overlay_box_);
-        lv_obj_set_size(battery_overlay_box_, k_system_battery_w, k_system_battery_h);
-        lv_obj_set_style_radius(battery_overlay_box_, 4, 0);
-        lv_obj_set_style_bg_opa(battery_overlay_box_, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(battery_overlay_box_, 1, 0);
-        lv_obj_set_style_border_color(battery_overlay_box_, lv_color_hex(k_battery_meter_fill), 0);
-        lv_obj_set_style_border_opa(battery_overlay_box_, LV_OPA_80, 0);
-        lv_obj_align(battery_overlay_box_, LV_ALIGN_LEFT_MID, 0, 0);
-
-        battery_overlay_fill_ = lv_obj_create(battery_overlay_box_);
-        lv_obj_remove_style_all(battery_overlay_fill_);
-        lv_obj_set_height(battery_overlay_fill_, k_system_battery_h - 4);
-        lv_obj_set_style_radius(battery_overlay_fill_, 2, 0);
-        lv_obj_set_style_bg_color(battery_overlay_fill_, lv_color_hex(k_battery_meter_fill), 0);
-        lv_obj_set_style_bg_opa(battery_overlay_fill_, LV_OPA_COVER, 0);
-        lv_obj_align(battery_overlay_fill_, LV_ALIGN_LEFT_MID, 2, 0);
-
-        battery_overlay_cap_ = lv_obj_create(battery_overlay_);
-        lv_obj_remove_style_all(battery_overlay_cap_);
-        lv_obj_set_size(battery_overlay_cap_, k_system_battery_tip_w, 8);
-        lv_obj_set_style_radius(battery_overlay_cap_, 1, 0);
-        lv_obj_set_style_bg_color(battery_overlay_cap_, lv_color_hex(k_battery_meter_fill), 0);
-        lv_obj_set_style_bg_opa(battery_overlay_cap_, LV_OPA_COVER, 0);
-        lv_obj_align(battery_overlay_cap_, LV_ALIGN_RIGHT_MID, -1, 0);
-        ApplySystemOverlayNetworkStyle();
-        ApplyBatteryOverlayLevel();
+        SyncNetworkStatusLocked();
 
         card_layer_ = lv_obj_create(screen);
         lv_obj_remove_style_all(card_layer_);
@@ -3425,10 +3378,8 @@ private:
         PopulateOverviewTime(state);
 
         state.network_connected = SystemOverlayNetworkState() == XIAOXIN_SYSTEM_OVERLAY_NETWORK_CONNECTED;
-        state.battery_state = battery_snapshot_.state;
-        state.battery_power_source = battery_snapshot_.power_source;
-        state.battery_percent = battery_snapshot_.estimated_percent;
-        state.battery_known = battery_snapshot_.state != XIAOXIN_BATTERY_STATE_UNKNOWN;
+        state.battery_power_source = XIAOXIN_BATTERY_POWER_UNKNOWN;
+        state.battery_known = false;
 
         state.weather_configured = false;
         state.weather_available = false;
@@ -3457,45 +3408,13 @@ private:
         return XIAOXIN_SYSTEM_OVERLAY_NETWORK_CONNECTED;
     }
 
-    void ApplySystemOverlayNetworkStyle() {
-        if (network_label_ == nullptr) {
-            return;
-        }
-
+    void SyncNetworkStatusLocked() {
         const auto network_state = SystemOverlayNetworkState();
-        const auto style = xiaoxin_system_overlay_style(
-            network_state,
-            battery_snapshot_.state,
-            battery_snapshot_.power_source
-        );
-        lv_obj_set_style_text_color(network_label_, lv_color_hex(style.network_color), 0);
-        lv_obj_set_style_text_opa(network_label_, style.network_opa, 0);
-        lv_label_set_text(
-            network_label_,
-            style.network_disconnected ? FONT_AWESOME_WIFI_SLASH : (network_icon_ != nullptr ? network_icon_ : "")
-        );
         SyncNetworkNotificationLocked(network_state);
     }
 
-    void SyncPetMoodDeviceStateLocked() {
+    void SyncPetMoodNetworkStateLocked() {
         const uint32_t now_ms = NowMs();
-        const bool battery_powered =
-            battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_BATTERY;
-        if (battery_powered &&
-            (battery_snapshot_.low_edge || battery_snapshot_.critical_edge)) {
-            DispatchPetMoodEventLocked(
-                PAOPAO_PET_MOOD_EVENT_BATTERY_LOW,
-                PAOPAO_PET_TRIGGER_NONE,
-                now_ms
-            );
-        } else if (battery_powered && battery_snapshot_.recovered_edge) {
-            DispatchPetMoodEventLocked(
-                PAOPAO_PET_MOOD_EVENT_BATTERY_RECOVERED,
-                PAOPAO_PET_TRIGGER_NONE,
-                now_ms
-            );
-        }
-
         const bool wifi_connected =
             SystemOverlayNetworkState() == XIAOXIN_SYSTEM_OVERLAY_NETWORK_CONNECTED;
         if (wifi_connected != mood_.wifi_connected) {
@@ -3505,53 +3424,6 @@ private:
                     : PAOPAO_PET_MOOD_EVENT_WIFI_DISCONNECTED,
                 PAOPAO_PET_TRIGGER_NONE,
                 now_ms
-            );
-        }
-    }
-
-    void ApplyBatteryOverlayLevel() {
-        if (battery_overlay_fill_ == nullptr || battery_overlay_box_ == nullptr) {
-            return;
-        }
-
-        const int level = std::max(0, std::min(4, (int)battery_snapshot_.display_level));
-        const auto style = xiaoxin_system_overlay_style(
-            SystemOverlayNetworkState(),
-            battery_snapshot_.state,
-            battery_snapshot_.power_source
-        );
-        const bool low_battery =
-            battery_snapshot_.state == XIAOXIN_BATTERY_STATE_LOW ||
-            battery_snapshot_.state == XIAOXIN_BATTERY_STATE_CRITICAL;
-        const uint32_t battery_color = xiaoxin_settings_power_save_battery_color(
-            SettingsPowerSaveEnabled(),
-            low_battery,
-            style.battery_color,
-            k_battery_meter_low,
-            k_battery_meter_power_save
-        );
-        const int inner_w = k_system_battery_w - 4;
-        const int fill_w =
-            battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_UNKNOWN &&
-            battery_snapshot_.display_level == 0
-                ? 3
-                : std::max(3, (inner_w * level) / 4);
-        lv_obj_set_width(battery_overlay_fill_, fill_w);
-        lv_obj_set_style_bg_color(
-            battery_overlay_fill_,
-            lv_color_hex(battery_color),
-            0
-        );
-        lv_obj_set_style_border_color(
-            battery_overlay_box_,
-            lv_color_hex(battery_color),
-            0
-        );
-        if (battery_overlay_cap_ != nullptr) {
-            lv_obj_set_style_bg_color(
-                battery_overlay_cap_,
-                lv_color_hex(battery_color),
-                0
             );
         }
     }
@@ -3723,7 +3595,6 @@ private:
 
         lv_obj_remove_flag(card_layer_, LV_OBJ_FLAG_HIDDEN);
         ApplyPetAnimationForCardPager();
-        ApplyBatteryOverlayLevel();
 
         if (page == XIAOXIN_CARD_PAGE_NOTIFICATIONS) {
             RemoveFlagIfCreated(pull_indicator_, LV_OBJ_FLAG_HIDDEN);
@@ -4475,7 +4346,6 @@ private:
     adc_cali_handle_t battery_adc_cali_handle_ = nullptr;
     bool battery_adc_initialized_ = false;
     bool battery_adc_available_ = false;
-    int last_battery_voltage_mv_ = 0;
     button_handle_t boot_btn, pwr_btn;
     button_driver_t* boot_btn_driver_ = nullptr;
     button_driver_t* pwr_btn_driver_ = nullptr;
@@ -4758,44 +4628,6 @@ private:
 
         battery_adc_available_ = true;
         ESP_LOGI(TAG, "Battery ADC initialized on GPIO8 / ADC1 channel 7");
-    }
-
-    int ReadBatteryVoltageMv() {
-        InitializeBatteryAdc();
-        if (!battery_adc_available_) {
-            return 0;
-        }
-
-        int voltage_sum = 0;
-        int voltage_min = 0;
-        int voltage_max = 0;
-        uint8_t sample_count = 0;
-        for (uint8_t i = 0; i < k_battery_adc_samples; ++i) {
-            int raw_value = 0;
-            int pin_voltage_mv = 0;
-            if (adc_oneshot_read(battery_adc_handle_, k_battery_adc_channel, &raw_value) != ESP_OK) {
-                continue;
-            }
-            if (adc_cali_raw_to_voltage(battery_adc_cali_handle_, raw_value, &pin_voltage_mv) != ESP_OK) {
-                continue;
-            }
-            const int voltage_mv = pin_voltage_mv * k_battery_voltage_divider;
-            voltage_sum += voltage_mv;
-            if (sample_count == 0 || voltage_mv < voltage_min) {
-                voltage_min = voltage_mv;
-            }
-            if (sample_count == 0 || voltage_mv > voltage_max) {
-                voltage_max = voltage_mv;
-            }
-            sample_count++;
-        }
-
-        if (sample_count >= 3) {
-            voltage_sum -= voltage_min + voltage_max;
-            sample_count -= 2;
-        }
-
-        return sample_count > 0 ? voltage_sum / sample_count : 0;
     }
 
     void RunMotionLoop() {
@@ -5275,6 +5107,7 @@ public:
             AUDIO_I2S_SPK_GPIO_BCLK, AUDIO_I2S_SPK_GPIO_LRCK, AUDIO_I2S_SPK_GPIO_DOUT, I2S_STD_SLOT_LEFT, AUDIO_I2S_MIC_GPIO_SCK, AUDIO_I2S_MIC_GPIO_WS, AUDIO_I2S_MIC_GPIO_DIN, I2S_STD_SLOT_RIGHT); // I2S_STD_SLOT_LEFT / I2S_STD_SLOT_RIGHT / I2S_STD_SLOT_BOTH
         static bool output_volume_configured = []() {
             audio_codec.SetOutputVolume(100);
+            audio_codec.SetOutputBoost(1.0f);
             return true;
         }();
         (void)output_volume_configured;
@@ -5283,29 +5116,10 @@ public:
     }
 
     virtual bool GetBatteryLevel(int& level, bool& charging, bool& discharging) override {
-        const int voltage_mv = ReadBatteryVoltageMv();
-        if (voltage_mv <= 0) {
-            last_battery_voltage_mv_ = 0;
-            return false;
-        }
-
-        last_battery_voltage_mv_ = voltage_mv;
-        level = xiaoxin_battery_percent_from_mv(voltage_mv);
-        on_battery_ = voltage_mv <= 4500;
-        // Use the current voltage-derived power source to inform charging state.
-        // On USB, report charging so the battery state machine converges on
-        // XIAOXIN_BATTERY_POWER_EXTERNAL immediately instead of waiting for
-        // voltage-trend heuristics.
-        charging = !on_battery_;
-        discharging = on_battery_;
-        ESP_LOGI(TAG, "Battery voltage=%dmV level=%d%% %s",
-            voltage_mv, level,
-            on_battery_ ? "discharging" : "charging");
-        return true;
-    }
-
-    int LastBatteryVoltageMv() const {
-        return last_battery_voltage_mv_;
+        (void)level;
+        (void)charging;
+        (void)discharging;
+        return false;
     }
 
     virtual Display* GetDisplay() override {
@@ -5379,11 +5193,6 @@ static void RequestSettingsWifiConfigFromSettingsPage() {
     if (CustomBoard::Instance() != nullptr) {
         CustomBoard::Instance()->RequestSettingsWifiConfig();
     }
-}
-
-static int BoardBatteryVoltageMv() {
-    CustomBoard* board = CustomBoard::Instance();
-    return board != nullptr ? board->LastBatteryVoltageMv() : 0;
 }
 
 DECLARE_BOARD(CustomBoard);

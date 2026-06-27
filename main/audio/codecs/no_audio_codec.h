@@ -10,6 +10,7 @@
 class NoAudioCodec : public AudioCodec {
 protected:
     std::mutex data_if_mutex_;
+    float output_boost_ = 1.0f;
 
     virtual int Write(const int16_t* data, int samples) override;
     virtual int Read(int16_t* dest, int samples) override;
@@ -18,6 +19,7 @@ protected:
 
 public:
     virtual ~NoAudioCodec();
+    void SetOutputBoost(float boost);
 };
 
 class NoAudioCodecDuplex : public NoAudioCodec {
