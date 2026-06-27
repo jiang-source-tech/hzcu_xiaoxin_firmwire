@@ -2480,12 +2480,12 @@ private:
         lv_arc_set_angles(low_power_clock_outer_arc_, 0, 360);
         lv_obj_remove_style(low_power_clock_outer_arc_, NULL, LV_PART_KNOB);
         lv_obj_clear_flag(low_power_clock_outer_arc_, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_style_arc_width(low_power_clock_outer_arc_, 3, LV_PART_MAIN);
-        lv_obj_set_style_arc_width(low_power_clock_outer_arc_, 3, LV_PART_INDICATOR);
-        lv_obj_set_style_arc_color(low_power_clock_outer_arc_, lv_color_hex(0x102A35), LV_PART_MAIN);
-        lv_obj_set_style_arc_color(low_power_clock_outer_arc_, lv_color_hex(0x163D4A), LV_PART_INDICATOR);
-        lv_obj_set_style_arc_opa(low_power_clock_outer_arc_, LV_OPA_60, LV_PART_MAIN);
-        lv_obj_set_style_arc_opa(low_power_clock_outer_arc_, LV_OPA_50, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_width(low_power_clock_outer_arc_, 2, LV_PART_MAIN);
+        lv_obj_set_style_arc_width(low_power_clock_outer_arc_, 2, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_color(low_power_clock_outer_arc_, lv_color_hex(0x071015), LV_PART_MAIN);
+        lv_obj_set_style_arc_color(low_power_clock_outer_arc_, lv_color_hex(0x123428), LV_PART_INDICATOR);
+        lv_obj_set_style_arc_opa(low_power_clock_outer_arc_, LV_OPA_35, LV_PART_MAIN);
+        lv_obj_set_style_arc_opa(low_power_clock_outer_arc_, LV_OPA_35, LV_PART_INDICATOR);
 
         low_power_clock_inner_arc_ = lv_arc_create(low_power_clock_layer_);
         lv_obj_set_size(low_power_clock_inner_arc_, DISPLAY_WIDTH - 28, DISPLAY_HEIGHT - 28);
@@ -2494,12 +2494,12 @@ private:
         lv_arc_set_angles(low_power_clock_inner_arc_, 0, XIAOXIN_LOW_POWER_CLOCK_ARC_SPAN_DEGREES);
         lv_obj_remove_style(low_power_clock_inner_arc_, NULL, LV_PART_KNOB);
         lv_obj_clear_flag(low_power_clock_inner_arc_, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_style_arc_width(low_power_clock_inner_arc_, 5, LV_PART_MAIN);
-        lv_obj_set_style_arc_width(low_power_clock_inner_arc_, 7, LV_PART_INDICATOR);
-        lv_obj_set_style_arc_color(low_power_clock_inner_arc_, lv_color_hex(0x071015), LV_PART_MAIN);
-        lv_obj_set_style_arc_color(low_power_clock_inner_arc_, lv_color_hex(0x26D9FF), LV_PART_INDICATOR);
-        lv_obj_set_style_arc_opa(low_power_clock_inner_arc_, LV_OPA_30, LV_PART_MAIN);
-        lv_obj_set_style_arc_opa(low_power_clock_inner_arc_, LV_OPA_COVER, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_width(low_power_clock_inner_arc_, 3, LV_PART_MAIN);
+        lv_obj_set_style_arc_width(low_power_clock_inner_arc_, 4, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_color(low_power_clock_inner_arc_, lv_color_hex(0x050A0C), LV_PART_MAIN);
+        lv_obj_set_style_arc_color(low_power_clock_inner_arc_, lv_color_hex(0x1C6B4A), LV_PART_INDICATOR);
+        lv_obj_set_style_arc_opa(low_power_clock_inner_arc_, LV_OPA_20, LV_PART_MAIN);
+        lv_obj_set_style_arc_opa(low_power_clock_inner_arc_, LV_OPA_55, LV_PART_INDICATOR);
         lv_obj_set_style_arc_rounded(low_power_clock_inner_arc_, true, LV_PART_INDICATOR);
 
         low_power_clock_time_label_ = lv_label_create(low_power_clock_layer_);
