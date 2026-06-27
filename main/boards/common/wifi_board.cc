@@ -87,6 +87,11 @@ static void RemoveDefaultWifiCredentialsIfPresent(SsidManager& ssid_manager) {
     }
 }
 
+static void ClearSavedWifiCredentialsForReconfiguration() {
+    ESP_LOGI(TAG, "Clearing saved WiFi credentials before manual reconfiguration");
+    SsidManager::GetInstance().Clear();
+}
+
 WifiBoard::WifiBoard() {
     // Create connection timeout timer
     esp_timer_create_args_t timer_args = {
@@ -279,6 +284,7 @@ void WifiBoard::EnterWifiConfigMode() {
             // Stop any ongoing connection attempt
             esp_timer_stop(board->connect_timer_);
             WifiManager::GetInstance().StopStation();
+            ClearSavedWifiCredentialsForReconfiguration();
 
             // Enter config mode
             board->StartWifiConfigMode();
@@ -296,6 +302,7 @@ void WifiBoard::EnterWifiConfigMode() {
     // Stop any ongoing connection attempt
     esp_timer_stop(connect_timer_);
     WifiManager::GetInstance().StopStation();
+    ClearSavedWifiCredentialsForReconfiguration();
 
     StartWifiConfigMode();
 }

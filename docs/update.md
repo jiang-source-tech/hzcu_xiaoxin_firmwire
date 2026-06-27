@@ -2,6 +2,45 @@
 
 ## 2026-06-27 00:00:00 +08:00
 
+### Waveshare ESP32-S3 Touch LCD 1.46 启动动画与手动配网清凭据
+
+#### 背景
+
+本轮恢复并上传此前保存在 `stash@{0}` 的本地改动。该改动包含小芯启动动画资源和启动遮罩层，同时修正手动进入 Wi-Fi 配网时旧凭据仍保留的问题，避免用户主动重新配网后设备继续尝试旧网络。
+
+#### 修改内容
+
+- 新增启动动画资源：
+  - 新增 `main/assets/images/boot.gif`。
+  - 在 Waveshare 1.46 板级显示中声明 `_binary_boot_gif_start/end` 嵌入符号。
+  - `SetupUI()` 完成主界面初始化后调用 `ShowBootSplashLocked()` 显示启动遮罩。
+- 启动遮罩播放与清理：
+  - 新增 `boot_splash_layer_`、`boot_splash_image_`、`boot_splash_controller_` 和 `boot_splash_timer_`。
+  - 启动 GIF 使用白底 RGB565 路径播放，并在前景层显示。
+  - 遮罩显示约 `2400ms` 后由 `esp_timer` 回调关闭，并恢复 overlay 层级。
+  - `PaopaoPetDisplay` 析构时停止并删除启动遮罩 timer，释放 GIF 控制器。
+- 手动 Wi-Fi 重配清理：
+  - 新增 `ClearSavedWifiCredentialsForReconfiguration()`。
+  - `WifiBoard::EnterWifiConfigMode()` 在停止 station 后、启动配网 AP 前调用 `SsidManager::GetInstance().Clear()`。
+  - 静态入口和实例入口两条手动配网路径都覆盖该清理动作。
+- 合并处理：
+  - 恢复 stash 时保留已合入 `main` 的低功耗贪吃蛇屏保路径，不再带回旧的“main 不包含 snake”测试断言。
+
+#### 涉及文件
+
+- `main/assets/images/boot.gif`
+- `main/boards/common/wifi_board.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `tests/wifi_config_status_path_test.py`
+- `docs/update.md`
+
+#### 验证结果
+
+- `python -m pytest tests -q`：通过，129 passed。
+- 当前 shell 中未找到 `idf.py`，因此本轮未执行完整 ESP-IDF 固件 build / flash；仍需在 ESP-IDF 环境中实机确认启动 GIF 显示时长、遮罩关闭层级、手动配网清凭据和后续重新配网流程。
+
+## 2026-06-27 00:00:00 +08:00
+
 ### Waveshare ESP32-S3 Touch LCD 1.46 低功耗贪吃蛇屏保合并
 
 #### 背景

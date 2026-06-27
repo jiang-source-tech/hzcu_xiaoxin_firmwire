@@ -105,6 +105,18 @@ def test_wifi_connection_starts_time_synchronization():
     assert "esp_sntp_init();" in source
 
 
+def test_manual_wifi_reconfiguration_forgets_previous_credentials_before_config_ap():
+    source = read_source(WIFI_BOARD_SOURCE)
+    body = function_body(source, "void WifiBoard::EnterWifiConfigMode()")
+
+    assert "SsidManager::GetInstance().Clear();" in source
+    assert "ClearSavedWifiCredentialsForReconfiguration();" in body
+
+    for start in [index for index in range(len(body)) if body.startswith("WifiManager::GetInstance().StopStation();", index)]:
+        following = body[start : body.index("StartWifiConfigMode();", start)]
+        assert "ClearSavedWifiCredentialsForReconfiguration();" in following
+
+
 def test_sntp_config_allows_three_servers():
     sdkconfig = read_source(SDKCONFIG_SOURCE)
     sdkconfig_defaults = read_source(SDKCONFIG_DEFAULTS_SOURCE)

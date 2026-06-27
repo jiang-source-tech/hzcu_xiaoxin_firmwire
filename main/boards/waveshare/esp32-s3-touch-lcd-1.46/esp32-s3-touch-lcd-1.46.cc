@@ -89,6 +89,8 @@ extern const uint8_t assets_images_review_gif_start[] asm("_binary_review_gif_st
 extern const uint8_t assets_images_review_gif_end[] asm("_binary_review_gif_end");
 extern const uint8_t assets_images_happy_gif_start[] asm("_binary_happy_gif_start");
 extern const uint8_t assets_images_happy_gif_end[] asm("_binary_happy_gif_end");
+extern const uint8_t assets_images_boot_gif_start[] asm("_binary_boot_gif_start");
+extern const uint8_t assets_images_boot_gif_end[] asm("_binary_boot_gif_end");
 
 class CustomBoard;
 static PowerSaveTimer* TargetPowerSaveTimer();
@@ -123,6 +125,7 @@ static constexpr uint32_t k_pet_image_scale_base = LV_SCALE_NONE;
 static constexpr uint16_t k_pet_target_visual_longest = 162;
 static constexpr uint16_t k_card_snap_min_anim_ms = 150;
 static constexpr uint16_t k_card_snap_max_anim_ms = 240;
+static constexpr uint32_t k_boot_splash_duration_ms = 2400;
 static constexpr uint8_t k_card_glass_count = XIAOXIN_CARD_NOTIFICATION_MAX;
 static constexpr uint8_t k_notification_indicator_dot_count = XIAOXIN_CARD_NOTIFICATION_MAX;
 static constexpr uint8_t k_overview_row_count = 4;
@@ -698,6 +701,15 @@ public:
         ) {
     }
 
+    virtual ~PaopaoPetDisplay() {
+        if (boot_splash_timer_ != nullptr) {
+            esp_timer_stop(boot_splash_timer_);
+            esp_timer_delete(boot_splash_timer_);
+            boot_splash_timer_ = nullptr;
+        }
+        boot_splash_controller_.reset();
+    }
+
     virtual void SetupUI() override {
         LcdDisplay::SetupUI();
 
@@ -735,6 +747,7 @@ public:
         InitializeNotificationHeadsUpLayerLocked();
         current_state_ = trigger_.displayed_state;
         PlayGifState(current_state_);
+        ShowBootSplashLocked();
 
         if (render_task_ == nullptr) {
             xTaskCreatePinnedToCore(
@@ -1083,6 +1096,12 @@ private:
     uint16_t* pet_frame_buffer_ = nullptr;
     lv_img_dsc_t gif_source_dsc_ = {};
     std::unique_ptr<LvglGif> pet_gif_controller_ = nullptr;
+    lv_obj_t* boot_splash_layer_ = nullptr;
+    lv_obj_t* boot_splash_image_ = nullptr;
+    lv_img_dsc_t boot_splash_source_dsc_ = {};
+    std::unique_ptr<LvglGif> boot_splash_controller_ = nullptr;
+    esp_timer_handle_t boot_splash_timer_ = nullptr;
+    bool boot_splash_visible_ = false;
     TouchReader* touch_ = nullptr;
     xiaoxin_card_pager_t card_pager_ = {};
     xiaoxin_notification_heads_up_t notification_heads_up_model_ = {};
@@ -2235,6 +2254,92 @@ private:
         pet_frame_dsc_.header.stride = DISPLAY_WIDTH * sizeof(uint16_t);
         pet_frame_dsc_.data_size = DISPLAY_WIDTH * DISPLAY_HEIGHT * sizeof(uint16_t);
         pet_frame_dsc_.data = reinterpret_cast<const uint8_t*>(pet_frame_buffer_);
+    }
+
+    void ShowBootSplashLocked() {
+        const size_t gif_size = assets_images_boot_gif_end - assets_images_boot_gif_start;
+        if (gif_size == 0) {
+            return;
+        }
+
+        lv_obj_t* screen = lv_screen_active();
+        boot_splash_layer_ = lv_obj_create(screen);
+        lv_obj_set_size(boot_splash_layer_, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+        lv_obj_set_style_radius(boot_splash_layer_, 0, 0);
+        lv_obj_set_style_bg_color(boot_splash_layer_, lv_color_white(), 0);
+        lv_obj_set_style_bg_opa(boot_splash_layer_, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(boot_splash_layer_, 0, 0);
+        lv_obj_set_style_pad_all(boot_splash_layer_, 0, 0);
+        lv_obj_set_scrollbar_mode(boot_splash_layer_, LV_SCROLLBAR_MODE_OFF);
+        lv_obj_remove_flag(boot_splash_layer_, LV_OBJ_FLAG_SCROLLABLE);
+
+        boot_splash_image_ = lv_image_create(boot_splash_layer_);
+        lv_obj_center(boot_splash_image_);
+
+        boot_splash_source_dsc_ = {};
+        boot_splash_source_dsc_.header.magic = LV_IMAGE_HEADER_MAGIC;
+        boot_splash_source_dsc_.header.cf = LV_COLOR_FORMAT_RAW_ALPHA;
+        boot_splash_source_dsc_.data_size = gif_size;
+        boot_splash_source_dsc_.data = assets_images_boot_gif_start;
+
+        boot_splash_controller_ = std::make_unique<LvglGif>(&boot_splash_source_dsc_, true, 0xFFFFFF, true);
+        if (boot_splash_controller_ == nullptr || !boot_splash_controller_->IsLoaded()) {
+            ESP_LOGW(TAG, "Boot splash GIF failed to load");
+            HideBootSplashLocked();
+            return;
+        }
+
+        boot_splash_controller_->SetFrameCallback([this]() {
+            if (boot_splash_image_ != nullptr && boot_splash_controller_ != nullptr) {
+                lv_image_set_src(boot_splash_image_, boot_splash_controller_->image_dsc());
+            }
+        });
+        lv_image_set_src(boot_splash_image_, boot_splash_controller_->image_dsc());
+        boot_splash_controller_->Start();
+        lv_obj_move_foreground(boot_splash_layer_);
+        boot_splash_visible_ = true;
+
+        if (boot_splash_timer_ == nullptr) {
+            const esp_timer_create_args_t boot_splash_timer_args = {
+                .callback = BootSplashTimerCallback,
+                .arg = this,
+                .dispatch_method = ESP_TIMER_TASK,
+                .name = "boot_splash",
+                .skip_unhandled_events = true,
+            };
+            esp_err_t err = esp_timer_create(&boot_splash_timer_args, &boot_splash_timer_);
+            if (err != ESP_OK) {
+                ESP_LOGW(TAG, "Boot splash timer create failed: %s", esp_err_to_name(err));
+                HideBootSplashLocked();
+                return;
+            }
+        }
+
+        esp_timer_stop(boot_splash_timer_);
+        ESP_ERROR_CHECK(esp_timer_start_once(boot_splash_timer_, k_boot_splash_duration_ms * 1000ULL));
+    }
+
+    void HideBootSplashLocked() {
+        boot_splash_visible_ = false;
+        boot_splash_controller_.reset();
+        if (boot_splash_layer_ != nullptr) {
+            lv_obj_del(boot_splash_layer_);
+            boot_splash_layer_ = nullptr;
+            boot_splash_image_ = nullptr;
+        }
+        RaiseOverlayObjects();
+    }
+
+    void HideBootSplashFromTimer() {
+        DisplayLockGuard lock(this);
+        if (!boot_splash_visible_) {
+            return;
+        }
+        HideBootSplashLocked();
+    }
+
+    static void BootSplashTimerCallback(void* arg) {
+        static_cast<PaopaoPetDisplay*>(arg)->HideBootSplashFromTimer();
     }
 
     static bool IsHidden(lv_obj_t* obj) {
