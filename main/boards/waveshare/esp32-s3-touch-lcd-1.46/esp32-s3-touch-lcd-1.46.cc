@@ -2471,7 +2471,6 @@ private:
         lv_obj_clear_flag(low_power_clock_layer_, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(low_power_clock_layer_, LV_OBJ_FLAG_HIDDEN);
 
-        // low_power_clock_snake_bg_ = lv_obj_create(low_power_clock_layer_);
         InitializeLowPowerSnakeBackgroundLocked();
 
         low_power_clock_outer_arc_ = lv_arc_create(low_power_clock_layer_);

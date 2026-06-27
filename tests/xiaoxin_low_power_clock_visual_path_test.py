@@ -230,8 +230,8 @@ def test_low_power_clock_snake_background_is_created_before_foreground_labels():
         source.index("void InitializeCardPagerLayer()", source.index("void InitializeLowPowerClockLayerLocked()"))
     ]
 
-    assert init_section.index("low_power_clock_snake_bg_ = lv_obj_create(low_power_clock_layer_);") < init_section.index("low_power_clock_outer_arc_ = lv_arc_create(low_power_clock_layer_);")
-    assert init_section.index("low_power_clock_snake_bg_ = lv_obj_create(low_power_clock_layer_);") < init_section.index("low_power_clock_time_label_ = lv_label_create(low_power_clock_layer_);")
+    assert init_section.index("InitializeLowPowerSnakeBackgroundLocked();") < init_section.index("low_power_clock_outer_arc_ = lv_arc_create(low_power_clock_layer_);")
+    assert init_section.index("InitializeLowPowerSnakeBackgroundLocked();") < init_section.index("low_power_clock_time_label_ = lv_label_create(low_power_clock_layer_);")
 
 
 def test_low_power_clock_snake_path_clips_circle_and_text_safe_areas():
