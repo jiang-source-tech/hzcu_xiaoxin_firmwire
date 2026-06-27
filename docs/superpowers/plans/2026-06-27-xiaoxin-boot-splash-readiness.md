@@ -4,7 +4,7 @@
 
 **Goal:** Make the Xiaoxin 1.46 boot splash disappear once the normal UI is renderable, and make the boot GIF show only logo content over a black screen.
 
-**Architecture:** Keep the behavior local to the Xiaoxin 1.46 display class. Reuse the existing boot splash timer, but reschedule it to a short reveal delay once `PaopaoPetDisplay::SetupUI()` has prepared the first normal UI frame. Fix transparency at the `boot.gif` asset level and guard it with a Python asset test.
+**Architecture:** Keep the behavior local to the Xiaoxin 1.46 display class. Reuse the existing boot splash timer, but reschedule it to a 5 second reveal delay once `PaopaoPetDisplay::SetupUI()` has prepared the first normal UI frame. Fix transparency at the `boot.gif` asset level and guard it with a Python asset test.
 
 **Tech Stack:** ESP-IDF C++, LVGL, existing Python `pytest` path tests, Pillow for GIF asset inspection/transformation.
 
@@ -79,7 +79,7 @@ Expected: FAIL because `ScheduleBootSplashRevealAfterUiReadyLocked()` and `k_boo
 In `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`, near the existing boot constants:
 
 ```cpp
-static constexpr uint32_t k_boot_splash_ui_ready_reveal_delay_ms = 180;
+static constexpr uint32_t k_boot_splash_ui_ready_reveal_delay_ms = 5000;
 ```
 
 - [ ] **Step 4: Schedule reveal after the boot splash is shown**

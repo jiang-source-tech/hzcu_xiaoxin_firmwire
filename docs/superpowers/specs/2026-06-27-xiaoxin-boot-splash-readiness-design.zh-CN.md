@@ -37,7 +37,7 @@
 4. `PlayGifState(current_state_)` 已经准备好默认桌宠状态。
 5. `ShowBootSplashLocked()` 已经显示启动层。
 
-之后安排一次短延迟或 LVGL 定时器回调调用 `CompleteBootSplash()`，让底下的正常 UI 有机会完成至少一次刷新。这样启动动画不会等 Wi-Fi，但也不会在正常 UI 还没画出来时直接消失。
+之后安排一次 5 秒延迟或 LVGL 定时器回调调用 `CompleteBootSplash()`，让启动动画正常展示完整时间。这样启动动画不会等 Wi-Fi，但也不会在正常 UI 还没画出来时直接消失。
 
 保留现有 `CompleteBootSplash()` 调用点作为幂等兜底。重复调用应安全返回，不产生副作用。
 

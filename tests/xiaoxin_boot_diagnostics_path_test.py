@@ -247,6 +247,7 @@ def test_xiaoxin_boot_splash_reveals_after_normal_ui_first_frame_is_ready():
     reveal = function_body(source, "void ScheduleBootSplashRevealAfterUiReadyLocked()")
 
     assert "k_boot_splash_ui_ready_reveal_delay_ms" in source
+    assert "k_boot_splash_ui_ready_reveal_delay_ms = 5000" in source
     assert "ScheduleBootSplashRevealAfterUiReadyLocked();" in setup_ui
     assert setup_ui.index("PlayGifState(current_state_);") < setup_ui.index("ShowBootSplashLocked();")
     assert setup_ui.index("ShowBootSplashLocked();") < setup_ui.index(
