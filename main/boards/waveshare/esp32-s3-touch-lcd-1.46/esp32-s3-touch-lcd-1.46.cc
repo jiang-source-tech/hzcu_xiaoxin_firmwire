@@ -2380,7 +2380,7 @@ private:
             return;
         }
         if (boot_splash_wait_for_ready_) {
-            return;
+            boot_splash_wait_for_ready_ = false;
         }
         HideBootSplashLocked();
     }

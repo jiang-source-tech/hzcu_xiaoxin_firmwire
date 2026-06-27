@@ -196,7 +196,11 @@ def test_battery_boot_splash_is_black_high_brightness_and_held_until_ready():
     assert "lv_color_hex(0x000000)" in show_splash
     assert "std::make_unique<LvglGif>(&boot_splash_source_dsc_, true, 0x000000, true)" in show_splash
     assert "if (boot_splash_wait_for_ready_)" in hide_from_timer
-    assert "return;" in block_after(hide_from_timer, "if (boot_splash_wait_for_ready_)")
+    assert "return;" not in block_after(hide_from_timer, "if (boot_splash_wait_for_ready_)")
+    assert "boot_splash_wait_for_ready_ = false;" in hide_from_timer
+    assert hide_from_timer.index("boot_splash_wait_for_ready_ = false;") < hide_from_timer.index(
+        "HideBootSplashLocked();"
+    )
     assert "boot_splash_wait_for_ready_ = false;" in complete_splash
     assert "HideBootSplashLocked();" in complete_splash
     assert "Board::GetInstance().GetBacklight()" in complete_splash
