@@ -338,7 +338,7 @@ static bool LowPowerSnakeCellInSnakeSafeArea(uint8_t col, uint8_t row) {
         )) {
         return false;
     }
-    return y < k_low_power_snake_bottom_safe_y;
+    return (int16_t)(y + k_low_power_snake_cell_size) <= k_low_power_snake_bottom_safe_y;
 }
 
 static uint16_t BuildLowPowerSnakePath(LowPowerSnakeCell* path, uint16_t max_count) {
