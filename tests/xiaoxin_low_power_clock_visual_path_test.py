@@ -40,7 +40,7 @@ def test_low_power_clock_uses_large_center_time_and_arc_layout():
     assert "lv_arc_set_angles(low_power_clock_inner_arc_, 0, XIAOXIN_LOW_POWER_CLOCK_ARC_SPAN_DEGREES);" in source
     assert "lv_obj_remove_style(low_power_clock_inner_arc_, NULL, LV_PART_KNOB);" in source
     assert "lv_obj_set_style_arc_color(low_power_clock_inner_arc_, lv_color_hex(0x1C6B4A), LV_PART_INDICATOR);" in source
-    assert "lv_obj_set_style_arc_opa(low_power_clock_inner_arc_, LV_OPA_55, LV_PART_INDICATOR);" in source
+    assert "lv_obj_set_style_arc_opa(low_power_clock_inner_arc_, LowPowerClockOpaPercent(55), LV_PART_INDICATOR);" in source
     assert "lv_obj_align(low_power_clock_time_label_, LV_ALIGN_CENTER, 0, -10);" in source
     assert "const lv_font_t* clock_font = &font_puhui_basic_30_4;" in source
     assert "lv_obj_set_style_text_font(low_power_clock_time_label_, clock_font, 0);" in source
@@ -62,9 +62,9 @@ def test_low_power_clock_uses_orbit_aod_visual_language():
     assert "lv_obj_t* low_power_clock_sync_dot_ = nullptr;" in source
     assert "lv_obj_t* low_power_clock_sync_label_ = nullptr;" in source
     assert "lv_obj_set_style_arc_color(low_power_clock_outer_arc_, lv_color_hex(0x071015), LV_PART_MAIN);" in source
-    assert "lv_obj_set_style_arc_opa(low_power_clock_outer_arc_, LV_OPA_35, LV_PART_MAIN);" in source
+    assert "lv_obj_set_style_arc_opa(low_power_clock_outer_arc_, LowPowerClockOpaPercent(35), LV_PART_MAIN);" in source
     assert "lv_obj_set_style_arc_color(low_power_clock_inner_arc_, lv_color_hex(0x1C6B4A), LV_PART_INDICATOR);" in source
-    assert "lv_obj_set_style_arc_opa(low_power_clock_inner_arc_, LV_OPA_55, LV_PART_INDICATOR);" in source
+    assert "lv_obj_set_style_arc_opa(low_power_clock_inner_arc_, LowPowerClockOpaPercent(55), LV_PART_INDICATOR);" in source
     assert "lv_obj_align(low_power_clock_date_label_, LV_ALIGN_TOP_MID, 0, 34);" in source
     assert "lv_obj_align(low_power_clock_battery_label_, LV_ALIGN_BOTTOM_LEFT, 22, -20);" in source
     assert "lv_obj_align(low_power_clock_sync_label_, LV_ALIGN_BOTTOM_RIGHT, -22, -20);" in source
@@ -273,3 +273,11 @@ def test_low_power_clock_snake_animation_invalidates_background_only():
     assert "low_power_clock_snake_tick_++" in animation_section
     assert "lv_obj_invalidate(low_power_clock_snake_bg_);" in animation_section
     assert "lv_obj_create(low_power_clock_layer_)" not in animation_section
+
+
+def test_low_power_clock_snake_uses_supported_lvgl_opacity_values():
+    source = read_source()
+
+    assert "static constexpr lv_opa_t LowPowerClockOpaPercent(uint8_t percent)" in source
+    for unsupported_opa in ("LV_OPA_35", "LV_OPA_55", "LV_OPA_75", "LV_OPA_85", "LV_OPA_95"):
+        assert unsupported_opa not in source
