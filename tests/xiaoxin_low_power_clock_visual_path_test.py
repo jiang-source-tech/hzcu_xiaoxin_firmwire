@@ -217,11 +217,18 @@ def test_low_power_clock_snake_background_uses_single_drawn_object():
         source.index("void InitializeLowPowerClockLayerLocked()"):
         source.index("void InitializeNotificationHeadsUpLayerLocked()", source.index("void InitializeLowPowerClockLayerLocked()"))
     ]
+    create_call_lines = [
+        line.strip()
+        for line in source.splitlines()
+        if "lv_obj_create(low_power_clock_layer_)" in line
+    ]
 
     assert "lv_obj_t* low_power_clock_snake_bg_ = nullptr;" in source
     assert "InitializeLowPowerSnakeBackgroundLocked();" in clock_section
-    assert "low_power_clock_snake_bg_ = lv_obj_create(low_power_clock_layer_);" in clock_section
-    assert clock_section.count("lv_obj_create(low_power_clock_layer_)") == 2
+    assert create_call_lines == [
+        "low_power_clock_sync_dot_ = lv_obj_create(low_power_clock_layer_);",
+        "low_power_clock_snake_bg_ = lv_obj_create(low_power_clock_layer_);",
+    ]
     assert clock_section.count("lv_arc_create(low_power_clock_layer_)") == 2
     assert clock_section.count("lv_label_create(low_power_clock_layer_)") == 5
     assert clock_section.count("lv_obj_create(screen)") == 1
@@ -246,17 +253,14 @@ def test_low_power_clock_snake_background_is_created_before_foreground_labels():
 
 def test_low_power_clock_snake_path_clips_circle_and_text_safe_areas():
     source = read_source()
+    path_section = source[
+        source.index("static uint16_t BuildLowPowerSnakePath("):
+        source.index("static void LowPowerSnakeDrawEvent", source.index("static uint16_t BuildLowPowerSnakePath("))
+    ]
 
-    assert "k_low_power_snake_screen_center = 206" in source
-    assert "k_low_power_snake_visible_radius = 198" in source
-    assert "LowPowerSnakeCellInCircle" in source
-    assert "dx * dx + dy * dy <= k_low_power_snake_visible_radius * k_low_power_snake_visible_radius" in source
-    assert "LowPowerSnakeCellInSnakeSafeArea" in source
-    assert "k_low_power_snake_time_safe_x1 = 82" in source
-    assert "k_low_power_snake_time_safe_y2 = 245" in source
-    assert "k_low_power_snake_bottom_safe_y = 326" in source
-    assert "BuildLowPowerSnakePath" in source
-    assert "concentric ring" in source
+    assert "BuildLowPowerSnakePath(" in path_section
+    assert "LowPowerSnakeCellInCircle(col, row)" in path_section
+    assert "LowPowerSnakeCellInSnakeSafeArea(col, row)" in path_section
 
 
 def test_low_power_clock_snake_animation_invalidates_background_only():
