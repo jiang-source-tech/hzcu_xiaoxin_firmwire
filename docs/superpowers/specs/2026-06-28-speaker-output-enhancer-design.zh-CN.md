@@ -47,10 +47,10 @@ Opus/OGG packet
 
 模块职责：
 
-- 初始化并封装乐鑫 `esp_audio_effects` 中的 EQ / DRC 或 ALC 能力。
+- 初始化并封装乐鑫 `esp_audio_effects` 中的 EQ / DRC 能力，并在其后追加软件 limiter；ALC 仅作为 DRC 实测不合适时的后续备选。
 - 在输出采样率变化时按采样率重新配置处理器。
 - 对每个 PCM frame 原地处理，减少额外分配。
-- 如果效果器初始化失败，自动退回到轻量软件限幅路径，保证播放不中断。
+- 如果效果器初始化失败，自动退回到轻量软件后级限幅路径，保证播放不中断。
 - 暴露一个小的参数结构体，集中管理默认调音参数。
 
 第一版采用保守的单通道配置，因为当前下行 Opus 解码和输出重采样路径按 mono PCM 处理。
@@ -65,7 +65,7 @@ Opus/OGG packet
 pow(output_volume / 100.0, 2) * 65536 * output_boost
 ```
 
-再写入 32-bit I2S buffer。近期 Waveshare 1.46 板级还通过 `output_boost_` 提高了 MAX98357A 输出响度。
+再写入 32-bit I2S buffer。当前 Waveshare 1.46/1.46C 板级还通过 `output_boost_` 提高 I2S 扬声器输出响度。
 
 第一版削波策略要遵守两点：
 
@@ -85,7 +85,7 @@ public:
         bool enabled = true;
         bool enable_eq = true;
         bool enable_drc = true;
-        bool enable_limiter = true;
+        bool enable_limiter = true;  // Software post-limiter after EQ/DRC.
         float limiter_ceiling_db = -3.0f;
         float makeup_gain_db = 1.5f;
     };
@@ -93,7 +93,7 @@ public:
     explicit SpeakerOutputEnhancer(Config config = {});
     ~SpeakerOutputEnhancer();
 
-    esp_err_t Initialize(int sample_rate);
+    bool Initialize(int sample_rate);
     void Process(std::vector<int16_t>& pcm);
     void SetConfig(const Config& config);
     bool IsActive() const;
@@ -101,7 +101,7 @@ public:
 };
 ```
 
-`Process()` 使用 `void` 返回值：播放路径优先不断声，内部失败时记录日志并 fallback 到 limiter-only 或 bypass。需要诊断时通过日志和 `IsActive()` 观察状态。
+`Initialize()` 使用 `bool` 返回值，避免把 `esp_audio_effects` 的 `esp_ae_err_t` 暴露给调用方；内部记录具体错误码。`Process()` 使用 `void` 返回值：播放路径优先不断声，内部失败时记录日志并 fallback 到软件 limiter-only 或 bypass。需要诊断时通过日志和 `IsActive()` 观察状态。
 
 ## 初始调音
 
@@ -111,24 +111,24 @@ public:
 - Low-shelf：220 Hz，Q 0.7，-2.5 dB，给小喇叭进一步减负。
 - Presence boost：2.1 kHz，Q 1.0，+2.5 dB，提升人声存在感。
 - Clarity boost：3.8 kHz，Q 1.0，+1.5 dB，提升提示音穿透力。
-- DRC / ALC：轻到中等压缩，目标 ratio 约 2:1，attack 8-12 ms，release 120-180 ms。
+- DRC：轻到中等压缩，attack 8-12 ms，release 120-180 ms，hold 0 ms，knee 3 dB。`esp_ae_drc` 使用曲线点而不是 ratio 字段，初始曲线建议为 `{0, -3}`、`{-18, -15}`、`{-60, -55}`、`{-100, -100}`，表达“峰值留余量、主体轻压缩、低电平少抬升”的保守起点。
 - Makeup gain：从 +1.5 dB 起步，不超过 +3 dB；若板级 `output_boost_` 已启用，优先保持 +1.5 dB 或更低。
 - Limiter：最终峰值先限制在约 -3 dBFS，给 `NoAudioCodec::Write()` 的音量和 `output_boost_` 留余量；实机确认无削波后再评估是否提高到 -2 dBFS。
 
 参数文件不分散到业务代码里。若使用 `esp_audio_effects` API 时某些滤波器模式或曲线点需要更具体的结构体配置，实现阶段以组件头文件和示例为准，但语义保持上述目标。
 
-短时提示音需要单独试听。`PlaySound()` 的启动成功音、popup 和错误提示音通常很短，DRC attack 过慢会让开头变弱，attack 过快又可能削掉瞬态。第一版选择 8-12 ms 的保守 attack，并把提示音作为实机验收项；如果提示音变钝，优先为短 OGG 走更轻的 DRC 或只走 EQ/limiter。
+短时提示音需要单独试听。`PlaySound()` 的启动成功音、popup 和错误提示音通常很短，DRC attack 过慢会让开头变弱，attack 过快又可能削掉瞬态。第一版不按音频来源分流，所有播放内容走同一增强链路；如果实机发现短 OGG 提示音变钝，后续再为 `AudioTask` 增加播放来源枚举，并让提示音走更轻的 DRC 或只走 EQ/limiter。
 
 ## 配置与降级
 
 新增编译期配置建议：
 
 - `CONFIG_SPEAKER_OUTPUT_ENHANCER`：放在 `main/Kconfig.projbuild` 的音频配置区，靠近 `USE_AUDIO_PROCESSOR` / `USE_AUDIO_DEBUGGER`。
-- 默认先 `y`，但依赖目标可用的 `esp_audio_effects` 组件；当前项目实际目标为 Waveshare ESP32-S3-Touch-LCD-1.46/1.46C，对应仓库配置 `BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_46`。如果实现阶段只希望在该手表目标启用，可增加 `depends on BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_46`。
+- 默认先 `y`，并直接 `depends on BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_46`。当前项目实际目标为 Waveshare ESP32-S3-Touch-LCD-1.46/1.46C，对应仓库配置 `BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_46`；第一版不默认改变其他板子的声音。
 
 新增运行时行为：
 
-- `SpeakerOutputEnhancer::Initialize(sample_rate)` 失败时记录日志，并进入 bypass/limiter-only 模式。
+- `SpeakerOutputEnhancer::Initialize(sample_rate)` 失败时记录日志，并进入 bypass 或软件 limiter-only 模式。
 - `Process()` 接收空 buffer 时直接返回。
 - 如果输出采样率与已初始化采样率不同，重新初始化处理器。这是防御性设计；当前 Waveshare 1.46/1.46C 板级配置的输出采样率为 24000 Hz，正常运行时不应频繁触发。
 - `ResetDecoder()` 不需要重置增强器状态；增强器只处理播放端连续 PCM，不持有协议状态。
@@ -156,7 +156,7 @@ public:
 - 软件限幅不会溢出 `int16_t`。
 - 空数据、正常语音幅度、超大幅度输入都能稳定返回。
 - 增强器 disabled/bypass 路径不改变 frame 长度。
-- `Process()` 不读取也不修改 `AudioTask::timestamp` 等元数据，因为它只接收 PCM vector。
+- `SpeakerOutputEnhancer` 主机侧单元测试只覆盖 PCM-only 行为；它不接收 `AudioTask`，因此不测试 `timestamp` 等播放元数据。
 
 需要固件或实机测试的部分：
 
