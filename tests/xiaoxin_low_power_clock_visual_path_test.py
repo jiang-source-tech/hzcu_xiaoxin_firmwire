@@ -268,11 +268,92 @@ def test_low_power_clock_snake_moves_with_random_direction_state():
     ]
 
     assert "enum class LowPowerSnakeDirection" in source
-    assert "LowPowerSnakeCell low_power_clock_snake_body_[k_low_power_snake_length] = {};" in state_section
+    assert "LowPowerSnakeCell low_power_clock_snake_body_[k_low_power_snake_max_length] = {};" in state_section
+    assert "uint8_t low_power_clock_snake_length_ = k_low_power_snake_initial_length;" in state_section
     assert "LowPowerSnakeDirection low_power_clock_snake_direction_" in state_section
     assert "uint32_t low_power_clock_snake_random_state_" in state_section
     assert "low_power_clock_snake_path_" not in state_section
     assert "low_power_clock_snake_path_count_" not in state_section
+
+
+def test_low_power_clock_snake_has_fruit_growth_and_capped_length_state():
+    source = read_source()
+    state_section = source[
+        source.index("lv_obj_t* low_power_clock_layer_ = nullptr;"):
+        source.index("uint8_t settings_item_count_ = 0;")
+    ]
+
+    assert "static constexpr uint8_t k_low_power_snake_initial_length = 9;" in source
+    assert "static constexpr uint8_t k_low_power_snake_max_length = 24;" in source
+    assert "static constexpr uint8_t k_low_power_snake_fruits_per_growth = 8;" in source
+    assert "LowPowerSnakeCell low_power_clock_snake_body_[k_low_power_snake_max_length] = {};" in state_section
+    assert "uint8_t low_power_clock_snake_length_ = k_low_power_snake_initial_length;" in state_section
+    assert "LowPowerSnakeCell low_power_clock_snake_fruit_" in state_section
+    assert "bool low_power_clock_snake_fruit_ready_ = false;" in state_section
+    assert "uint8_t low_power_clock_snake_fruit_count_ = 0;" in state_section
+
+
+def test_low_power_clock_snake_starts_new_game_when_standby_enters():
+    source = read_source()
+    show_section = source[
+        source.index("void ShowLowPowerClockScreen()"):
+        source.index("void HideLowPowerClockScreen()")
+    ]
+    new_game_section = source[
+        source.index("void StartNewLowPowerSnakeGameLocked()"):
+        source.index("void AdvanceLowPowerSnakeLocked()")
+    ]
+
+    assert "StartNewLowPowerSnakeGameLocked();" in show_section
+    assert "low_power_clock_snake_length_ = k_low_power_snake_initial_length;" in new_game_section
+    assert "low_power_clock_snake_fruit_count_ = 0;" in new_game_section
+    assert "low_power_clock_snake_fruit_ready_ = false;" in new_game_section
+    assert "ResetLowPowerSnakeLocked(k_low_power_snake_initial_length);" in new_game_section
+    assert "GenerateLowPowerSnakeFruitLocked();" in new_game_section
+
+
+def test_low_power_clock_snake_generates_safe_red_fruit():
+    source = read_source()
+    fruit_section = source[
+        source.index("bool GenerateLowPowerSnakeFruitLocked()"):
+        source.index("static uint16_t LowPowerSnakeDistanceToFruit(")
+    ]
+    draw_section = source[
+        source.index("void DrawLowPowerSnakeBackground(lv_event_t* e)"):
+        source.index("xiaoxin_low_power_clock_state_t BuildLowPowerClockState()")
+    ]
+
+    assert "LowPowerSnakeCellInCircle(candidate.col, candidate.row)" in fruit_section
+    assert "LowPowerSnakeBodyContains(candidate, low_power_clock_snake_length_)" in fruit_section
+    assert "low_power_clock_snake_fruit_ = candidate;" in fruit_section
+    assert "low_power_clock_snake_fruit_ready_ = true;" in fruit_section
+    assert "low_power_clock_snake_fruit_ready_ = false;" in fruit_section
+    assert "DrawLowPowerSnakeFruitLocked(layer);" in draw_section
+    assert "lv_color_hex(0xFF4D4D)" in source
+
+
+def test_low_power_clock_snake_moves_toward_fruit_and_grows_only_until_cap():
+    source = read_source()
+    advance_section = source[
+        source.index("void AdvanceLowPowerSnakeLocked()"):
+        source.index("void DrawLowPowerSnakeBackground(lv_event_t* e)")
+    ]
+    fruit_section = source[
+        source.index("void HandleLowPowerSnakeFruitLocked("):
+        source.index("void DrawLowPowerSnakeBackground(lv_event_t* e)")
+    ]
+
+    assert "LowPowerSnakeDistanceToFruit(next)" in advance_section
+    assert "fruit_distance" in advance_section
+    assert "HandleLowPowerSnakeFruitLocked(next);" in advance_section
+    assert "low_power_clock_snake_fruit_count_++;" in fruit_section
+    assert "low_power_clock_snake_fruit_count_ >= k_low_power_snake_fruits_per_growth" in fruit_section
+    assert "low_power_clock_snake_length_ < k_low_power_snake_max_length" in fruit_section
+    assert "low_power_clock_snake_length_++;" in fruit_section
+    assert "low_power_clock_snake_fruit_count_ -= k_low_power_snake_fruits_per_growth;" in fruit_section
+    assert "low_power_clock_snake_fruit_count_ = k_low_power_snake_fruits_per_growth;" in fruit_section
+    assert "GenerateLowPowerSnakeFruitLocked();" in fruit_section
+    assert "StartNewLowPowerSnakeGameLocked();" not in fruit_section
 
 
 def test_low_power_clock_snake_uses_constrained_random_walk_not_fixed_path():
@@ -334,6 +415,28 @@ def test_low_power_clock_snake_animation_invalidates_background_only():
     assert "low_power_clock_snake_tick_++" in animation_section
     assert "lv_obj_invalidate(low_power_clock_snake_bg_);" in animation_section
     assert "lv_obj_create(low_power_clock_layer_)" not in animation_section
+
+
+def test_low_power_clock_snake_waits_for_redraw_before_next_step():
+    source = read_source()
+    state_section = source[
+        source.index("lv_obj_t* low_power_clock_layer_ = nullptr;"):
+        source.index("uint8_t settings_item_count_ = 0;")
+    ]
+    draw_section = source[
+        source.index("void DrawLowPowerSnakeBackground(lv_event_t* e)"):
+        source.index("xiaoxin_low_power_clock_state_t BuildLowPowerClockState()")
+    ]
+    animation_section = source[
+        source.index("void RefreshLowPowerClockAnimationLocked()"):
+        source.index("void RefreshLowPowerClockScreenFromTimer()")
+    ]
+
+    assert "bool low_power_clock_snake_redraw_pending_ = false;" in state_section
+    assert "low_power_clock_snake_redraw_pending_ = false;" in draw_section
+    assert "if (!low_power_clock_snake_redraw_pending_) {" in animation_section
+    assert "AdvanceLowPowerSnakeLocked();" in animation_section
+    assert "low_power_clock_snake_redraw_pending_ = true;" in animation_section
 
 
 def test_low_power_clock_snake_uses_supported_lvgl_opacity_values():
