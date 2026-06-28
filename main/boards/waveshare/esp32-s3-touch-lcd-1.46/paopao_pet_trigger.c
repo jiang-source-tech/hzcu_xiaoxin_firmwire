@@ -200,16 +200,6 @@ paopao_pet_state_t paopao_pet_trigger_tick(paopao_pet_trigger_context_t *ctx, ui
   if (ctx->base_state == PAOPAO_PET_STATE_IDLE &&
       now_ms - ctx->last_interaction_ms >= k_sleep_idle_timeout_ms) {
     set_base_state(ctx, PAOPAO_PET_STATE_SLEEPING, now_ms, true);
-  } else if (ctx->base_state == PAOPAO_PET_STATE_IDLE &&
-             !ctx->reaction_active &&
-             time_reached(now_ms, ctx->next_idle_variant_ms)) {
-    ctx->next_idle_variant_ms = next_idle_variant_time(now_ms);
-    return paopao_pet_trigger_play_reaction(
-      ctx,
-      PAOPAO_PET_STATE_REVIEW,
-      k_default_reaction_ms,
-      now_ms
-    );
   }
 
   ctx->displayed_state = current_display_state(ctx);

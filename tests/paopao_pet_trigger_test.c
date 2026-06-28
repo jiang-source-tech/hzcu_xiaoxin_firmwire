@@ -104,14 +104,14 @@ static void service_core_emotions_use_distinct_reaction_states(void) {
     assert(paopao_pet_trigger_dispatch(&ctx, PAOPAO_PET_TRIGGER_SERVICE_TIRED, 8600) == PAOPAO_PET_STATE_TIRED);
 }
 
-static void idle_variant_uses_review_not_giddy(void) {
+static void trigger_tick_does_not_own_idle_micro_actions(void) {
     paopao_pet_trigger_context_t ctx;
     paopao_pet_trigger_init(&ctx, 0);
 
     assert(paopao_pet_trigger_tick(&ctx, 19999) == PAOPAO_PET_STATE_IDLE);
-    assert(paopao_pet_trigger_tick(&ctx, 20000) == PAOPAO_PET_STATE_REVIEW);
-    assert(paopao_pet_trigger_tick(&ctx, 21700) == PAOPAO_PET_STATE_IDLE);
-    assert(paopao_pet_trigger_tick(&ctx, 60000) != PAOPAO_PET_STATE_GIDDY);
+    assert(paopao_pet_trigger_tick(&ctx, 20000) == PAOPAO_PET_STATE_IDLE);
+    assert(paopao_pet_trigger_tick(&ctx, 59999) == PAOPAO_PET_STATE_IDLE);
+    assert(paopao_pet_trigger_tick(&ctx, 60000) == PAOPAO_PET_STATE_SLEEPING);
 }
 
 static void background_connecting_does_not_replace_pet_state(void) {
@@ -150,7 +150,7 @@ int main(void) {
     neutral_service_suggestion_does_not_clear_voice_state();
     only_local_shake_triggers_giddy();
     service_core_emotions_use_distinct_reaction_states();
-    idle_variant_uses_review_not_giddy();
+    trigger_tick_does_not_own_idle_micro_actions();
     background_connecting_does_not_replace_pet_state();
     local_drag_uses_jumping_reaction();
     puts("paopao_pet_trigger tests passed");
