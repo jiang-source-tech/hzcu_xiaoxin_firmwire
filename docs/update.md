@@ -1,5 +1,60 @@
 ﻿# Update
 
+## 2026-06-28 00:00:00 +08:00
+
+### Waveshare ESP32-S3 Touch LCD 1.46 小芯宠物行为导演与动画自然化
+
+#### 背景
+
+实机对话中服务端 WebSocket 已返回 `{"type":"llm","emotion":"happy"}`，但桌宠常在回答结束后直接回到 `idle.gif`。排查确认 1.46 版本原先通过 `SetEmotion()` 进入 mood 建议，普通 mood 建议在 `SPEAKING / WAITING / THINKING / SLEEPING / FAILING` 等保护状态会被挡住，TTS stop 后又回到 idle，因此用户看不到服务端 emotion。另一方面，idle 长时间只播放固定动画，已有 GIF 资源没有被自然利用。
+
+#### 修改内容
+
+- 新增宠物行为导演模块：
+  - 新增 `paopao_pet_behavior.h/.c`，在 display 事件和 `paopao_pet_trigger` 之间负责调度，不直接渲染 GIF。
+  - 维护 `pending_service_trigger`、当前 voice state、idle 微动作计时和短期 idle 变体索引。
+- 服务端 emotion 收尾播放：
+  - `SetEmotion()` 继续更新 mood 分数，同时在同一个显示锁内交给 behavior director。
+  - listening / thinking / speaking / sleeping / failing 期间收到的服务端 emotion 会缓存，不打断当前语音动画。
+  - 回到 idle 后优先消费 pending emotion，例如回答中收到 `happy`，TTS stop 后播放 `happy.gif` 再回 idle。
+  - 连续多个服务端 emotion 只保留最后一个；`neutral` / `none` / `giddy` 不进入 pending。
+- idle 表现更丰富：
+  - idle 轻量微动作由 behavior director 低频触发，第一版使用 `thinking`、`happy`、`tired` 等轻动作池。
+  - 普通 idle 随机不会触发 `failed`、`crying`、`anxiety`、`stamp` 等强烈动画。
+  - 语音状态变化、本地触摸、拖动、摇晃和服务端即时反应都会重排 idle 计时，避免小动作立刻覆盖刚发生的反应。
+- 触发器职责收敛：
+  - `paopao_pet_trigger_tick()` 不再固定在 idle 到点播放 `review`，只负责 reaction 过期和睡眠超时。
+  - 本地 tap / hold / drag / shake 的即时反馈保持原路径，并同步刷新 behavior director 的交互时间。
+- 1.46 显示接入：
+  - `SetStatus()` / `SetChatMessage()` 在同一把显示锁中同时更新 trigger base state 和 behavior voice state，避免 render loop 在两次加锁间提前消费 pending emotion。
+  - render loop 中先 tick behavior director，再 tick trigger。
+  - behavior director 会从 trigger base state 同步 sleeping / failing 等保护态；busy/connecting 保持 idle-like，避免被下一帧 base-state 同步反复覆盖。
+- 文档补充：
+  - 新增行为导演设计说明和实施计划，记录边界、优先级、测试策略和验收标准。
+
+#### 涉及文件
+
+- `main/CMakeLists.txt`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_behavior.h`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_behavior.c`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/paopao_pet_trigger.c`
+- `tests/paopao_pet_behavior_test.c`
+- `tests/paopao_pet_trigger_test.c`
+- `tests/xiaoxin_pet_mood_integration_path_test.py`
+- `docs/superpowers/specs/2026-06-28-xiaoxin-pet-behavior-director-design.zh-CN.md`
+- `docs/superpowers/plans/2026-06-28-xiaoxin-pet-behavior-director.md`
+- `docs/update.md`
+
+#### 验证结果
+
+- `pytest -q tests/xiaoxin_pet_mood_integration_path_test.py`：通过，15 passed。
+- MSYS2 bash 下运行 `paopao_pet_behavior_test`：通过，覆盖 pending emotion、sleeping/failing 缓存、idle 微动作冷却、长语音结束后延迟 idle 微动作、重复 idle 同步不饿死微动作。
+- MSYS2 bash 下运行 `paopao_pet_trigger_test`：通过，确认 trigger 不再拥有固定 idle review 微动作。
+- MSYS2 bash 下运行 `paopao_pet_emotion_test`：通过，emotion 到 trigger 映射保持正常。
+- `. D:\Espressif\frameworks\esp-idf-v5.5.4\export.ps1; idf.py build`：通过，生成 `build/ai_pet.bin`。
+- 尚未执行实机 flash / smoke test；仍需在硬件上确认回答结束 emotion 收尾、idle 微动作频率和本地触摸/摇晃反馈观感。
+
 ## 2026-06-27 00:00:00 +08:00
 
 ### Speaking GIF 玩偶紫色边缘清理
