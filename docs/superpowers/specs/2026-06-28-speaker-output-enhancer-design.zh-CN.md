@@ -124,13 +124,13 @@ public:
 新增编译期配置建议：
 
 - `CONFIG_SPEAKER_OUTPUT_ENHANCER`：放在 `main/Kconfig.projbuild` 的音频配置区，靠近 `USE_AUDIO_PROCESSOR` / `USE_AUDIO_DEBUGGER`。
-- 默认先 `y`，但依赖目标可用的 `esp_audio_effects` 组件；如实现阶段发现只希望在手表目标启用，可增加 `depends on BOARD_TYPE_AI_PET_S3 || BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_46` 之类的板级条件。
+- 默认先 `y`，但依赖目标可用的 `esp_audio_effects` 组件；当前项目实际目标为 Waveshare ESP32-S3-Touch-LCD-1.46/1.46C，对应仓库配置 `BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_46`。如果实现阶段只希望在该手表目标启用，可增加 `depends on BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_46`。
 
 新增运行时行为：
 
 - `SpeakerOutputEnhancer::Initialize(sample_rate)` 失败时记录日志，并进入 bypass/limiter-only 模式。
 - `Process()` 接收空 buffer 时直接返回。
-- 如果输出采样率与已初始化采样率不同，重新初始化处理器。这是防御性设计；AI Pet S3 / Waveshare 1.46 的输出采样率当前通常固定为 24000 Hz，正常运行时不应频繁触发。
+- 如果输出采样率与已初始化采样率不同，重新初始化处理器。这是防御性设计；当前 Waveshare 1.46/1.46C 板级配置的输出采样率为 24000 Hz，正常运行时不应频繁触发。
 - `ResetDecoder()` 不需要重置增强器状态；增强器只处理播放端连续 PCM，不持有协议状态。
 
 ## 资源预算
