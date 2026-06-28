@@ -74,9 +74,11 @@ void paopao_pet_behavior_set_voice_state(
     return;
   }
 
-  ctx->voice_state = voice_state;
-  ctx->last_interaction_ms = now_ms;
-  ctx->next_idle_variant_ms = next_idle_variant_time(now_ms);
+  if (ctx->voice_state != voice_state) {
+    ctx->voice_state = voice_state;
+    ctx->last_interaction_ms = now_ms;
+    ctx->next_idle_variant_ms = next_idle_variant_time(now_ms);
+  }
 }
 
 paopao_pet_behavior_decision_t paopao_pet_behavior_handle_service_trigger(
