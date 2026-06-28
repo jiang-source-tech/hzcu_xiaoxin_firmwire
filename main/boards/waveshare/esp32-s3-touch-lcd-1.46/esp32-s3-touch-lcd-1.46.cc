@@ -1434,15 +1434,23 @@ private:
         return count;
     }
 
-    bool MoveLowPowerSnakeLocked(LowPowerSnakeDirection direction) {
+    bool MoveLowPowerSnakeLocked(
+        LowPowerSnakeDirection direction,
+        LowPowerSnakeCell* previous_tail
+    ) {
         const LowPowerSnakeCell next = LowPowerSnakeNextCell(low_power_clock_snake_body_[0], direction);
         if (!LowPowerSnakeCanMoveTo(next)) {
             return false;
         }
+        const LowPowerSnakeCell tail =
+            low_power_clock_snake_body_[low_power_clock_snake_length_ - 1U];
         for (uint8_t body = low_power_clock_snake_length_ - 1U; body > 0; --body) {
             low_power_clock_snake_body_[body] = low_power_clock_snake_body_[body - 1U];
         }
         low_power_clock_snake_body_[0] = next;
+        if (previous_tail != nullptr) {
+            *previous_tail = tail;
+        }
         low_power_clock_snake_direction_ = direction;
         return true;
     }
@@ -1521,7 +1529,10 @@ private:
         }
     }
 
-    void HandleLowPowerSnakeFruitLocked(const LowPowerSnakeCell& next) {
+    void HandleLowPowerSnakeFruitLocked(
+        const LowPowerSnakeCell& next,
+        const LowPowerSnakeCell& previous_tail
+    ) {
         if (!low_power_clock_snake_fruit_ready_ ||
             next.col != low_power_clock_snake_fruit_.col ||
             next.row != low_power_clock_snake_fruit_.row) {
@@ -1531,6 +1542,7 @@ private:
         low_power_clock_snake_fruit_count_++;
         if (low_power_clock_snake_fruit_count_ >= k_low_power_snake_fruits_per_growth) {
             if (low_power_clock_snake_length_ < k_low_power_snake_max_length) {
+                low_power_clock_snake_body_[low_power_clock_snake_length_] = previous_tail;
                 low_power_clock_snake_length_++;
                 low_power_clock_snake_fruit_count_ -= k_low_power_snake_fruits_per_growth;
             } else {
@@ -1549,6 +1561,9 @@ private:
         if (!low_power_clock_snake_fruit_ready_) {
             GenerateLowPowerSnakeFruitLocked();
         }
+
+        LowPowerSnakeCell previous_tail =
+            low_power_clock_snake_body_[low_power_clock_snake_length_ - 1U];
 
         LowPowerSnakeDirection candidates[4] = {
             low_power_clock_snake_direction_,
@@ -1595,11 +1610,11 @@ private:
         }
 
         if (has_safe_direction) {
-            MoveLowPowerSnakeLocked(safe_direction);
-            HandleLowPowerSnakeFruitLocked(low_power_clock_snake_body_[0]);
+            MoveLowPowerSnakeLocked(safe_direction, &previous_tail);
+            HandleLowPowerSnakeFruitLocked(low_power_clock_snake_body_[0], previous_tail);
         } else if (has_best_direction) {
-            MoveLowPowerSnakeLocked(best_direction);
-            HandleLowPowerSnakeFruitLocked(low_power_clock_snake_body_[0]);
+            MoveLowPowerSnakeLocked(best_direction, &previous_tail);
+            HandleLowPowerSnakeFruitLocked(low_power_clock_snake_body_[0], previous_tail);
         } else {
             ResetLowPowerSnakeLocked(low_power_clock_snake_length_);
             GenerateLowPowerSnakeFruitLocked();

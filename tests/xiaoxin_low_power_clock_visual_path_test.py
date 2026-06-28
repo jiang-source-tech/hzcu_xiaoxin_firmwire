@@ -350,12 +350,21 @@ def test_low_power_clock_snake_moves_toward_fruit_and_grows_only_until_cap():
 
     assert "LowPowerSnakeDistanceToFruit(next)" in advance_section
     assert "fruit_distance" in advance_section
-    assert "HandleLowPowerSnakeFruitLocked(low_power_clock_snake_body_[0]);" in advance_section
+    assert "LowPowerSnakeCell previous_tail =" in advance_section
+    assert "low_power_clock_snake_body_[low_power_clock_snake_length_ - 1U];" in advance_section
+    assert "MoveLowPowerSnakeLocked(safe_direction, &previous_tail);" in advance_section
+    assert "MoveLowPowerSnakeLocked(best_direction, &previous_tail);" in advance_section
+    assert "HandleLowPowerSnakeFruitLocked(low_power_clock_snake_body_[0], previous_tail);" in advance_section
+    assert "LowPowerSnakeCell* previous_tail" in source
+    assert "const LowPowerSnakeCell& previous_tail" in fruit_section
+    assert "*previous_tail = tail;" in source
     assert "low_power_clock_snake_fruit_count_++;" in fruit_section
     assert "low_power_clock_snake_fruit_count_ >= k_low_power_snake_fruits_per_growth" in fruit_section
     assert growth_guard in fruit_section
+    assert "low_power_clock_snake_body_[low_power_clock_snake_length_] = previous_tail;" in growth_branch
     assert "low_power_clock_snake_length_++;" in growth_branch
     assert "low_power_clock_snake_fruit_count_ -= k_low_power_snake_fruits_per_growth;" in growth_branch
+    assert "low_power_clock_snake_body_[low_power_clock_snake_length_] = previous_tail;" not in cap_branch
     assert "low_power_clock_snake_length_++;" not in cap_branch
     assert "low_power_clock_snake_fruit_count_ = k_low_power_snake_fruits_per_growth;" in cap_branch
     assert "GenerateLowPowerSnakeFruitLocked();" in fruit_section
