@@ -8,7 +8,7 @@ class SpeakerOutputEnhancer {
 public:
     struct Config {
         Config(bool enabled = true, bool enable_eq = true, bool enable_drc = true, bool enable_limiter = true,
-               float limiter_ceiling_db = -3.0f, float makeup_gain_db = 1.5f)
+               float limiter_ceiling_db = -2.5f, float makeup_gain_db = 2.0f)
             : enabled(enabled),
               enable_eq(enable_eq),
               enable_drc(enable_drc),

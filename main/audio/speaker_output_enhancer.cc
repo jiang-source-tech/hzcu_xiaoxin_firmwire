@@ -50,8 +50,8 @@ bool SpeakerOutputEnhancer::Initialize(int sample_rate) {
         esp_ae_eq_filter_para_t filters[] = {
             EqFilter(ESP_AE_EQ_FILTER_HIGH_PASS, 150, 0.7f, 0.0f),
             EqFilter(ESP_AE_EQ_FILTER_LOW_SHELF, 220, 0.7f, -2.5f),
-            EqFilter(ESP_AE_EQ_FILTER_PEAK, 2100, 1.0f, 2.5f),
-            EqFilter(ESP_AE_EQ_FILTER_PEAK, 3800, 1.0f, 1.5f),
+            EqFilter(ESP_AE_EQ_FILTER_PEAK, 2100, 1.0f, 3.0f),
+            EqFilter(ESP_AE_EQ_FILTER_PEAK, 3800, 1.0f, 2.0f),
         };
 
         esp_ae_eq_cfg_t eq_cfg = {};
