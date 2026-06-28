@@ -350,6 +350,15 @@ def test_low_power_clock_snake_moves_toward_fruit_and_grows_only_until_cap():
 
     assert "LowPowerSnakeDistanceToFruit(next)" in advance_section
     assert "fruit_distance" in advance_section
+    assert "uint16_t safe_fruit_distance = UINT16_MAX;" in advance_section
+    assert "const bool closer_safe_fruit = fruit_distance < safe_fruit_distance;" in advance_section
+    assert "const bool equal_safe_fruit = fruit_distance == safe_fruit_distance;" in advance_section
+    safe_block = advance_section[
+        advance_section.index("if (score >= k_low_power_snake_safe_space_min) {"):
+        advance_section.index("}", advance_section.index("if (score >= k_low_power_snake_safe_space_min) {")) + 1
+    ]
+    assert "fruit_distance < safe_fruit_distance" in safe_block
+    assert "NextLowPowerSnakeRandomLocked() % safe_count == 0" in safe_block
     assert "LowPowerSnakeCell previous_tail =" in advance_section
     assert "low_power_clock_snake_body_[low_power_clock_snake_length_ - 1U];" in advance_section
     assert "MoveLowPowerSnakeLocked(safe_direction, &previous_tail);" in advance_section

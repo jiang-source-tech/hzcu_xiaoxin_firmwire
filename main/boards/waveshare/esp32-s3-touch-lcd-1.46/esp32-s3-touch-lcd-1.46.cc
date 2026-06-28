@@ -1577,6 +1577,8 @@ private:
         LowPowerSnakeDirection safe_direction = low_power_clock_snake_direction_;
         LowPowerSnakeDirection best_direction = low_power_clock_snake_direction_;
         uint16_t safe_count = 0;
+        uint16_t safe_fruit_distance = UINT16_MAX;
+        uint16_t safe_score = 0;
         uint16_t best_score = 0;
         uint16_t best_fruit_distance = UINT16_MAX;
         const uint8_t fallback_first = (uint8_t)(NextLowPowerSnakeRandomLocked() % 4U);
@@ -1601,9 +1603,18 @@ private:
             }
 
             if (score >= k_low_power_snake_safe_space_min) {
+                const bool closer_safe_fruit = fruit_distance < safe_fruit_distance;
+                const bool equal_safe_fruit = fruit_distance == safe_fruit_distance;
+                const bool wider_safe_space = score > safe_score;
                 safe_count++;
-                if (!has_safe_direction || NextLowPowerSnakeRandomLocked() % safe_count == 0) {
+                if (!has_safe_direction ||
+                    closer_safe_fruit ||
+                    (equal_safe_fruit &&
+                     (wider_safe_space ||
+                      (score == safe_score && NextLowPowerSnakeRandomLocked() % safe_count == 0)))) {
                     safe_direction = direction;
+                    safe_fruit_distance = fruit_distance;
+                    safe_score = score;
                     has_safe_direction = true;
                 }
             }
