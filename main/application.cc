@@ -883,11 +883,8 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
 
     ESP_LOGI(TAG, "Wake word detected: %s", wake_word.c_str());
 #if CONFIG_SEND_WAKE_WORD_DATA
-    // Encode and send the wake word data to the server
-    while (auto packet = audio_service_.PopWakeWordPacket()) {
-        protocol_->SendAudio(std::move(packet));
-    }
-    // Set the chat state to wake word detected
+    // Notify the server with structured text only. Sending the raw wake audio
+    // lets ASR guess homophones such as "小新" before the model sees context.
     protocol_->SendWakeWordDetected(wake_word);
 
     // Set flag to play popup sound after state changes to listening

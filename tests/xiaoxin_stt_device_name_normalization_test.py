@@ -50,3 +50,15 @@ def test_device_name_normalization_is_not_applied_to_assistant_tts_caption():
     tts_block = block_after(init_body, 'strcmp(state->valuestring, "sentence_start") == 0', length=520)
 
     assert "NormalizeXiaoxinDeviceName" not in tts_block
+
+
+def test_wake_word_invoke_sends_text_detect_without_wake_audio_to_model():
+    source = read_source()
+    body = function_body(source, "void Application::ContinueWakeWordInvoke")
+    send_wake_word_start = body.index("#if CONFIG_SEND_WAKE_WORD_DATA")
+    send_wake_word_end = body.index("#else", send_wake_word_start)
+    send_wake_word_block = body[send_wake_word_start:send_wake_word_end]
+
+    assert 'protocol_->SendWakeWordDetected(wake_word);' in send_wake_word_block
+    assert "PopWakeWordPacket" not in send_wake_word_block
+    assert "protocol_->SendAudio(std::move(packet));" not in send_wake_word_block

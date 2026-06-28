@@ -2,6 +2,40 @@
 
 ## 2026-06-28 00:00:00 +08:00
 
+### Waveshare ESP32-S3 Touch LCD 1.46 小芯唤醒词音频不上送
+
+#### 背景
+
+前一轮已经把屏幕上的用户 STT 字幕从“小新”归一显示为“小芯”，但实机继续反馈：模型侧仍然“听到”的是“小新”。继续追踪唤醒数据流后确认，`ContinueWakeWordInvoke()` 在 `CONFIG_SEND_WAKE_WORD_DATA` 开启时会先把本地缓存的唤醒词音频片段上传给服务端，再发送结构化的 `listen.detect` 文本。服务端对这段同音唤醒音频做 ASR 时仍会猜成“小新”，因此模型侧上下文仍可能拿到“小新”。
+
+#### 修改内容
+
+- 调整唤醒后的服务端通知路径：
+  - 不再从 `audio_service_.PopWakeWordPacket()` 取出唤醒词音频并通过 `protocol_->SendAudio(...)` 上传。
+  - 保留 `protocol_->SendWakeWordDetected(wake_word)`，继续向服务端发送结构化 `listen.detect` 文本。
+  - 当前自定义唤醒词的 `wake_word` 文本仍来自 `CONFIG_CUSTOM_WAKE_WORD_DISPLAY="小芯"`。
+- 保持后续监听流程不变：
+  - 仍设置 `play_popup_on_listening_ = true`。
+  - 仍进入 `SetListeningMode(GetDefaultListeningMode())`。
+  - 不改音频通道打开、TTS/STT 回调、显示层字幕归一化和协议封包格式。
+- 扩展路径测试，确认 `ContinueWakeWordInvoke()` 在发送唤醒检测事件时不再上传 wake word 音频，避免模型侧先收到由 ASR 猜测出的“小新”。
+
+#### 涉及文件
+
+- `main/application.cc`
+- `tests/xiaoxin_stt_device_name_normalization_test.py`
+- `docs/update.md`
+
+#### 验证结果
+
+- `pytest tests\xiaoxin_stt_device_name_normalization_test.py -q`：通过，3 passed。
+- `pytest tests\xiaoxin_bottom_subtitle_stream_test.py tests\xiaoxin_error_display_path_test.py -q`：通过，8 passed。
+- `git diff --check -- main\application.cc tests\xiaoxin_stt_device_name_normalization_test.py`：通过，仅提示 Git 行尾规则会在工作区保留原样。
+- `$env:PATH="D:\Espressif\tools\ccache\4.12.1\ccache-4.12.1-windows-x86_64;$env:PATH"; D:\Espressif\tools\cmake\3.30.2\bin\cmake.exe --build build --target ai_pet.elf -j 4`：通过，`ai_pet.elf` 链接成功。
+- 尚未执行实机 flash；仍需在硬件上确认唤醒后模型侧不再把唤醒词记成“小新”。
+
+## 2026-06-28 00:00:00 +08:00
+
 ### Waveshare ESP32-S3 Touch LCD 1.46 小芯 STT 字幕名称归一化
 
 #### 背景
