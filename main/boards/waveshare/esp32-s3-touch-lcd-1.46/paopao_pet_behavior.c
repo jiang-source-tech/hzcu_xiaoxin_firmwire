@@ -39,6 +39,19 @@ static uint32_t next_idle_variant_time(uint32_t now_ms) {
   return now_ms + k_idle_variant_min_ms;
 }
 
+static bool time_reached(uint32_t now_ms, uint32_t target_ms) {
+  return (int32_t)(now_ms - target_ms) >= 0;
+}
+
+static paopao_pet_trigger_event_t idle_variant_at(uint8_t index) {
+  static const paopao_pet_trigger_event_t variants[] = {
+    PAOPAO_PET_TRIGGER_SERVICE_THINKING,
+    PAOPAO_PET_TRIGGER_SERVICE_HAPPY,
+    PAOPAO_PET_TRIGGER_SERVICE_TIRED,
+  };
+  return variants[index % (uint8_t)(sizeof(variants) / sizeof(variants[0]))];
+}
+
 void paopao_pet_behavior_init(paopao_pet_behavior_context_t *ctx, uint32_t now_ms) {
   if (ctx == NULL) {
     return;
@@ -106,8 +119,11 @@ paopao_pet_behavior_decision_t paopao_pet_behavior_tick(
     return no_decision();
   }
 
-  if (ctx->voice_state == PAOPAO_PET_BEHAVIOR_VOICE_IDLE &&
-      ctx->pending_service_trigger != PAOPAO_PET_TRIGGER_NONE) {
+  if (ctx->voice_state != PAOPAO_PET_BEHAVIOR_VOICE_IDLE) {
+    return no_decision();
+  }
+
+  if (ctx->pending_service_trigger != PAOPAO_PET_TRIGGER_NONE) {
     const paopao_pet_trigger_event_t pending = ctx->pending_service_trigger;
     ctx->pending_service_trigger = PAOPAO_PET_TRIGGER_NONE;
     ctx->last_interaction_ms = now_ms;
@@ -115,5 +131,13 @@ paopao_pet_behavior_decision_t paopao_pet_behavior_tick(
     return trigger_decision(pending);
   }
 
-  return no_decision();
+  if (!time_reached(now_ms, ctx->next_idle_variant_ms)) {
+    return no_decision();
+  }
+
+  const paopao_pet_trigger_event_t trigger = idle_variant_at(ctx->idle_variant_index);
+  ctx->idle_variant_index++;
+  ctx->last_idle_variant_ms = now_ms;
+  ctx->next_idle_variant_ms = next_idle_variant_time(now_ms);
+  return trigger_decision(trigger);
 }

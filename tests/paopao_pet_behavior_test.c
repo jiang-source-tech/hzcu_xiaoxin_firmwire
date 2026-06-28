@@ -59,11 +59,57 @@ static void service_emotion_can_play_immediately_when_idle(void) {
     assert(ctx.pending_service_trigger == PAOPAO_PET_TRIGGER_NONE);
 }
 
+static void idle_tick_chooses_light_micro_actions_without_repeating(void) {
+    paopao_pet_behavior_context_t ctx;
+    paopao_pet_behavior_init(&ctx, 0);
+
+    paopao_pet_behavior_decision_t first = paopao_pet_behavior_tick(&ctx, 12000);
+    assert(first.has_trigger);
+    assert(first.trigger == PAOPAO_PET_TRIGGER_SERVICE_THINKING);
+
+    paopao_pet_behavior_decision_t during_cooldown = paopao_pet_behavior_tick(&ctx, 13000);
+    assert(!during_cooldown.has_trigger);
+
+    paopao_pet_behavior_decision_t second = paopao_pet_behavior_tick(&ctx, 25000);
+    assert(second.has_trigger);
+    assert(second.trigger == PAOPAO_PET_TRIGGER_SERVICE_HAPPY);
+    assert(second.trigger != first.trigger);
+}
+
+static void idle_tick_does_not_emit_strong_reactions(void) {
+    paopao_pet_behavior_context_t ctx;
+    paopao_pet_behavior_init(&ctx, 0);
+
+    for (uint32_t now_ms = 12000; now_ms < 90000; now_ms += 13000) {
+        paopao_pet_behavior_decision_t decision = paopao_pet_behavior_tick(&ctx, now_ms);
+        if (!decision.has_trigger) {
+            continue;
+        }
+        assert(decision.trigger != PAOPAO_PET_TRIGGER_SERVICE_FAILING);
+        assert(decision.trigger != PAOPAO_PET_TRIGGER_SERVICE_CRYING);
+        assert(decision.trigger != PAOPAO_PET_TRIGGER_SERVICE_ANXIOUS);
+        assert(decision.trigger != PAOPAO_PET_TRIGGER_SERVICE_ANGRY);
+    }
+}
+
+static void local_interaction_resets_idle_micro_action_timer(void) {
+    paopao_pet_behavior_context_t ctx;
+    paopao_pet_behavior_init(&ctx, 0);
+
+    paopao_pet_behavior_record_interaction(&ctx, 10000);
+    assert(!paopao_pet_behavior_tick(&ctx, 11999).has_trigger);
+    assert(!paopao_pet_behavior_tick(&ctx, 21999).has_trigger);
+    assert(paopao_pet_behavior_tick(&ctx, 22000).has_trigger);
+}
+
 int main(void) {
     service_emotion_is_cached_while_speaking();
     latest_service_emotion_wins_during_one_reply();
     neutral_service_emotion_is_ignored();
     service_emotion_can_play_immediately_when_idle();
-    puts("paopao_pet_behavior pending emotion tests passed");
+    idle_tick_chooses_light_micro_actions_without_repeating();
+    idle_tick_does_not_emit_strong_reactions();
+    local_interaction_resets_idle_micro_action_timer();
+    puts("paopao_pet_behavior tests passed");
     return 0;
 }
