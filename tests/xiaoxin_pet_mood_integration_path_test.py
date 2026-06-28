@@ -26,16 +26,27 @@ def test_board_includes_and_initializes_pet_mood():
     source = read_source()
 
     assert '#include "paopao_pet_mood.h"' in source
+    assert '#include "paopao_pet_behavior.h"' in source
     assert "paopao_pet_mood_context_t mood_ = {};" in source
+    assert "paopao_pet_behavior_context_t behavior_ = {};" in source
     assert "paopao_pet_mood_init(&mood_, now_ms);" in source
+    assert "paopao_pet_behavior_init(&behavior_, now_ms);" in source
 
 
-def test_service_emotion_routes_through_mood_cooldown():
+def test_service_emotion_routes_through_behavior_director():
     body = function_body(source=read_source(), signature="virtual void SetEmotion(const char* emotion) override")
 
     assert "paopao_pet_trigger_for_emotion(emotion)" in body
+    assert "DispatchPetBehaviorServiceTrigger(event);" in body
     assert "DispatchPetMoodEvent(PAOPAO_PET_MOOD_EVENT_SERVICE_EMOTION, event);" in body
     assert "DispatchPetTrigger(event);" not in body
+
+
+def test_render_loop_ticks_behavior_before_trigger_tick():
+    body = function_body(source=read_source(), signature="void RunRenderLoop()")
+
+    assert "DispatchPetBehaviorTickLocked(now_ms);" in body
+    assert body.index("DispatchPetBehaviorTickLocked(now_ms);") < body.index("paopao_pet_trigger_tick(&trigger_, now_ms);")
 
 
 def test_status_and_chat_events_update_mood_without_bypassing_trigger_state():
