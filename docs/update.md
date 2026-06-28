@@ -2,6 +2,51 @@
 
 ## 2026-06-28 00:00:00 +08:00
 
+### Waveshare ESP32-S3 Touch LCD 1.46/1.46C 扬声器输出增强器
+
+#### 背景
+
+Waveshare ESP32-S3 Touch LCD 1.46/1.46C 的外放音量和听感需要在不影响语音输入链路的前提下增强。本轮只在播放端加入 `SpeakerOutputEnhancer`，让云端 TTS、电话类下行音频以及本地 `PlaySound()` OGG 提示音统一经过同一套后处理。
+
+#### 修改内容
+
+- 播放链路接入：
+  - `SpeakerOutputEnhancer` 位于 `AudioService::AudioOutputTask()` 和 `AudioCodec::OutputData()` 之间。
+  - 云端 TTS/电话类下行音频和 `PlaySound()` OGG 提示音都会在送入 codec 输出前统一处理。
+  - 不改变麦克风输入、唤醒词、AEC、VAD、协议封包或上行 Opus 编码路径。
+- 音频处理策略：
+  - 使用 `esp_audio_effects` 的 `esp_ae_eq` / `esp_ae_drc` 做 EQ/DRC。
+  - 在 EQ/DRC 之后增加纯软件后级 limiter，避免增强后样本越界削波。
+  - 新增主机侧 C++ limiter 测试，覆盖 `-3 dBFS` 峰值换算、正负样本限幅、空 frame 和处理前后长度保持。
+- 配置开关：
+  - 新增 `CONFIG_SPEAKER_OUTPUT_ENHANCER`。
+  - 默认只对 `BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_46` 启用，避免影响其他板型默认行为。
+
+#### 涉及文件
+
+- `main/audio/speaker_output_enhancer.h`
+- `main/audio/speaker_output_enhancer.cc`
+- `main/audio/speaker_output_limiter.h`
+- `main/audio/speaker_output_limiter.cc`
+- `main/audio/audio_service.cc`
+- `main/audio/CMakeLists.txt`
+- `main/Kconfig.projbuild`
+- `main/idf_component.yml`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/config.cmake`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/sdkconfig.ci`
+- `tests/speaker_output_limiter_test.cc`
+- `docs/update.md`
+
+#### 验证结果
+
+- `$env:PATH='D:\msys64\ucrt64\bin;' + $env:PATH; g++ -std=c++17 -Wall -Wextra -Werror tests\speaker_output_limiter_test.cc main\audio\speaker_output_limiter.cc -I main\audio -o build\speaker_output_limiter_test.exe; .\build\speaker_output_limiter_test.exe`：通过，输出 `speaker_output_limiter tests passed`。
+- `git diff --check`：通过，无 whitespace error。
+- `D:\Espressif\tools\ninja\1.12.1\ninja.exe -C build esp-idf/main/CMakeFiles/__idf_main.dir/audio/audio_service.cc.obj`：首次在未加载 ESP-IDF export 的 shell 中触发 CMake 重新生成失败，摘要为找不到 `/tools/cmake/project.cmake`，并出现 `Unknown CMake command "idf_build_set_property"`。
+- `& 'D:\Espressif\frameworks\esp-idf-v5.5.4\export.ps1'; D:\Espressif\tools\ninja\1.12.1\ninja.exe -C build esp-idf/main/CMakeFiles/__idf_main.dir/audio/audio_service.cc.obj`：通过，成功构建 `esp-idf/main/CMakeFiles/__idf_main.dir/audio/audio_service.cc.obj`。
+- 尚未执行实机 flash / smoke test；仍需在 Waveshare ESP32-S3 Touch LCD 1.46/1.46C 上确认外放响度、失真感和提示音听感。
+
+## 2026-06-28 00:00:00 +08:00
+
 ### Waveshare ESP32-S3 Touch LCD 1.46 待机贪吃蛇成长与低功耗显示增强
 
 #### 背景
