@@ -123,7 +123,7 @@ static constexpr bool k_ui_perf_trace_enabled = false;
 static constexpr uint32_t k_ui_perf_log_interval_ms = 1000;
 static constexpr uint16_t k_white_rgb565 = 0xFFFF;
 static constexpr uint32_t k_pet_image_scale_base = LV_SCALE_NONE;
-static constexpr uint16_t k_pet_target_visual_longest = 162;
+static constexpr uint16_t k_pet_target_visual_longest = 243;
 static constexpr uint16_t k_card_snap_min_anim_ms = 150;
 static constexpr uint16_t k_card_snap_max_anim_ms = 240;
 static constexpr uint32_t k_boot_splash_duration_ms = 2400;
@@ -5435,7 +5435,7 @@ public:
             AUDIO_I2S_SPK_GPIO_BCLK, AUDIO_I2S_SPK_GPIO_LRCK, AUDIO_I2S_SPK_GPIO_DOUT, I2S_STD_SLOT_LEFT, AUDIO_I2S_MIC_GPIO_SCK, AUDIO_I2S_MIC_GPIO_WS, AUDIO_I2S_MIC_GPIO_DIN, I2S_STD_SLOT_RIGHT); // I2S_STD_SLOT_LEFT / I2S_STD_SLOT_RIGHT / I2S_STD_SLOT_BOTH
         static bool output_volume_configured = []() {
             audio_codec.SetOutputVolume(100);
-            audio_codec.SetOutputBoost(1.0f);
+            audio_codec.SetOutputBoost(2.0f);
             return true;
         }();
         (void)output_volume_configured;
