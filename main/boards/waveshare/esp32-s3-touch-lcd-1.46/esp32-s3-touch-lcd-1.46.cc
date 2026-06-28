@@ -843,8 +843,8 @@ public:
         if (event == PAOPAO_PET_TRIGGER_NONE) {
             return;
         }
-        DispatchPetMoodEvent(PAOPAO_PET_MOOD_EVENT_SERVICE_EMOTION, event);
-        DispatchPetBehaviorServiceTrigger(event);
+        DisplayLockGuard lock(this);
+        DispatchPetServiceEmotionLocked(event, NowMs());
     }
 
     virtual void SetChatMessage(const char* role, const char* content) override {
@@ -979,6 +979,7 @@ public:
     void DispatchPetBehaviorServiceTrigger(paopao_pet_trigger_event_t service_trigger) {
         DisplayLockGuard lock(this);
         const uint32_t now_ms = NowMs();
+        SyncPetBehaviorVoiceStateFromBaseStateLocked(now_ms);
         const paopao_pet_behavior_decision_t decision =
             paopao_pet_behavior_handle_service_trigger(&behavior_, service_trigger, now_ms);
         DispatchPetBehaviorDecisionLocked(decision, now_ms);
@@ -4277,7 +4278,16 @@ private:
         ApplyPetStateIfChanged();
     }
 
+    void DispatchPetServiceEmotionLocked(paopao_pet_trigger_event_t service_trigger, uint32_t now_ms) {
+        DispatchPetMoodEventLocked(PAOPAO_PET_MOOD_EVENT_SERVICE_EMOTION, service_trigger, now_ms);
+        SyncPetBehaviorVoiceStateFromBaseStateLocked(now_ms);
+        const paopao_pet_behavior_decision_t decision =
+            paopao_pet_behavior_handle_service_trigger(&behavior_, service_trigger, now_ms);
+        DispatchPetBehaviorDecisionLocked(decision, now_ms);
+    }
+
     void DispatchPetBehaviorTickLocked(uint32_t now_ms) {
+        SyncPetBehaviorVoiceStateFromBaseStateLocked(now_ms);
         const paopao_pet_behavior_decision_t decision =
             paopao_pet_behavior_tick(&behavior_, now_ms);
         DispatchPetBehaviorDecisionLocked(decision, now_ms);
@@ -4299,6 +4309,29 @@ private:
 
     void SetPetBehaviorVoiceStateLocked(paopao_pet_behavior_voice_state_t voice_state, uint32_t now_ms) {
         paopao_pet_behavior_set_voice_state(&behavior_, voice_state, now_ms);
+    }
+
+    void SyncPetBehaviorVoiceStateFromBaseStateLocked(uint32_t now_ms) {
+        switch (trigger_.base_state) {
+            case PAOPAO_PET_STATE_WAITING:
+                paopao_pet_behavior_set_voice_state(&behavior_, PAOPAO_PET_BEHAVIOR_VOICE_LISTENING, now_ms);
+                break;
+            case PAOPAO_PET_STATE_THINKING:
+                paopao_pet_behavior_set_voice_state(&behavior_, PAOPAO_PET_BEHAVIOR_VOICE_THINKING, now_ms);
+                break;
+            case PAOPAO_PET_STATE_SPEAKING:
+                paopao_pet_behavior_set_voice_state(&behavior_, PAOPAO_PET_BEHAVIOR_VOICE_SPEAKING, now_ms);
+                break;
+            case PAOPAO_PET_STATE_SLEEPING:
+                paopao_pet_behavior_set_voice_state(&behavior_, PAOPAO_PET_BEHAVIOR_VOICE_SLEEPING, now_ms);
+                break;
+            case PAOPAO_PET_STATE_FAILING:
+                paopao_pet_behavior_set_voice_state(&behavior_, PAOPAO_PET_BEHAVIOR_VOICE_FAILING, now_ms);
+                break;
+            default:
+                paopao_pet_behavior_set_voice_state(&behavior_, PAOPAO_PET_BEHAVIOR_VOICE_IDLE, now_ms);
+                break;
+        }
     }
 
     void RecordPetBehaviorInteractionLocked(uint32_t now_ms) {

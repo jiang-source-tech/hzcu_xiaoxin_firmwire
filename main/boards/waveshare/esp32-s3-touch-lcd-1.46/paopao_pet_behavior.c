@@ -85,8 +85,6 @@ paopao_pet_behavior_decision_t paopao_pet_behavior_handle_service_trigger(
   paopao_pet_trigger_event_t trigger,
   uint32_t now_ms
 ) {
-  (void)now_ms;
-
   if (ctx == NULL || is_ignorable_service_trigger(trigger)) {
     return no_decision();
   }
@@ -96,6 +94,8 @@ paopao_pet_behavior_decision_t paopao_pet_behavior_handle_service_trigger(
     return no_decision();
   }
 
+  ctx->last_interaction_ms = now_ms;
+  ctx->next_idle_variant_ms = next_idle_variant_time(now_ms);
   return trigger_decision(trigger);
 }
 

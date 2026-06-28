@@ -37,8 +37,8 @@ def test_service_emotion_routes_through_behavior_director():
     body = function_body(source=read_source(), signature="virtual void SetEmotion(const char* emotion) override")
 
     assert "paopao_pet_trigger_for_emotion(emotion)" in body
-    assert "DispatchPetBehaviorServiceTrigger(event);" in body
-    assert "DispatchPetMoodEvent(PAOPAO_PET_MOOD_EVENT_SERVICE_EMOTION, event);" in body
+    assert "DisplayLockGuard lock(this);" in body
+    assert "DispatchPetServiceEmotionLocked(event, NowMs());" in body
     assert "DispatchPetTrigger(event);" not in body
 
 
@@ -80,6 +80,37 @@ def test_voice_state_helper_updates_trigger_and_behavior_under_one_lock():
     assert "paopao_pet_trigger_dispatch(&trigger_, trigger_event, now_ms);" in locked_body
     assert "paopao_pet_behavior_set_voice_state(&behavior_, voice_state, now_ms);" in locked_body
     assert "ApplyPetStateIfChanged();" in locked_body
+
+
+def test_service_emotion_helper_updates_mood_and_behavior_under_one_lock():
+    locked_body = function_body(
+        source=read_source(),
+        signature="void DispatchPetServiceEmotionLocked("
+    )
+
+    assert "DispatchPetMoodEventLocked(PAOPAO_PET_MOOD_EVENT_SERVICE_EMOTION, service_trigger, now_ms);" in locked_body
+    assert "const paopao_pet_behavior_decision_t decision =" in locked_body
+    assert "paopao_pet_behavior_handle_service_trigger(&behavior_, service_trigger, now_ms);" in locked_body
+    assert "DispatchPetBehaviorDecisionLocked(decision, now_ms);" in locked_body
+
+
+def test_behavior_service_and_tick_sync_protected_voice_state_from_base_state():
+    source = read_source()
+    service_body = function_body(source, "void DispatchPetBehaviorServiceTrigger(")
+    tick_body = function_body(source, "void DispatchPetBehaviorTickLocked(")
+
+    assert "SyncPetBehaviorVoiceStateFromBaseStateLocked(now_ms);" in service_body
+    assert "SyncPetBehaviorVoiceStateFromBaseStateLocked(now_ms);" in tick_body
+
+    sync_body = function_body(
+        source=source,
+        signature="void SyncPetBehaviorVoiceStateFromBaseStateLocked("
+    )
+
+    assert "case PAOPAO_PET_STATE_SLEEPING:" in sync_body
+    assert "PAOPAO_PET_BEHAVIOR_VOICE_SLEEPING" in sync_body
+    assert "case PAOPAO_PET_STATE_FAILING:" in sync_body
+    assert "PAOPAO_PET_BEHAVIOR_VOICE_FAILING" in sync_body
 
 
 def test_local_interactions_reset_behavior_idle_timer():
