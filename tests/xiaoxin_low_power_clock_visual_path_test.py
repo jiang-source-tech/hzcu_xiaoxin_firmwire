@@ -342,6 +342,9 @@ def test_low_power_clock_snake_moves_toward_fruit_and_grows_only_until_cap():
         source.index("void HandleLowPowerSnakeFruitLocked("):
         source.index("void DrawLowPowerSnakeBackground(lv_event_t* e)")
     ]
+    cap_section = fruit_section[
+        fruit_section.index("if (low_power_clock_snake_length_ < k_low_power_snake_max_length)") :
+    ]
 
     assert "LowPowerSnakeDistanceToFruit(next)" in advance_section
     assert "fruit_distance" in advance_section
@@ -349,11 +352,12 @@ def test_low_power_clock_snake_moves_toward_fruit_and_grows_only_until_cap():
     assert "low_power_clock_snake_fruit_count_++;" in fruit_section
     assert "low_power_clock_snake_fruit_count_ >= k_low_power_snake_fruits_per_growth" in fruit_section
     assert "low_power_clock_snake_length_ < k_low_power_snake_max_length" in fruit_section
-    assert "low_power_clock_snake_length_++;" in fruit_section
-    assert "low_power_clock_snake_fruit_count_ -= k_low_power_snake_fruits_per_growth;" in fruit_section
+    assert "low_power_clock_snake_length_++;" in cap_section
+    assert "else" in cap_section
     assert "low_power_clock_snake_fruit_count_ = k_low_power_snake_fruits_per_growth;" in fruit_section
     assert "GenerateLowPowerSnakeFruitLocked();" in fruit_section
     assert "StartNewLowPowerSnakeGameLocked();" not in fruit_section
+    assert "ResetLowPowerSnakeLocked(" not in fruit_section
 
 
 def test_low_power_clock_snake_uses_constrained_random_walk_not_fixed_path():
