@@ -12,6 +12,7 @@
 #include "boot_diagnostics.h"
 
 #include <cstring>
+#include <string>
 #include <esp_log.h>
 #include <cJSON.h>
 #include <driver/gpio.h>
@@ -20,6 +21,17 @@
 
 #define TAG "Application"
 
+static std::string NormalizeXiaoxinDeviceName(std::string text) {
+    const char* variants[] = {"小新", "晓新"};
+    for (const char* variant : variants) {
+        size_t pos = 0;
+        while ((pos = text.find(variant, pos)) != std::string::npos) {
+            text.replace(pos, std::strlen(variant), "小芯");
+            pos += std::strlen("小芯");
+        }
+    }
+    return text;
+}
 
 Application::Application() {
     event_group_ = xEventGroupCreate();
@@ -586,7 +598,7 @@ void Application::InitializeProtocol() {
             auto text = cJSON_GetObjectItem(root, "text");
             if (cJSON_IsString(text)) {
                 ESP_LOGI(TAG, ">> %s", text->valuestring);
-                Schedule([display, message = std::string(text->valuestring)]() {
+                Schedule([display, message = NormalizeXiaoxinDeviceName(std::string(text->valuestring))]() {
                     display->SetChatMessage("user", message.c_str());
                 });
             }

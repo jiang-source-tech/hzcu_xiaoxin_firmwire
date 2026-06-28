@@ -2,6 +2,39 @@
 
 ## 2026-06-28 00:00:00 +08:00
 
+### Waveshare ESP32-S3 Touch LCD 1.46 小芯 STT 字幕名称归一化
+
+#### 背景
+
+实机语音交互中，用户呼叫“小芯”后，屏幕上显示的用户识别字幕经常被服务端 ASR 转写为“小新”。本地唤醒词配置使用的是拼音 `xiao xin`，只能判断发音，无法区分“芯/新”等同音汉字；因此需要在字幕显示层对设备名做统一展示，避免用户看到的产品名漂移。
+
+#### 修改内容
+
+- 在 `Application` 入站 STT 路径中新增设备名归一化：
+  - 服务端 `type=stt` 返回的用户识别文本在显示前调用 `NormalizeXiaoxinDeviceName()`。
+  - 将 `小新`、`晓新` 统一替换为 `小芯`。
+  - 原始 ASR 文本仍保留在日志 `ESP_LOGI(TAG, ">> ...")` 中，方便后续排查识别质量。
+- 归一化范围保持收敛：
+  - 只作用于用户识别字幕 `SetChatMessage("user", ...)`。
+  - 不改助手 TTS 字幕、系统消息、唤醒词模型和 WebSocket 协议状态机。
+- 新增路径测试，锁定 STT 字幕进入显示前必须经过设备名归一化，并确认助手 TTS 字幕不走该修正路径。
+
+#### 涉及文件
+
+- `main/application.cc`
+- `tests/xiaoxin_stt_device_name_normalization_test.py`
+- `docs/update.md`
+
+#### 验证结果
+
+- `pytest tests\xiaoxin_stt_device_name_normalization_test.py -q`：通过，2 passed。
+- `pytest tests\xiaoxin_bottom_subtitle_stream_test.py tests\xiaoxin_error_display_path_test.py -q`：通过，8 passed。
+- `git diff --check -- main\application.cc tests\xiaoxin_stt_device_name_normalization_test.py`：通过，仅提示 Git 行尾规则会在工作区保留原样。
+- `$env:PATH="D:\Espressif\tools\ccache\4.12.1\ccache-4.12.1-windows-x86_64;$env:PATH"; D:\Espressif\tools\cmake\3.30.2\bin\cmake.exe --build build --target ai_pet.elf -j 4`：通过，`ai_pet.elf` 链接成功。
+- 尚未执行实机 flash；仍需在硬件上确认呼叫“小芯”后的屏幕字幕展示已稳定为“小芯”。
+
+## 2026-06-28 00:00:00 +08:00
+
 ### Waveshare ESP32-S3 Touch LCD 1.46 低功耗贪吃蛇随机屏保优化
 
 #### 背景
