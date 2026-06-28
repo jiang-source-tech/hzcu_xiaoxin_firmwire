@@ -62,6 +62,9 @@ AudioService::~AudioService() {
 void AudioService::Initialize(AudioCodec* codec) {
     codec_ = codec;
     codec_->Start();
+#if CONFIG_SPEAKER_OUTPUT_ENHANCER
+    speaker_output_enhancer_.Initialize(codec_->output_sample_rate());
+#endif
 
     esp_opus_dec_cfg_t opus_dec_cfg = OPUS_DEC_CFG(codec->output_sample_rate(), OPUS_FRAME_DURATION_MS);
     auto ret = esp_opus_dec_open(&opus_dec_cfg, sizeof(esp_opus_dec_cfg_t), &opus_decoder_);
@@ -305,6 +308,13 @@ void AudioService::AudioOutputTask() {
             esp_timer_start_periodic(audio_power_timer_, AUDIO_POWER_CHECK_INTERVAL_MS * 1000);
             codec_->EnableOutput(true);
         }
+
+#if CONFIG_SPEAKER_OUTPUT_ENHANCER
+        if (speaker_output_enhancer_.sample_rate() != codec_->output_sample_rate()) {
+            speaker_output_enhancer_.Initialize(codec_->output_sample_rate());
+        }
+        speaker_output_enhancer_.Process(task->pcm);
+#endif
 
         codec_->OutputData(task->pcm);
 

@@ -749,6 +749,14 @@ config USE_AUDIO_PROCESSOR
     help
         Requires ESP32 S3 and PSRAM
 
+config SPEAKER_OUTPUT_ENHANCER
+    bool "Enable Speaker Output Enhancer"
+    default y
+    depends on BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_46
+    help
+        Enable playback-side EQ, DRC, and software limiting for the Waveshare
+        ESP32-S3-Touch-LCD-1.46/1.46C speaker output path.
+
 config USE_DEVICE_AEC
     bool "Enable Device-Side AEC"
     default n
