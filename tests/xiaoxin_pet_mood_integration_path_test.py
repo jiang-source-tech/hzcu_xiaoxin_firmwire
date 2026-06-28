@@ -55,8 +55,49 @@ def test_status_and_chat_events_update_mood_without_bypassing_trigger_state():
     chat_body = function_body(source, "virtual void SetChatMessage(const char* role, const char* content) override")
 
     assert "DispatchPetMoodEvent(PAOPAO_PET_MOOD_EVENT_VOICE_ERROR);" in status_body
-    assert "DispatchPetMoodEvent(PAOPAO_PET_MOOD_EVENT_CHAT_STARTED);" in chat_body
-    assert "DispatchPetMoodEvent(PAOPAO_PET_MOOD_EVENT_ASSISTANT_REPLY);" in chat_body
+    assert "PAOPAO_PET_MOOD_EVENT_CHAT_STARTED" in chat_body
+    assert "PAOPAO_PET_MOOD_EVENT_ASSISTANT_REPLY" in chat_body
+    assert "DispatchPetVoiceState(" in status_body
+    assert "DispatchPetVoiceState(" in chat_body
+    assert "SetPetBehaviorVoiceState(" not in status_body
+    assert "SetPetBehaviorVoiceState(" not in chat_body
+
+
+def test_voice_state_helper_updates_trigger_and_behavior_under_one_lock():
+    body = function_body(
+        source=read_source(),
+        signature="void DispatchPetVoiceState("
+    )
+
+    assert "DisplayLockGuard lock(this);" in body
+    assert "DispatchPetVoiceStateLocked(" in body
+
+    locked_body = function_body(
+        source=read_source(),
+        signature="void DispatchPetVoiceStateLocked("
+    )
+
+    assert "paopao_pet_trigger_dispatch(&trigger_, trigger_event, now_ms);" in locked_body
+    assert "paopao_pet_behavior_set_voice_state(&behavior_, voice_state, now_ms);" in locked_body
+    assert "ApplyPetStateIfChanged();" in locked_body
+
+
+def test_local_interactions_reset_behavior_idle_timer():
+    body = function_body(
+        source=read_source(),
+        signature="void DispatchLocalPetTriggerLocked("
+    )
+
+    assert "RecordPetBehaviorInteractionLocked(now_ms);" in body
+    assert body.index("RecordPetBehaviorInteractionLocked(now_ms);") < body.index(
+        "paopao_pet_trigger_dispatch(&trigger_, trigger_event, now_ms);"
+    )
+
+
+def test_cmake_wires_behavior_source_for_146_board():
+    cmake = Path("main/CMakeLists.txt").read_text(encoding="utf-8")
+
+    assert "paopao_pet_behavior.c" in cmake
 
 
 def test_device_status_refresh_no_longer_syncs_mood_edges_from_battery_snapshot():

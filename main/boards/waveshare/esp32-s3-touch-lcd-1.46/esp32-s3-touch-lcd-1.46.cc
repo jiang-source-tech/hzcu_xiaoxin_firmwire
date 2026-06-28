@@ -800,24 +800,34 @@ public:
 
         if (StatusEquals(status, Lang::Strings::LISTENING) ||
             Contains(status, "Listening") || Contains(status, "listening")) {
-            DispatchPetTrigger(PAOPAO_PET_TRIGGER_LISTENING);
-            SetPetBehaviorVoiceState(PAOPAO_PET_BEHAVIOR_VOICE_LISTENING);
+            DispatchPetVoiceState(
+                PAOPAO_PET_TRIGGER_LISTENING,
+                PAOPAO_PET_BEHAVIOR_VOICE_LISTENING
+            );
         } else if (StatusEquals(status, Lang::Strings::SPEAKING) ||
                    Contains(status, "Speaking") || Contains(status, "speaking")) {
-            DispatchPetTrigger(PAOPAO_PET_TRIGGER_SPEAKING);
-            SetPetBehaviorVoiceState(PAOPAO_PET_BEHAVIOR_VOICE_SPEAKING);
+            DispatchPetVoiceState(
+                PAOPAO_PET_TRIGGER_SPEAKING,
+                PAOPAO_PET_BEHAVIOR_VOICE_SPEAKING
+            );
         } else if (Contains(status, "Thinking") || Contains(status, "thinking")) {
-            DispatchPetTrigger(PAOPAO_PET_TRIGGER_THINKING);
-            SetPetBehaviorVoiceState(PAOPAO_PET_BEHAVIOR_VOICE_THINKING);
+            DispatchPetVoiceState(
+                PAOPAO_PET_TRIGGER_THINKING,
+                PAOPAO_PET_BEHAVIOR_VOICE_THINKING
+            );
         } else if (StatusEquals(status, Lang::Strings::STANDBY) ||
                    Contains(status, "Standby") || Contains(status, "standby")) {
-            DispatchPetTrigger(PAOPAO_PET_TRIGGER_IDLE);
-            SetPetBehaviorVoiceState(PAOPAO_PET_BEHAVIOR_VOICE_IDLE);
+            DispatchPetVoiceState(
+                PAOPAO_PET_TRIGGER_IDLE,
+                PAOPAO_PET_BEHAVIOR_VOICE_IDLE
+            );
         } else if (status_error) {
             DispatchPetMoodEvent(PAOPAO_PET_MOOD_EVENT_VOICE_ERROR);
         } else if (IsBusyStatus(status)) {
-            DispatchPetTrigger(PAOPAO_PET_TRIGGER_CONNECTING);
-            SetPetBehaviorVoiceState(PAOPAO_PET_BEHAVIOR_VOICE_LISTENING);
+            DispatchPetVoiceState(
+                PAOPAO_PET_TRIGGER_CONNECTING,
+                PAOPAO_PET_BEHAVIOR_VOICE_LISTENING
+            );
         }
         {
             DisplayLockGuard lock(this);
@@ -854,13 +864,17 @@ public:
         }
 
         if (std::strcmp(role, "user") == 0) {
-            DispatchPetMoodEvent(PAOPAO_PET_MOOD_EVENT_CHAT_STARTED);
-            DispatchPetTrigger(PAOPAO_PET_TRIGGER_THINKING);
-            SetPetBehaviorVoiceState(PAOPAO_PET_BEHAVIOR_VOICE_THINKING);
+            DispatchPetVoiceState(
+                PAOPAO_PET_TRIGGER_THINKING,
+                PAOPAO_PET_BEHAVIOR_VOICE_THINKING,
+                PAOPAO_PET_MOOD_EVENT_CHAT_STARTED
+            );
         } else if (std::strcmp(role, "assistant") == 0) {
-            DispatchPetMoodEvent(PAOPAO_PET_MOOD_EVENT_ASSISTANT_REPLY);
-            DispatchPetTrigger(PAOPAO_PET_TRIGGER_SPEAKING);
-            SetPetBehaviorVoiceState(PAOPAO_PET_BEHAVIOR_VOICE_SPEAKING);
+            DispatchPetVoiceState(
+                PAOPAO_PET_TRIGGER_SPEAKING,
+                PAOPAO_PET_BEHAVIOR_VOICE_SPEAKING,
+                PAOPAO_PET_MOOD_EVENT_ASSISTANT_REPLY
+            );
         }
 
         LcdDisplay::SetChatMessage(role, content);
@@ -970,17 +984,21 @@ public:
         DispatchPetBehaviorDecisionLocked(decision, now_ms);
     }
 
+    void DispatchPetVoiceState(
+        paopao_pet_trigger_event_t trigger_event,
+        paopao_pet_behavior_voice_state_t voice_state,
+        paopao_pet_mood_event_t mood_event = PAOPAO_PET_MOOD_EVENT_NONE
+    ) {
+        DisplayLockGuard lock(this);
+        DispatchPetVoiceStateLocked(trigger_event, voice_state, mood_event, NowMs());
+    }
+
     void DispatchLocalPetTrigger(
         paopao_pet_trigger_event_t trigger_event,
         paopao_pet_mood_event_t mood_event
     ) {
         DisplayLockGuard lock(this);
         DispatchLocalPetTriggerLocked(trigger_event, mood_event, NowMs());
-    }
-
-    void SetPetBehaviorVoiceState(paopao_pet_behavior_voice_state_t voice_state) {
-        DisplayLockGuard lock(this);
-        SetPetBehaviorVoiceStateLocked(voice_state, NowMs());
     }
 
     void PlayLocalReaction(paopao_pet_state_t state, uint32_t duration_ms) {
@@ -4256,12 +4274,27 @@ private:
             return;
         }
         paopao_pet_trigger_dispatch(&trigger_, decision.trigger, now_ms);
+        ApplyPetStateIfChanged();
     }
 
     void DispatchPetBehaviorTickLocked(uint32_t now_ms) {
         const paopao_pet_behavior_decision_t decision =
             paopao_pet_behavior_tick(&behavior_, now_ms);
         DispatchPetBehaviorDecisionLocked(decision, now_ms);
+    }
+
+    void DispatchPetVoiceStateLocked(
+        paopao_pet_trigger_event_t trigger_event,
+        paopao_pet_behavior_voice_state_t voice_state,
+        paopao_pet_mood_event_t mood_event,
+        uint32_t now_ms
+    ) {
+        if (mood_event != PAOPAO_PET_MOOD_EVENT_NONE) {
+            DispatchPetMoodEventLocked(mood_event, PAOPAO_PET_TRIGGER_NONE, now_ms);
+        }
+        paopao_pet_trigger_dispatch(&trigger_, trigger_event, now_ms);
+        paopao_pet_behavior_set_voice_state(&behavior_, voice_state, now_ms);
+        ApplyPetStateIfChanged();
     }
 
     void SetPetBehaviorVoiceStateLocked(paopao_pet_behavior_voice_state_t voice_state, uint32_t now_ms) {
