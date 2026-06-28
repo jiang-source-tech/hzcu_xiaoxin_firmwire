@@ -41,6 +41,7 @@ Opus/OGG packet
   -> optional output resampler
   -> SpeakerOutputEnhancer::Process()
   -> AudioCodec::OutputData()
+  -> codec volume / board output boost
   -> I2S / speaker
 ```
 
@@ -54,30 +55,92 @@ Opus/OGG packet
 
 第一版采用保守的单通道配置，因为当前下行 Opus 解码和输出重采样路径按 mono PCM 处理。
 
+`AudioTask` 中的 `timestamp` 等元数据只服务于 server AEC 和队列追踪，增强器不读取、不修改这些字段。增强器只接收 `task->pcm`，保持协议状态和播放元数据与音色处理解耦。
+
+### 与 codec 音量级的关系
+
+`SpeakerOutputEnhancer` 位于 `AudioService` 播放队列和 `AudioCodec::OutputData()` 之间，因此它处理的是 16-bit PCM。部分 codec 实现之后还会有自己的输出增益级。当前 `NoAudioCodec::Write()` 会将增强后的 `int16_t` PCM 乘以：
+
+```text
+pow(output_volume / 100.0, 2) * 65536 * output_boost
+```
+
+再写入 32-bit I2S buffer。近期 Waveshare 1.46 板级还通过 `output_boost_` 提高了 MAX98357A 输出响度。
+
+第一版削波策略要遵守两点：
+
+- enhancer 的 limiter 只保证自己的 `int16_t` 输出不过载，并给后续 codec 增益留 headroom。
+- 不在 enhancer 中再做大幅全局 makeup gain；响度主要来自低频削减、人声频段 EQ、适度动态压缩和 codec 既有音量/boost。
+
+实现时先保持插入点不变，因为这样能覆盖所有播放来源且不改各 codec 的硬件写入逻辑。如果实机发现 `output_boost_` 后仍有削波，应优先下调 enhancer makeup gain 或 limiter ceiling；必要时再把 NoAudioCodec 的最终 32-bit 写入限幅也纳入同一调音任务，而不是让两个增益级各自抢响度。
+
+## API 草图
+
+实现阶段建议把 ESP-IDF 依赖封装在 `SpeakerOutputEnhancer` 内，`AudioService` 只看到一个小接口：
+
+```cpp
+class SpeakerOutputEnhancer {
+public:
+    struct Config {
+        bool enabled = true;
+        bool enable_eq = true;
+        bool enable_drc = true;
+        bool enable_limiter = true;
+        float limiter_ceiling_db = -3.0f;
+        float makeup_gain_db = 1.5f;
+    };
+
+    explicit SpeakerOutputEnhancer(Config config = {});
+    ~SpeakerOutputEnhancer();
+
+    esp_err_t Initialize(int sample_rate);
+    void Process(std::vector<int16_t>& pcm);
+    void SetConfig(const Config& config);
+    bool IsActive() const;
+    int sample_rate() const;
+};
+```
+
+`Process()` 使用 `void` 返回值：播放路径优先不断声，内部失败时记录日志并 fallback 到 limiter-only 或 bypass。需要诊断时通过日志和 `IsActive()` 观察状态。
+
 ## 初始调音
 
 默认参数以“更响但不刺耳”为目标，具体数值需要实机确认后再微调：
 
-- High-pass / low-shelf：削减约 150 Hz 以下或 200 Hz 附近低频。
-- Presence boost：在 2 kHz 左右适度提升人声存在感。
-- Clarity boost：在 3.5 kHz 到 4 kHz 左右轻微提升提示音穿透力。
-- DRC / ALC：采用中等压缩，补偿少量 makeup gain。
-- Limiter：最终峰值限制在约 -1 dBFS 到 -2 dBFS，对应 `int16_t` 留出安全余量。
+- High-pass：150 Hz，Q 0.7，0 dB，用于减少无效低频和振膜行程。
+- Low-shelf：220 Hz，Q 0.7，-2.5 dB，给小喇叭进一步减负。
+- Presence boost：2.1 kHz，Q 1.0，+2.5 dB，提升人声存在感。
+- Clarity boost：3.8 kHz，Q 1.0，+1.5 dB，提升提示音穿透力。
+- DRC / ALC：轻到中等压缩，目标 ratio 约 2:1，attack 8-12 ms，release 120-180 ms。
+- Makeup gain：从 +1.5 dB 起步，不超过 +3 dB；若板级 `output_boost_` 已启用，优先保持 +1.5 dB 或更低。
+- Limiter：最终峰值先限制在约 -3 dBFS，给 `NoAudioCodec::Write()` 的音量和 `output_boost_` 留余量；实机确认无削波后再评估是否提高到 -2 dBFS。
 
 参数文件不分散到业务代码里。若使用 `esp_audio_effects` API 时某些滤波器模式或曲线点需要更具体的结构体配置，实现阶段以组件头文件和示例为准，但语义保持上述目标。
+
+短时提示音需要单独试听。`PlaySound()` 的启动成功音、popup 和错误提示音通常很短，DRC attack 过慢会让开头变弱，attack 过快又可能削掉瞬态。第一版选择 8-12 ms 的保守 attack，并把提示音作为实机验收项；如果提示音变钝，优先为短 OGG 走更轻的 DRC 或只走 EQ/limiter。
 
 ## 配置与降级
 
 新增编译期配置建议：
 
-- `CONFIG_SPEAKER_OUTPUT_ENHANCER`：默认开启。
+- `CONFIG_SPEAKER_OUTPUT_ENHANCER`：放在 `main/Kconfig.projbuild` 的音频配置区，靠近 `USE_AUDIO_PROCESSOR` / `USE_AUDIO_DEBUGGER`。
+- 默认先 `y`，但依赖目标可用的 `esp_audio_effects` 组件；如实现阶段发现只希望在手表目标启用，可增加 `depends on BOARD_TYPE_AI_PET_S3 || BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_46` 之类的板级条件。
 
 新增运行时行为：
 
 - `SpeakerOutputEnhancer::Initialize(sample_rate)` 失败时记录日志，并进入 bypass/limiter-only 模式。
 - `Process()` 接收空 buffer 时直接返回。
-- 如果输出采样率与已初始化采样率不同，重新初始化处理器。
+- 如果输出采样率与已初始化采样率不同，重新初始化处理器。这是防御性设计；AI Pet S3 / Waveshare 1.46 的输出采样率当前通常固定为 24000 Hz，正常运行时不应频繁触发。
 - `ResetDecoder()` 不需要重置增强器状态；增强器只处理播放端连续 PCM，不持有协议状态。
+
+## 资源预算
+
+第一版不能假设 EQ + DRC 免费。实现和验收要记录：
+
+- 每个 60 ms PCM frame 的处理耗时，目标是在 `AudioOutputTask` 中保持明显低于 60 ms，避免播放队列堆积。
+- enhancer 初始化后的额外 heap 占用，尤其是 `esp_audio_effects` handle 和内部 delay / smoothing buffer。
+- `AudioOutputTask` 当前优先级为 4，第一版不主动调高任务优先级；只有实测出现输出 underrun 或队列积压时再调整。
+- 如果完整 EQ + DRC 开销过高，降级顺序为：降低 EQ band 数量，关闭 DRC 保留 limiter，最后完全 bypass。
 
 ## 错误处理
 
@@ -93,6 +156,14 @@ Opus/OGG packet
 - 软件限幅不会溢出 `int16_t`。
 - 空数据、正常语音幅度、超大幅度输入都能稳定返回。
 - 增强器 disabled/bypass 路径不改变 frame 长度。
+- `Process()` 不读取也不修改 `AudioTask::timestamp` 等元数据，因为它只接收 PCM vector。
+
+需要固件或实机测试的部分：
+
+- `esp_audio_effects` EQ / DRC 参数能成功初始化。
+- EQ / DRC 处理后的听感和削波风险。
+- 处理耗时、heap 占用和播放队列是否积压。
+- codec 音量与 `output_boost_` 叠加后的最大音量表现。
 
 固件构建验证：
 
