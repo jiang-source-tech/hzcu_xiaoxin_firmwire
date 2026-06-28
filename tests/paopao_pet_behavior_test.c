@@ -107,6 +107,19 @@ static void service_emotion_is_cached_while_failing(void) {
     );
 }
 
+static void returning_to_idle_after_long_voice_session_defers_idle_micro_action(void) {
+    paopao_pet_behavior_context_t ctx;
+    paopao_pet_behavior_init(&ctx, 0);
+
+    paopao_pet_behavior_set_voice_state(&ctx, PAOPAO_PET_BEHAVIOR_VOICE_SPEAKING, 1000);
+    assert(!paopao_pet_behavior_tick(&ctx, 60000).has_trigger);
+
+    paopao_pet_behavior_set_voice_state(&ctx, PAOPAO_PET_BEHAVIOR_VOICE_IDLE, 61000);
+    assert(!paopao_pet_behavior_tick(&ctx, 61001).has_trigger);
+    assert(!paopao_pet_behavior_tick(&ctx, 72999).has_trigger);
+    assert(paopao_pet_behavior_tick(&ctx, 73000).has_trigger);
+}
+
 static void idle_tick_chooses_light_micro_actions_without_repeating(void) {
     paopao_pet_behavior_context_t ctx;
     paopao_pet_behavior_init(&ctx, 0);
@@ -158,6 +171,7 @@ int main(void) {
     direct_idle_service_emotion_defers_idle_micro_action();
     service_emotion_is_cached_while_sleeping();
     service_emotion_is_cached_while_failing();
+    returning_to_idle_after_long_voice_session_defers_idle_micro_action();
     idle_tick_chooses_light_micro_actions_without_repeating();
     idle_tick_does_not_emit_strong_reactions();
     local_interaction_resets_idle_micro_action_timer();

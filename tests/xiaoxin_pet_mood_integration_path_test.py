@@ -63,6 +63,17 @@ def test_status_and_chat_events_update_mood_without_bypassing_trigger_state():
     assert "SetPetBehaviorVoiceState(" not in chat_body
 
 
+def test_busy_status_remains_idle_like_for_behavior_director():
+    body = function_body(source=read_source(), signature="virtual void SetStatus(const char* status) override")
+
+    busy_start = body.index("IsBusyStatus(status)")
+    busy_section = body[busy_start : body.index("}", busy_start)]
+
+    assert "PAOPAO_PET_TRIGGER_CONNECTING" in busy_section
+    assert "PAOPAO_PET_BEHAVIOR_VOICE_IDLE" in busy_section
+    assert "PAOPAO_PET_BEHAVIOR_VOICE_LISTENING" not in busy_section
+
+
 def test_voice_state_helper_updates_trigger_and_behavior_under_one_lock():
     body = function_body(
         source=read_source(),

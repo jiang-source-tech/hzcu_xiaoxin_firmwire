@@ -826,7 +826,7 @@ public:
         } else if (IsBusyStatus(status)) {
             DispatchPetVoiceState(
                 PAOPAO_PET_TRIGGER_CONNECTING,
-                PAOPAO_PET_BEHAVIOR_VOICE_LISTENING
+                PAOPAO_PET_BEHAVIOR_VOICE_IDLE
             );
         }
         {
