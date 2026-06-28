@@ -250,10 +250,12 @@ static constexpr uint8_t k_low_power_snake_cols = 22;
 static constexpr uint8_t k_low_power_snake_rows = 22;
 static constexpr uint16_t k_low_power_snake_path_max =
     k_low_power_snake_cols * k_low_power_snake_rows;
-static constexpr uint8_t k_low_power_snake_length = 9;
+static constexpr uint8_t k_low_power_snake_initial_length = 9;
+static constexpr uint8_t k_low_power_snake_max_length = 24;
+static constexpr uint8_t k_low_power_snake_fruits_per_growth = 8;
 static constexpr int16_t k_low_power_snake_screen_center = 206;
 static constexpr int16_t k_low_power_snake_visible_radius = 198;
-static constexpr uint16_t k_low_power_snake_safe_space_min = k_low_power_snake_length + 4U;
+static constexpr uint16_t k_low_power_snake_safe_space_min = k_low_power_snake_initial_length + 4U;
 
 struct LowPowerSnakeCell {
     uint8_t col;
@@ -1008,6 +1010,8 @@ public:
         low_power_clock_visible_ = true;
         low_power_clock_last_minute_ = 0xff;
         low_power_clock_animation_tick_ = 0;
+        low_power_clock_snake_redraw_pending_ = false;
+        StartNewLowPowerSnakeGameLocked();
         RefreshLowPowerClockScreenLocked(true);
         RefreshLowPowerClockAnimationLocked();
         if (low_power_clock_layer_ != nullptr) {
@@ -1100,13 +1104,18 @@ private:
     SettingsRow settings_rows_[k_settings_item_max_count];
     xiaoxin_settings_item_t settings_items_[k_settings_item_max_count] = {};
     xiaoxin_low_power_clock_snapshot_t low_power_clock_snapshot_ = {};
-    LowPowerSnakeCell low_power_clock_snake_body_[k_low_power_snake_length] = {};
+    LowPowerSnakeCell low_power_clock_snake_body_[k_low_power_snake_max_length] = {};
+    uint8_t low_power_clock_snake_length_ = k_low_power_snake_initial_length;
+    LowPowerSnakeCell low_power_clock_snake_fruit_ = {};
+    bool low_power_clock_snake_fruit_ready_ = false;
+    uint8_t low_power_clock_snake_fruit_count_ = 0;
     LowPowerSnakeDirection low_power_clock_snake_direction_ = LowPowerSnakeDirection::Right;
     uint32_t low_power_clock_snake_random_state_ = 0xA5A55A5AU;
     bool low_power_clock_snake_ready_ = false;
     uint8_t low_power_clock_last_minute_ = 0xff;
     uint32_t low_power_clock_animation_tick_ = 0;
     uint32_t low_power_clock_snake_tick_ = 0;
+    bool low_power_clock_snake_redraw_pending_ = false;
     uint8_t settings_item_count_ = 0;
     SettingsView settings_view_ = SettingsView::List;
     bool low_power_clock_visible_ = false;
@@ -1299,21 +1308,22 @@ private:
         return lv_color_hex(((uint32_t)r << 16) | ((uint32_t)g << 8) | b);
     }
 
-    static lv_color_t LowPowerSnakeBodyColor(uint8_t body_index) {
-        constexpr uint8_t half = k_low_power_snake_length / 2U;
+    static lv_color_t LowPowerSnakeBodyColor(uint8_t body_index, uint8_t snake_length) {
+        const uint8_t max_index = snake_length > 1U ? (uint8_t)(snake_length - 1U) : 1U;
+        const uint8_t half = max_index / 2U;
         if (body_index <= half) {
-            return LowPowerSnakeMixColor(0x7CFFB2, 0x32D6A0, body_index, half);
+            return LowPowerSnakeMixColor(0x7CFFB2, 0x32D6A0, body_index, half == 0U ? 1U : half);
         }
         return LowPowerSnakeMixColor(
             0x32D6A0,
             0x1E7EA3,
             (uint8_t)(body_index - half),
-            (uint8_t)(k_low_power_snake_length - 1U - half)
+            (uint8_t)(max_index - half)
         );
     }
 
-    static lv_opa_t LowPowerSnakeBodyOpa(uint8_t body_index) {
-        constexpr uint8_t max_index = k_low_power_snake_length - 1U;
+    static lv_opa_t LowPowerSnakeBodyOpa(uint8_t body_index, uint8_t snake_length) {
+        const uint8_t max_index = snake_length > 1U ? (uint8_t)(snake_length - 1U) : 1U;
         const uint8_t start = 96U;
         const uint8_t end = 64U;
         const uint8_t percent = (uint8_t)(start - ((start - end) * body_index) / max_index);
@@ -1378,14 +1388,14 @@ private:
         if (!LowPowerSnakeCellInCircle(next.col, next.row)) {
             return false;
         }
-        return !LowPowerSnakeBodyContains(next, k_low_power_snake_length - 1U);
+        return !LowPowerSnakeBodyContains(next, low_power_clock_snake_length_ - 1U);
     }
 
     bool LowPowerSnakeCellBlockedAfterMove(const LowPowerSnakeCell& cell, const LowPowerSnakeCell& next) const {
         if (cell.col == next.col && cell.row == next.row) {
             return false;
         }
-        return LowPowerSnakeBodyContains(cell, k_low_power_snake_length - 1U);
+        return LowPowerSnakeBodyContains(cell, low_power_clock_snake_length_ - 1U);
     }
 
     uint16_t LowPowerSnakeReachableSpaceAfterMove(const LowPowerSnakeCell& next) const {
@@ -1429,7 +1439,7 @@ private:
         if (!LowPowerSnakeCanMoveTo(next)) {
             return false;
         }
-        for (uint8_t body = k_low_power_snake_length - 1U; body > 0; --body) {
+        for (uint8_t body = low_power_clock_snake_length_ - 1U; body > 0; --body) {
             low_power_clock_snake_body_[body] = low_power_clock_snake_body_[body - 1U];
         }
         low_power_clock_snake_body_[0] = next;
@@ -1437,7 +1447,47 @@ private:
         return true;
     }
 
-    void ResetLowPowerSnakeLocked() {
+    static uint16_t LowPowerSnakeDistanceToFruit(
+        const LowPowerSnakeCell& cell,
+        const LowPowerSnakeCell& fruit
+    ) {
+        const int16_t dc = (int16_t)cell.col - (int16_t)fruit.col;
+        const int16_t dr = (int16_t)cell.row - (int16_t)fruit.row;
+        return (uint16_t)((dc < 0 ? -dc : dc) + (dr < 0 ? -dr : dr));
+    }
+
+    uint16_t LowPowerSnakeDistanceToFruit(const LowPowerSnakeCell& cell) const {
+        return LowPowerSnakeDistanceToFruit(cell, low_power_clock_snake_fruit_);
+    }
+
+    bool GenerateLowPowerSnakeFruitLocked() {
+        const uint32_t offset = NextLowPowerSnakeRandomLocked() % k_low_power_snake_path_max;
+        for (uint16_t attempt = 0; attempt < k_low_power_snake_path_max; ++attempt) {
+            const uint16_t index = (uint16_t)((offset + attempt) % k_low_power_snake_path_max);
+            const LowPowerSnakeCell candidate = {
+                static_cast<uint8_t>(index % k_low_power_snake_cols),
+                static_cast<uint8_t>(index / k_low_power_snake_cols),
+            };
+            if (!LowPowerSnakeCellInCircle(candidate.col, candidate.row) ||
+                LowPowerSnakeBodyContains(candidate, low_power_clock_snake_length_)) {
+                continue;
+            }
+            low_power_clock_snake_fruit_ = candidate;
+            low_power_clock_snake_fruit_ready_ = true;
+            return true;
+        }
+        low_power_clock_snake_fruit_ready_ = false;
+        return false;
+    }
+
+    void ResetLowPowerSnakeLocked(uint8_t target_length) {
+        if (target_length < k_low_power_snake_initial_length) {
+            target_length = k_low_power_snake_initial_length;
+        }
+        if (target_length > k_low_power_snake_max_length) {
+            target_length = k_low_power_snake_max_length;
+        }
+        low_power_clock_snake_length_ = target_length;
         const uint32_t offset = NextLowPowerSnakeRandomLocked() % k_low_power_snake_path_max;
         for (uint16_t attempt = 0; attempt < k_low_power_snake_path_max; ++attempt) {
             const uint16_t index = (uint16_t)((offset + attempt) % k_low_power_snake_path_max);
@@ -1450,7 +1500,7 @@ private:
             }
 
             low_power_clock_snake_body_[0] = head;
-            for (uint8_t i = 1; i < k_low_power_snake_length; ++i) {
+            for (uint8_t i = 1; i < low_power_clock_snake_length_; ++i) {
                 low_power_clock_snake_body_[i] = head;
             }
             low_power_clock_snake_direction_ =
@@ -1461,10 +1511,43 @@ private:
         low_power_clock_snake_ready_ = false;
     }
 
+    void StartNewLowPowerSnakeGameLocked() {
+        low_power_clock_snake_length_ = k_low_power_snake_initial_length;
+        low_power_clock_snake_fruit_count_ = 0;
+        low_power_clock_snake_fruit_ready_ = false;
+        ResetLowPowerSnakeLocked(k_low_power_snake_initial_length);
+        if (low_power_clock_snake_ready_) {
+            GenerateLowPowerSnakeFruitLocked();
+        }
+    }
+
+    void HandleLowPowerSnakeFruitLocked(const LowPowerSnakeCell& next) {
+        if (!low_power_clock_snake_fruit_ready_ ||
+            next.col != low_power_clock_snake_fruit_.col ||
+            next.row != low_power_clock_snake_fruit_.row) {
+            return;
+        }
+
+        low_power_clock_snake_fruit_count_++;
+        if (low_power_clock_snake_fruit_count_ >= k_low_power_snake_fruits_per_growth) {
+            if (low_power_clock_snake_length_ < k_low_power_snake_max_length) {
+                low_power_clock_snake_length_++;
+                low_power_clock_snake_fruit_count_ -= k_low_power_snake_fruits_per_growth;
+            } else {
+                low_power_clock_snake_fruit_count_ = k_low_power_snake_fruits_per_growth;
+            }
+        }
+        GenerateLowPowerSnakeFruitLocked();
+    }
+
     void AdvanceLowPowerSnakeLocked() {
         if (!low_power_clock_snake_ready_) {
-            ResetLowPowerSnakeLocked();
+            ResetLowPowerSnakeLocked(low_power_clock_snake_length_);
+            GenerateLowPowerSnakeFruitLocked();
             return;
+        }
+        if (!low_power_clock_snake_fruit_ready_) {
+            GenerateLowPowerSnakeFruitLocked();
         }
 
         LowPowerSnakeDirection candidates[4] = {
@@ -1480,18 +1563,24 @@ private:
         LowPowerSnakeDirection best_direction = low_power_clock_snake_direction_;
         uint16_t safe_count = 0;
         uint16_t best_score = 0;
+        uint16_t best_fruit_distance = UINT16_MAX;
         const uint8_t fallback_first = (uint8_t)(NextLowPowerSnakeRandomLocked() % 4U);
 
         for (uint8_t i = 0; i < 4U; ++i) {
             const LowPowerSnakeDirection direction = candidates[(fallback_first + i) % 4U];
             const LowPowerSnakeCell next = LowPowerSnakeNextCell(low_power_clock_snake_body_[0], direction);
             const uint16_t score = LowPowerSnakeReachableSpaceAfterMove(next);
+            const uint16_t fruit_distance =
+                low_power_clock_snake_fruit_ready_ ? LowPowerSnakeDistanceToFruit(next) : UINT16_MAX;
             if (score == 0) {
                 continue;
             }
 
-            if (!has_best_direction || score > best_score) {
+            if (!has_best_direction ||
+                fruit_distance < best_fruit_distance ||
+                (fruit_distance == best_fruit_distance && score > best_score)) {
                 best_score = score;
+                best_fruit_distance = fruit_distance;
                 best_direction = direction;
                 has_best_direction = true;
             }
@@ -1507,9 +1596,28 @@ private:
 
         if (has_safe_direction) {
             MoveLowPowerSnakeLocked(safe_direction);
+            HandleLowPowerSnakeFruitLocked(low_power_clock_snake_body_[0]);
         } else if (has_best_direction) {
             MoveLowPowerSnakeLocked(best_direction);
+            HandleLowPowerSnakeFruitLocked(low_power_clock_snake_body_[0]);
+        } else {
+            ResetLowPowerSnakeLocked(low_power_clock_snake_length_);
+            GenerateLowPowerSnakeFruitLocked();
         }
+    }
+
+    void DrawLowPowerSnakeFruitLocked(lv_layer_t* layer) {
+        if (!low_power_clock_snake_fruit_ready_) {
+            return;
+        }
+        DrawLowPowerSnakeCell(
+            layer,
+            low_power_clock_snake_fruit_.col,
+            low_power_clock_snake_fruit_.row,
+            lv_color_hex(0xFF4D4D),
+            LowPowerClockOpaPercent(92),
+            3
+        );
     }
 
     void DrawLowPowerSnakeBackground(lv_event_t* e) {
@@ -1534,22 +1642,25 @@ private:
             }
         }
 
+        DrawLowPowerSnakeFruitLocked(layer);
+
         if (!low_power_clock_snake_ready_) {
             return;
         }
 
-        for (uint8_t i = k_low_power_snake_length; i > 0; --i) {
+        for (uint8_t i = low_power_clock_snake_length_; i > 0; --i) {
             const uint8_t body_index = (uint8_t)(i - 1U);
             const LowPowerSnakeCell cell = low_power_clock_snake_body_[body_index];
             DrawLowPowerSnakeCell(
                 layer,
                 cell.col,
                 cell.row,
-                LowPowerSnakeBodyColor(body_index),
-                LowPowerSnakeBodyOpa(body_index),
+                LowPowerSnakeBodyColor(body_index, low_power_clock_snake_length_),
+                LowPowerSnakeBodyOpa(body_index, low_power_clock_snake_length_),
                 4
             );
         }
+        low_power_clock_snake_redraw_pending_ = false;
     }
 
     xiaoxin_low_power_clock_state_t BuildLowPowerClockState() {
@@ -1609,9 +1720,12 @@ private:
         }
 
         const uint16_t start = xiaoxin_low_power_clock_animation_phase(low_power_clock_animation_tick_++);
-        AdvanceLowPowerSnakeLocked();
-        low_power_clock_snake_tick_++;
-        if (low_power_clock_snake_bg_ != nullptr) {
+        if (!low_power_clock_snake_redraw_pending_) {
+            AdvanceLowPowerSnakeLocked();
+            low_power_clock_snake_tick_++;
+            low_power_clock_snake_redraw_pending_ = true;
+        }
+        if (low_power_clock_snake_bg_ != nullptr && low_power_clock_snake_redraw_pending_) {
             lv_obj_invalidate(low_power_clock_snake_bg_);
         }
         lv_arc_set_rotation(low_power_clock_inner_arc_, start);
@@ -2843,7 +2957,9 @@ private:
         low_power_clock_snake_random_state_ =
             0xA5A55A5AU ^ low_power_clock_animation_tick_ ^ (uint32_t)esp_timer_get_time();
         low_power_clock_snake_tick_ = 0;
-        ResetLowPowerSnakeLocked();
+        low_power_clock_snake_redraw_pending_ = false;
+        ResetLowPowerSnakeLocked(low_power_clock_snake_length_);
+        GenerateLowPowerSnakeFruitLocked();
 
         low_power_clock_snake_bg_ = lv_obj_create(low_power_clock_layer_);
         if (low_power_clock_snake_bg_ == nullptr) {

@@ -316,7 +316,7 @@ def test_low_power_clock_snake_generates_safe_red_fruit():
     source = read_source()
     fruit_section = source[
         source.index("bool GenerateLowPowerSnakeFruitLocked()"):
-        source.index("static uint16_t LowPowerSnakeDistanceToFruit(")
+        source.index("void StartNewLowPowerSnakeGameLocked()")
     ]
     draw_section = source[
         source.index("void DrawLowPowerSnakeBackground(lv_event_t* e)"):
@@ -340,7 +340,7 @@ def test_low_power_clock_snake_moves_toward_fruit_and_grows_only_until_cap():
     ]
     fruit_section = source[
         source.index("void HandleLowPowerSnakeFruitLocked("):
-        source.index("void DrawLowPowerSnakeBackground(lv_event_t* e)")
+        source.index("void AdvanceLowPowerSnakeLocked()")
     ]
     growth_guard = "if (low_power_clock_snake_length_ < k_low_power_snake_max_length)"
     growth_guard_index = fruit_section.index(growth_guard)
@@ -350,7 +350,7 @@ def test_low_power_clock_snake_moves_toward_fruit_and_grows_only_until_cap():
 
     assert "LowPowerSnakeDistanceToFruit(next)" in advance_section
     assert "fruit_distance" in advance_section
-    assert "HandleLowPowerSnakeFruitLocked(next);" in advance_section
+    assert "HandleLowPowerSnakeFruitLocked(low_power_clock_snake_body_[0]);" in advance_section
     assert "low_power_clock_snake_fruit_count_++;" in fruit_section
     assert "low_power_clock_snake_fruit_count_ >= k_low_power_snake_fruits_per_growth" in fruit_section
     assert growth_guard in fruit_section
@@ -368,7 +368,7 @@ def test_low_power_clock_snake_uses_constrained_random_walk_not_fixed_path():
 
     assert "BuildLowPowerSnakePath(" not in source
     assert "AdvanceLowPowerSnakeLocked()" in source
-    assert "ResetLowPowerSnakeLocked()" in source
+    assert "ResetLowPowerSnakeLocked(uint8_t target_length)" in source
     assert "NextLowPowerSnakeRandomLocked()" in source
     assert "LowPowerSnakeCanMoveTo(" in source
     assert "LowPowerSnakeNextCell(" in source
@@ -397,7 +397,7 @@ def test_low_power_clock_snake_does_not_restart_during_runtime_movement():
         source.index("void DrawLowPowerSnakeBackground(lv_event_t* e)")
     ]
 
-    assert advance_section.count("ResetLowPowerSnakeLocked();") == 1
+    assert advance_section.count("ResetLowPowerSnakeLocked(low_power_clock_snake_length_);") == 2
 
 
 def test_low_power_clock_snake_body_uses_gradient_color():
@@ -406,8 +406,8 @@ def test_low_power_clock_snake_body_uses_gradient_color():
     assert "LowPowerSnakeMixColor(" in source
     assert "LowPowerSnakeBodyColor(" in source
     assert "LowPowerSnakeBodyOpa(" in source
-    assert "LowPowerSnakeBodyColor(body_index)" in source
-    assert "LowPowerSnakeBodyOpa(body_index)" in source
+    assert "LowPowerSnakeBodyColor(body_index, low_power_clock_snake_length_)" in source
+    assert "LowPowerSnakeBodyOpa(body_index, low_power_clock_snake_length_)" in source
     assert "is_head ? lv_color_hex(0x56D364)" not in source
     assert "bright_body ? lv_color_hex(0x2F9E5D) : lv_color_hex(0x24734A)" not in source
 
