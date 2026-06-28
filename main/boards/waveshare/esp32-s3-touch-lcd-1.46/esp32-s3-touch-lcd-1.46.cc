@@ -66,6 +66,7 @@ extern const lv_image_dsc_t xiaoxin_heads_up_glass_texture;
 #define TAG "waveshare_lcd_1_46"
 
 LV_FONT_DECLARE(font_puhui_basic_30_4);
+LV_FONT_DECLARE(font_puhui_basic_20_4);
 
 extern const uint8_t assets_images_idle_gif_start[] asm("_binary_idle_gif_start");
 extern const uint8_t assets_images_idle_gif_end[] asm("_binary_idle_gif_end");
@@ -2891,6 +2892,7 @@ private:
         lv_obj_t* screen = lv_screen_active();
         auto lvgl_theme = static_cast<LvglTheme*>(current_theme_);
         const lv_font_t* clock_font = &font_puhui_basic_30_4;
+        const lv_font_t* date_font = &font_puhui_basic_20_4;
         const lv_font_t* hint_font = lvgl_theme != nullptr && lvgl_theme->text_font() != nullptr
             ? lvgl_theme->text_font()->font()
             : nullptr;
@@ -2944,10 +2946,8 @@ private:
 
         low_power_clock_date_label_ = lv_label_create(low_power_clock_layer_);
         lv_obj_set_style_text_color(low_power_clock_date_label_, lv_color_hex(0x75AFC0), 0);
-        lv_obj_set_style_text_opa(low_power_clock_date_label_, LV_OPA_80, 0);
-        if (hint_font != nullptr) {
-            lv_obj_set_style_text_font(low_power_clock_date_label_, hint_font, 0);
-        }
+        lv_obj_set_style_text_opa(low_power_clock_date_label_, LowPowerClockOpaPercent(90), 0);
+        lv_obj_set_style_text_font(low_power_clock_date_label_, date_font, 0);
         lv_obj_align(low_power_clock_date_label_, LV_ALIGN_TOP_MID, 0, 34);
 
         low_power_clock_sync_dot_ = lv_obj_create(low_power_clock_layer_);

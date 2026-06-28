@@ -2,6 +2,53 @@
 
 ## 2026-06-28 00:00:00 +08:00
 
+### Waveshare ESP32-S3 Touch LCD 1.46 待机贪吃蛇成长与低功耗显示增强
+
+#### 背景
+
+低功耗待机时钟页已经加入随机贪吃蛇屏保，但蛇身长度固定，长时间待机时缺少反馈变化；实机也反馈待机屏整体亮度偏低，星期/日期区域在黑底和反光环境下不够醒目。本轮在不改变待机页主结构的前提下，增强贪吃蛇屏保的成长反馈，并提升待机信息可读性。
+
+#### 修改内容
+
+- 贪吃蛇吃果成长：
+  - 新增低功耗贪吃蛇果子位置状态，果子只生成在圆形屏幕内、蛇身以外的可用格子。
+  - 蛇头吃到果子后记录吃果次数，每吃满 `8` 个果子增长一格。
+  - 蛇身最大长度限制为 `24`，达到上限后继续吃果不会越界增长。
+  - 增长时保留上一帧尾巴，让视觉上表现为蛇身变长，而不是移动后长度不变。
+  - 候选方向选择更偏向靠近果子的安全方向，同时继续保留随机游走感。
+  - 果子绘制为高亮青绿色小方块，并随背景绘制对象一起刷新。
+- 待机屏亮度提升：
+  - `XIAOXIN_LOW_POWER_CLOCK_DEFAULT_BRIGHTNESS` 从 `12%` 提升到 `24%`。
+  - 只影响进入低功耗待机时钟页后的专用背光亮度。
+  - 退出低功耗待机页后仍调用 `RestoreBrightness()` 恢复用户正常亮度。
+- 星期/日期可读性增强：
+  - 待机页星期/日期标签从主题提示小字改为 `font_puhui_basic_20_4`。
+  - 日期标签透明度从 `80%` 提升到 `90%`。
+  - 保持日期位置在顶部区域，不改中心大时间、底部 `POWER 唤醒` 提示和同步状态布局。
+- 测试 guardrail 补充：
+  - 扩展低功耗时钟模型测试，锁定待机默认亮度为 `24%`。
+  - 扩展低功耗时钟视觉路径测试，锁定日期使用更大的专用字体和更高对比度。
+  - 保留贪吃蛇成长、果子生成、最大长度、尾巴保留和安全移动相关路径断言。
+
+#### 涉及文件
+
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_low_power_clock_model.h`
+- `tests/xiaoxin_low_power_clock_model_test.c`
+- `tests/xiaoxin_low_power_clock_visual_path_test.py`
+- `docs/superpowers/plans/2026-06-28-xiaoxin-snake-fruit-growth.md`
+- `docs/superpowers/specs/2026-06-28-xiaoxin-snake-fruit-growth-design.zh-CN.md`
+- `docs/update.md`
+
+#### 验证结果
+
+- `python -m pytest tests\xiaoxin_low_power_clock_visual_path_test.py tests\xiaoxin_power_latch_path_test.py tests\xiaoxin_boot_diagnostics_path_test.py`：通过，52 passed。
+- `$env:PATH="D:\Espressif\tools\ccache\4.12.1\ccache-4.12.1-windows-x86_64;$env:PATH"; D:\Espressif\tools\cmake\3.30.2\bin\cmake.exe --build build -j 4`：通过，生成 `build/ai_pet.bin`。
+- 构建仍有既有 `esp_lcd_touch_get_coordinates()` deprecated warning、`InitializeCardPagerLayer()` 中 `lvgl_theme` 未使用 warning，以及 `ESP_IDF_VERSION` 环境变量 warning；本轮未处理这些既有警告。
+- 尚未执行实机 flash；仍需在硬件上确认吃果成长节奏、24% 待机亮度和日期字号观感。
+
+## 2026-06-28 00:00:00 +08:00
+
 ### Waveshare ESP32-S3 Touch LCD 1.46 小芯唤醒词音频不上送
 
 #### 背景

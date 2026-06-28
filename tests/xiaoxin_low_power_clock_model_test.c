@@ -15,7 +15,7 @@ static void valid_time_formats_as_hh_mm(void) {
   xiaoxin_low_power_clock_model_build(&state, &snapshot);
 
   assert(strcmp(snapshot.time_text, "09:05") == 0);
-  assert(snapshot.brightness_percent == 12);
+  assert(snapshot.brightness_percent == 24);
   assert(snapshot.brightness_percent == XIAOXIN_LOW_POWER_CLOCK_DEFAULT_BRIGHTNESS);
 }
 

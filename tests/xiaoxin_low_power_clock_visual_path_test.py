@@ -260,6 +260,19 @@ def test_low_power_clock_snake_background_is_created_before_foreground_labels():
     assert init_section.index("InitializeLowPowerSnakeBackgroundLocked();") < init_section.index("low_power_clock_time_label_ = lv_label_create(low_power_clock_layer_);")
 
 
+def test_low_power_clock_date_uses_larger_high_contrast_label_style():
+    source = read_source()
+    init_section = source[
+        source.index("void InitializeLowPowerClockLayerLocked()"):
+        source.index("low_power_clock_sync_dot_ = lv_obj_create(low_power_clock_layer_);")
+    ]
+
+    assert "const lv_font_t* date_font = &font_puhui_basic_20_4;" in init_section
+    assert "lv_obj_set_style_text_opa(low_power_clock_date_label_, LowPowerClockOpaPercent(90), 0);" in init_section
+    assert "lv_obj_set_style_text_font(low_power_clock_date_label_, date_font, 0);" in init_section
+    assert "lv_obj_set_style_text_font(low_power_clock_date_label_, hint_font, 0);" not in init_section
+
+
 def test_low_power_clock_snake_moves_with_random_direction_state():
     source = read_source()
     state_section = source[
