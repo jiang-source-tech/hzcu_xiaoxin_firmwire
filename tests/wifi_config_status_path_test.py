@@ -62,6 +62,15 @@ def test_wifi_config_state_refreshes_status_bar_immediately():
     assert "display->UpdateStatusBar(true);" in wifi_config_block
 
 
+def test_wifi_config_state_can_enter_display_standby_when_idle():
+    body = function_body(read_source(APPLICATION_SOURCE), "bool Application::CanEnterSleepMode()")
+
+    assert "const DeviceState state = GetDeviceState();" in body
+    assert "state != kDeviceStateIdle && state != kDeviceStateWifiConfiguring" in body
+    assert "protocol_ && protocol_->IsAudioChannelOpened()" in body
+    assert "!audio_service_.IsIdle()" in body
+
+
 def test_wifi_scan_and_connect_update_top_status_instead_of_leaving_initializing():
     body = function_body(read_source(APPLICATION_SOURCE), "void Application::Initialize()")
     scanning_block = block_after(body, "case NetworkEvent::Scanning:", length=260)
@@ -83,6 +92,7 @@ def test_wifi_connection_starts_time_synchronization():
     source = read_source(WIFI_BOARD_SOURCE)
     body = function_body(source, "void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data)")
     connected_block = block_after(body, "case NetworkEvent::Connected:", length=420)
+    sync_body = function_body(source, "static void StartTimeSynchronization()")
 
     assert "#include <esp_sntp.h>" in source
     assert "StartTimeSynchronization();" in connected_block
@@ -103,6 +113,10 @@ def test_wifi_connection_starts_time_synchronization():
     assert "for (size_t i = 0; i < k_ntp_server_count; ++i)" in source
     assert "esp_sntp_setservername(i, NTP_SERVERS[i]);" in source
     assert "esp_sntp_init();" in source
+    assert "esp_sntp_enabled()" in sync_body
+    assert "esp_sntp_get_sync_status()" in sync_body
+    assert "esp_sntp_restart()" in sync_body
+    assert "MarkTimeSyncStarted();" in braced_block_after(sync_body, "if (sntp_started || esp_sntp_enabled())")
 
 
 def test_manual_wifi_reconfiguration_forgets_previous_credentials_before_config_ap():

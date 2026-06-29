@@ -9,13 +9,15 @@ static void valid_time_formats_as_hh_mm(void) {
     .time_valid = true,
     .hour = 9,
     .minute = 5,
+    .second = 7,
   };
   xiaoxin_low_power_clock_snapshot_t snapshot = {};
 
   xiaoxin_low_power_clock_model_build(&state, &snapshot);
 
   assert(strcmp(snapshot.time_text, "09:05") == 0);
-  assert(snapshot.brightness_percent == 24);
+  assert(strcmp(snapshot.second_text, "07") == 0);
+  assert(snapshot.brightness_percent == 48);
   assert(snapshot.brightness_percent == XIAOXIN_LOW_POWER_CLOCK_DEFAULT_BRIGHTNESS);
 }
 
@@ -24,12 +26,14 @@ static void invalid_time_uses_placeholder(void) {
     .time_valid = false,
     .hour = 14,
     .minute = 32,
+    .second = 45,
   };
   xiaoxin_low_power_clock_snapshot_t snapshot = {};
 
   xiaoxin_low_power_clock_model_build(&state, &snapshot);
 
   assert(strcmp(snapshot.time_text, "--:--") == 0);
+  assert(strcmp(snapshot.second_text, "--") == 0);
 }
 
 static void valid_state_formats_orbit_secondary_text(void) {
@@ -37,6 +41,7 @@ static void valid_state_formats_orbit_secondary_text(void) {
     .time_valid = true,
     .hour = 9,
     .minute = 5,
+    .second = 36,
     .month = 6,
     .day = 24,
     .weekday = 3,
@@ -49,6 +54,7 @@ static void valid_state_formats_orbit_secondary_text(void) {
   xiaoxin_low_power_clock_model_build(&state, &snapshot);
 
   assert(strcmp(snapshot.time_text, "09:05") == 0);
+  assert(strcmp(snapshot.second_text, "36") == 0);
   assert(strcmp(snapshot.date_text, "WED 06/24") == 0);
   assert(strcmp(snapshot.battery_text, "87%") == 0);
   assert(strcmp(snapshot.sync_text, "SYNC") == 0);
@@ -77,18 +83,22 @@ static void time_fields_are_clamped_to_displayable_range(void) {
     .time_valid = true,
     .hour = 128,
     .minute = -3,
+    .second = 99,
   };
   xiaoxin_low_power_clock_snapshot_t snapshot = {};
 
   xiaoxin_low_power_clock_model_build(&state, &snapshot);
 
   assert(strcmp(snapshot.time_text, "23:00") == 0);
+  assert(strcmp(snapshot.second_text, "59") == 0);
 }
 
-static void refresh_only_when_minute_changes(void) {
-  assert(!xiaoxin_low_power_clock_should_refresh(32, 32));
-  assert(xiaoxin_low_power_clock_should_refresh(32, 33));
-  assert(xiaoxin_low_power_clock_should_refresh(59, 0));
+static void refresh_when_minute_or_second_changes(void) {
+  assert(!xiaoxin_low_power_clock_should_refresh(32, 32, 14, 14));
+  assert(xiaoxin_low_power_clock_should_refresh(32, 33, 14, 14));
+  assert(xiaoxin_low_power_clock_should_refresh(59, 0, 14, 14));
+  assert(xiaoxin_low_power_clock_should_refresh(32, 32, 14, 15));
+  assert(xiaoxin_low_power_clock_should_refresh(32, 32, 59, 0));
 }
 
 static void animation_phase_wraps_to_circle_degrees(void) {
@@ -106,7 +116,7 @@ int main(void) {
   valid_state_formats_orbit_secondary_text();
   invalid_time_marks_syncing_orbit_state();
   time_fields_are_clamped_to_displayable_range();
-  refresh_only_when_minute_changes();
+  refresh_when_minute_or_second_changes();
   animation_phase_wraps_to_circle_degrees();
   return 0;
 }

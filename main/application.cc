@@ -1127,7 +1127,8 @@ void Application::WakeWordInvoke(const std::string& wake_word) {
 }
 
 bool Application::CanEnterSleepMode() {
-    if (GetDeviceState() != kDeviceStateIdle) {
+    const DeviceState state = GetDeviceState();
+    if (state != kDeviceStateIdle && state != kDeviceStateWifiConfiguring) {
         return false;
     }
 
