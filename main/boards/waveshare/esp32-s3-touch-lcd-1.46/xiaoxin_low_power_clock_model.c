@@ -66,12 +66,15 @@ void xiaoxin_low_power_clock_model_build(
   if (state == 0 || !state->time_valid) {
     snprintf(snapshot->time_text, sizeof(snapshot->time_text), "%s", "--:--");
     snprintf(snapshot->date_text, sizeof(snapshot->date_text), "%s", "WAITING");
+    snprintf(snapshot->second_text, sizeof(snapshot->second_text), "%s", "--");
     return;
   }
 
   const int hour = clamp_int(state->hour, 0, 23);
   const int minute = clamp_int(state->minute, 0, 59);
+  const int second = clamp_int(state->second, 0, 59);
   snprintf(snapshot->time_text, sizeof(snapshot->time_text), "%02d:%02d", hour, minute);
+  snprintf(snapshot->second_text, sizeof(snapshot->second_text), "%02d", second);
   snprintf(
     snapshot->date_text,
     sizeof(snapshot->date_text),
@@ -84,9 +87,11 @@ void xiaoxin_low_power_clock_model_build(
 
 bool xiaoxin_low_power_clock_should_refresh(
   uint8_t previous_minute,
-  uint8_t current_minute
+  uint8_t current_minute,
+  uint8_t previous_second,
+  uint8_t current_second
 ) {
-  return previous_minute != current_minute;
+  return previous_minute != current_minute || previous_second != current_second;
 }
 
 uint16_t xiaoxin_low_power_clock_animation_phase(uint32_t tick) {

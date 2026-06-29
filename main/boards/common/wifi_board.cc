@@ -56,13 +56,36 @@ static void OnSntpTimeSync(struct timeval* tv) {
     ESP_LOGI(TAG, "SNTP time synchronized");
 }
 
+static const char* SntpSyncStatusName(sntp_sync_status_t status) {
+    switch (status) {
+        case SNTP_SYNC_STATUS_COMPLETED:
+            return "completed";
+        case SNTP_SYNC_STATUS_IN_PROGRESS:
+            return "in_progress";
+        case SNTP_SYNC_STATUS_RESET:
+        default:
+            return "reset";
+    }
+}
+
 static void StartTimeSynchronization() {
     static bool sntp_started = false;
 
     setenv("TZ", DEFAULT_TIMEZONE, 1);
     tzset();
 
-    if (sntp_started) {
+    if (sntp_started || esp_sntp_enabled()) {
+        const sntp_sync_status_t sync_status = esp_sntp_get_sync_status();
+        ESP_LOGI(
+            TAG,
+            "SNTP already started, status=%s; restarting after WiFi got IP",
+            SntpSyncStatusName(sync_status)
+        );
+        MarkTimeSyncStarted();
+        if (!esp_sntp_restart()) {
+            ESP_LOGW(TAG, "SNTP restart request failed because SNTP is not running");
+        }
+        sntp_started = true;
         return;
     }
 

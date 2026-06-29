@@ -41,6 +41,7 @@
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -242,11 +243,11 @@ static constexpr int16_t k_glass_y_start = 96;
 static constexpr int16_t k_glass_stack_pitch = 15;
 static constexpr int16_t k_notification_slide_pitch = 116;
 static constexpr uint8_t k_low_power_wave_bar_count = 20;
-static constexpr int16_t k_low_power_wave_bar_w = 4;
-static constexpr int16_t k_low_power_wave_bar_gap = 6;
-static constexpr int16_t k_low_power_wave_bar_unit_h = 4;
 static constexpr uint8_t k_low_power_wave_bar_min_level = 1;
 static constexpr uint8_t k_low_power_wave_bar_max_level = 12;
+static constexpr uint8_t k_low_power_left_gauge_point_count = 120;
+static constexpr uint8_t k_low_power_left_gauge_tick_count = 40;
+static constexpr uint64_t k_low_power_clock_timer_period_us = 100 * 1000;
 static constexpr int16_t k_notification_clear_button_w = 104;
 static constexpr int16_t k_notification_clear_button_h = 32;
 static constexpr int16_t k_notification_clear_button_y = 46;
@@ -943,6 +944,7 @@ public:
         DisplayLockGuard lock(this);
         low_power_clock_visible_ = true;
         low_power_clock_last_minute_ = 0xff;
+        low_power_clock_last_second_ = 0xff;
         low_power_clock_animation_tick_ = 0;
         low_power_wave_random_state_ =
             0xA5A55A5AU ^ low_power_clock_animation_tick_ ^ (uint32_t)esp_timer_get_time();
@@ -964,6 +966,7 @@ public:
         DisplayLockGuard lock(this);
         low_power_clock_visible_ = false;
         low_power_clock_last_minute_ = 0xff;
+        low_power_clock_last_second_ = 0xff;
         if (low_power_clock_layer_ != nullptr) {
             lv_obj_add_flag(low_power_clock_layer_, LV_OBJ_FLAG_HIDDEN);
         }
@@ -1028,6 +1031,8 @@ private:
     lv_obj_t* low_power_clock_layer_ = nullptr;
     lv_obj_t* low_power_wave_bar_layer_ = nullptr;
     lv_obj_t* low_power_wave_bars_[k_low_power_wave_bar_count] = {};
+    lv_obj_t* low_power_left_gauge_pixels_[k_low_power_left_gauge_point_count] = {};
+    lv_obj_t* low_power_left_gauge_ticks_[k_low_power_left_gauge_tick_count] = {};
     lv_obj_t* low_power_clock_outer_arc_ = nullptr;
     lv_obj_t* low_power_clock_inner_arc_ = nullptr;
     lv_obj_t* low_power_clock_top_dial_ = nullptr;
@@ -1038,11 +1043,11 @@ private:
     lv_obj_t* low_power_clock_sync_label_ = nullptr;
     lv_obj_t* low_power_clock_hint_label_ = nullptr;
     lv_obj_t* low_power_clock_brand_label_ = nullptr;
-    lv_obj_t* low_power_clock_hours_label_ = nullptr;
     lv_obj_t* low_power_clock_mode_label_ = nullptr;
     lv_obj_t* low_power_clock_title_label_ = nullptr;
     lv_obj_t* low_power_clock_micro_panel_ = nullptr;
     lv_obj_t* low_power_clock_micro_label_ = nullptr;
+    lv_obj_t* low_power_clock_second_label_ = nullptr;
     lv_obj_t* low_power_clock_probe_label_ = nullptr;
     lv_obj_t* low_power_clock_left_red_dash_ = nullptr;
     lv_obj_t* low_power_clock_left_gray_panel_ = nullptr;
@@ -1056,6 +1061,7 @@ private:
     uint8_t low_power_wave_bar_levels_[k_low_power_wave_bar_count] = {};
     uint32_t low_power_wave_random_state_ = 0xA5A55A5AU;
     uint8_t low_power_clock_last_minute_ = 0xff;
+    uint8_t low_power_clock_last_second_ = 0xff;
     uint32_t low_power_clock_animation_tick_ = 0;
     uint8_t settings_item_count_ = 0;
     SettingsView settings_view_ = SettingsView::List;
@@ -1150,6 +1156,25 @@ private:
         return (lv_opa_t)((percent * 255U + 50U) / 100U);
     }
 
+    static constexpr int16_t k_low_power_ref_lcd_w = 466;
+    static constexpr int16_t k_low_power_ref_lcd_h = 466;
+    static constexpr int16_t k_low_power_ref_sprite_x = 40;
+    static constexpr int16_t k_low_power_ref_sprite_y = 120;
+    static constexpr int16_t k_low_power_time_y_adjust = 20;
+    static constexpr double k_low_power_ref_rad = 0.01745;
+
+    static constexpr int16_t LowPowerRefX(int16_t sprite_x) {
+        return (int16_t)(((k_low_power_ref_sprite_x + sprite_x) * DISPLAY_WIDTH + k_low_power_ref_lcd_w / 2) / k_low_power_ref_lcd_w);
+    }
+
+    static constexpr int16_t LowPowerRefY(int16_t sprite_y) {
+        return (int16_t)(((k_low_power_ref_sprite_y + sprite_y) * DISPLAY_HEIGHT + k_low_power_ref_lcd_h / 2) / k_low_power_ref_lcd_h);
+    }
+
+    static constexpr int16_t LowPowerRefLen(int16_t value) {
+        return (int16_t)((value * DISPLAY_WIDTH + k_low_power_ref_lcd_w / 2) / k_low_power_ref_lcd_w);
+    }
+
     static void ConfigureLowPowerTimeLabel(
         lv_obj_t* label,
         const lv_font_t* font,
@@ -1238,10 +1263,10 @@ private:
                 (NextLowPowerWaveRandomLocked() % k_low_power_wave_bar_max_level)
             );
             low_power_wave_bar_levels_[i] = level;
-            const int16_t h = (int16_t)(level * k_low_power_wave_bar_unit_h);
-            const int16_t x = (int16_t)(i * k_low_power_wave_bar_gap);
-            const int16_t y = (int16_t)(56 - h);
-            lv_obj_set_size(low_power_wave_bars_[i], k_low_power_wave_bar_w, h);
+            const int16_t h = LowPowerRefLen((int16_t)((level - 1U) * 4U + 3U));
+            const int16_t x = LowPowerRefLen((int16_t)(i * 6U));
+            const int16_t y = LowPowerRefLen((int16_t)(90 - (int16_t)((level - 1U) * 4U) - 46));
+            lv_obj_set_size(low_power_wave_bars_[i], LowPowerRefLen(4), h);
             lv_obj_set_pos(low_power_wave_bars_[i], x, y);
         }
     }
@@ -1256,8 +1281,8 @@ private:
             return;
         }
         lv_obj_remove_style_all(low_power_wave_bar_layer_);
-        lv_obj_set_size(low_power_wave_bar_layer_, 142, 64);
-        lv_obj_align(low_power_wave_bar_layer_, LV_ALIGN_TOP_MID, 22, 84);
+        lv_obj_set_size(low_power_wave_bar_layer_, LowPowerRefLen(118), LowPowerRefLen(47));
+        lv_obj_align(low_power_wave_bar_layer_, LV_ALIGN_TOP_LEFT, LowPowerRefX(190), LowPowerRefY(46));
         lv_obj_clear_flag(low_power_wave_bar_layer_, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_clear_flag(low_power_wave_bar_layer_, LV_OBJ_FLAG_CLICKABLE);
 
@@ -1268,8 +1293,8 @@ private:
                 continue;
             }
             lv_obj_remove_style_all(low_power_wave_bars_[i]);
-            lv_obj_set_style_bg_color(low_power_wave_bars_[i], lv_color_hex(0x8B949E), 0);
-            lv_obj_set_style_bg_opa(low_power_wave_bars_[i], LowPowerClockOpaPercent(52), 0);
+            lv_obj_set_style_bg_color(low_power_wave_bars_[i], lv_color_hex(0xA9C7E8), 0);
+            lv_obj_set_style_bg_opa(low_power_wave_bars_[i], LV_OPA_COVER, 0);
             lv_obj_set_style_radius(low_power_wave_bars_[i], 1, 0);
             lv_obj_clear_flag(low_power_wave_bars_[i], LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_clear_flag(low_power_wave_bars_[i], LV_OBJ_FLAG_CLICKABLE);
@@ -1278,135 +1303,227 @@ private:
     }
 
     void InitializeLowPowerWaveReferenceLabelsLocked(const lv_font_t* hint_font) {
-        low_power_clock_brand_label_ = lv_label_create(low_power_clock_layer_);
-        lv_obj_set_style_text_color(low_power_clock_brand_label_, lv_color_hex(0x7C8794), 0);
-        lv_obj_set_style_text_opa(low_power_clock_brand_label_, LV_OPA_70, 0);
-        if (hint_font != nullptr) {
-            lv_obj_set_style_text_font(low_power_clock_brand_label_, hint_font, 0);
-        }
-        lv_label_set_text(low_power_clock_brand_label_, "AMOLED");
-        lv_obj_align(low_power_clock_brand_label_, LV_ALIGN_TOP_RIGHT, -54, 122);
+        static constexpr const char* k_runtime_letters[] = {"X", "i", "a", "o", "X", "i", "n"};
+        for (uint8_t i = 0; i < 7; ++i) {
+            lv_obj_t* cell = CreateLowPowerBlock(low_power_clock_layer_, LowPowerRefLen(26), LowPowerRefLen(26), 0x30363D, LowPowerClockOpaPercent(82));
+            if (cell == nullptr) {
+                continue;
+            }
+            lv_obj_set_style_radius(cell, LowPowerRefLen(3), 0);
+            lv_obj_align(cell, LV_ALIGN_TOP_LEFT, LowPowerRefX(186 + i * 30), LowPowerRefY(2));
 
-        low_power_clock_hours_label_ = lv_label_create(low_power_clock_layer_);
-        lv_obj_set_style_text_color(low_power_clock_hours_label_, lv_color_hex(0x7C8794), 0);
-        lv_obj_set_style_text_opa(low_power_clock_hours_label_, LV_OPA_60, 0);
-        if (hint_font != nullptr) {
-            lv_obj_set_style_text_font(low_power_clock_hours_label_, hint_font, 0);
+            lv_obj_t* letter = lv_label_create(cell);
+            lv_obj_set_style_text_color(letter, lv_color_hex(0xC9D1D9), 0);
+            lv_obj_set_style_text_opa(letter, LV_OPA_COVER, 0);
+            if (hint_font != nullptr) {
+                lv_obj_set_style_text_font(letter, hint_font, 0);
+            }
+            lv_label_set_text(letter, k_runtime_letters[i]);
+            lv_obj_center(letter);
+            if (i == 0) {
+                low_power_clock_mode_label_ = letter;
+            }
         }
-        lv_label_set_text(low_power_clock_hours_label_, "*HRS*");
-        lv_obj_align(low_power_clock_hours_label_, LV_ALIGN_BOTTOM_MID, -28, -54);
-
-        low_power_clock_mode_label_ = lv_label_create(low_power_clock_layer_);
-        lv_obj_set_style_text_color(low_power_clock_mode_label_, lv_color_hex(0xC9D1D9), 0);
-        lv_obj_set_style_text_opa(low_power_clock_mode_label_, LV_OPA_70, 0);
-        if (hint_font != nullptr) {
-            lv_obj_set_style_text_font(low_power_clock_mode_label_, hint_font, 0);
-        }
-        lv_label_set_text(low_power_clock_mode_label_, "runtime");
-        lv_obj_align(low_power_clock_mode_label_, LV_ALIGN_TOP_MID, 42, 20);
 
         low_power_clock_title_label_ = lv_label_create(low_power_clock_layer_);
         lv_obj_set_style_text_color(low_power_clock_title_label_, lv_color_hex(0xB8C7D1), 0);
-        lv_obj_set_style_text_opa(low_power_clock_title_label_, LowPowerClockOpaPercent(75), 0);
+        lv_obj_set_style_text_opa(low_power_clock_title_label_, LV_OPA_90, 0);
         if (hint_font != nullptr) {
             lv_obj_set_style_text_font(low_power_clock_title_label_, hint_font, 0);
         }
-        lv_label_set_text(low_power_clock_title_label_, "VOLOS TIME");
-        lv_obj_align(low_power_clock_title_label_, LV_ALIGN_CENTER, 54, -28);
+        lv_label_set_text(low_power_clock_title_label_, "HZCU TIME");
+        lv_obj_align(low_power_clock_title_label_, LV_ALIGN_TOP_LEFT, LowPowerRefX(190), LowPowerRefY(104));
 
         low_power_clock_probe_label_ = lv_label_create(low_power_clock_layer_);
         lv_obj_set_style_text_color(low_power_clock_probe_label_, lv_color_hex(0x66707A), 0);
-        lv_obj_set_style_text_opa(low_power_clock_probe_label_, LV_OPA_50, 0);
+        lv_obj_set_style_text_opa(low_power_clock_probe_label_, LowPowerClockOpaPercent(32), 0);
         if (hint_font != nullptr) {
             lv_obj_set_style_text_font(low_power_clock_probe_label_, hint_font, 0);
         }
         lv_label_set_text(low_power_clock_probe_label_, "CAN YOU READ THIS");
-        lv_obj_align(low_power_clock_probe_label_, LV_ALIGN_RIGHT_MID, -30, -44);
+        lv_obj_align(low_power_clock_probe_label_, LV_ALIGN_TOP_LEFT, LowPowerRefX(346), LowPowerRefY(128));
     }
 
-    void InitializeLowPowerWaveReferenceBlocksLocked() {
-        low_power_clock_left_red_dash_ = CreateLowPowerBlock(low_power_clock_layer_, 22, 4, 0xD04141, LV_OPA_COVER);
+    void UpdateLowPowerSecondGaugeLocked(const char* second_text, int second) {
+        (void)second;
+        if (low_power_clock_second_label_ != nullptr) {
+            lv_label_set_text(low_power_clock_second_label_, second_text != nullptr ? second_text : "--");
+        }
+    }
+
+    void UpdateLowPowerLeftGaugeTicksLocked(uint16_t angle) {
+        uint8_t tick_index = 0;
+        for (uint8_t i = 0; i < k_low_power_left_gauge_point_count; ++i) {
+            const uint16_t a = (uint16_t)((angle + i * 3U) % 360U);
+            const int16_t x_ref = (int16_t)std::lround(118.0 * std::cos(k_low_power_ref_rad * a)) - 2;
+            const int16_t y_ref = (int16_t)std::lround(118.0 * std::sin(k_low_power_ref_rad * a)) + 120;
+
+            if (low_power_left_gauge_pixels_[i] != nullptr) {
+                lv_obj_align(low_power_left_gauge_pixels_[i], LV_ALIGN_TOP_LEFT, LowPowerRefX(x_ref), LowPowerRefY(y_ref));
+            }
+
+            if ((i % 3U) != 0U) {
+                continue;
+            }
+
+            int16_t len_ref = 6;
+            int16_t h = LowPowerRefLen(2);
+            if ((i % 12U) == 0U) {
+                len_ref = 30;
+                h = LowPowerRefLen(4);
+            } else if ((i % 6U) == 0U) {
+                len_ref = 18;
+                h = LowPowerRefLen(3);
+            }
+
+            if (tick_index < k_low_power_left_gauge_tick_count && low_power_left_gauge_ticks_[tick_index] != nullptr) {
+                lv_obj_set_size(low_power_left_gauge_ticks_[tick_index], LowPowerRefLen(len_ref), h);
+                lv_obj_align(low_power_left_gauge_ticks_[tick_index], LV_ALIGN_TOP_LEFT, LowPowerRefX(x_ref - len_ref), (int16_t)(LowPowerRefY(y_ref) - h / 2));
+            }
+            ++tick_index;
+        }
+    }
+
+    void InitializeLowPowerLeftGaugeTicksLocked(const lv_font_t* hint_font) {
+        uint8_t tick_index = 0;
+        for (uint8_t i = 0; i < k_low_power_left_gauge_point_count; ++i) {
+            low_power_left_gauge_pixels_[i] = CreateLowPowerBlock(
+                low_power_clock_layer_,
+                1,
+                1,
+                0x707070,
+                LowPowerClockOpaPercent(78)
+            );
+            if ((i % 3U) != 0U) {
+                continue;
+            }
+
+            int16_t len_ref = 6;
+            int16_t h = LowPowerRefLen(2);
+            uint32_t color = 0x787878;
+            if ((i % 12U) == 0U) {
+                len_ref = 30;
+                h = LowPowerRefLen(4);
+                color = 0xA0A0A0;
+            } else if ((i % 6U) == 0U) {
+                len_ref = 18;
+                h = LowPowerRefLen(3);
+                color = 0x8C8C8C;
+            }
+
+            if (tick_index >= k_low_power_left_gauge_tick_count) {
+                continue;
+            }
+
+            low_power_left_gauge_ticks_[tick_index] = CreateLowPowerBlock(
+                low_power_clock_layer_,
+                LowPowerRefLen(len_ref),
+                h,
+                color,
+                LowPowerClockOpaPercent(88)
+            );
+            ++tick_index;
+        }
+        UpdateLowPowerLeftGaugeTicksLocked(0);
+
+        low_power_clock_second_label_ = lv_label_create(low_power_clock_layer_);
+        lv_obj_set_style_text_color(low_power_clock_second_label_, lv_color_hex(0xF6FAFF), 0);
+        lv_obj_set_style_text_opa(low_power_clock_second_label_, LV_OPA_COVER, 0);
+        if (hint_font != nullptr) {
+            lv_obj_set_style_text_font(low_power_clock_second_label_, hint_font, 0);
+        }
+        lv_label_set_text(low_power_clock_second_label_, "00");
+        lv_obj_align(low_power_clock_second_label_, LV_ALIGN_TOP_LEFT, LowPowerRefX(24), LowPowerRefY(124));
+    }
+
+    void InitializeLowPowerWaveReferenceBlocksLocked(const lv_font_t* hint_font) {
+        low_power_clock_left_red_dash_ = CreateLowPowerBlock(low_power_clock_layer_, LowPowerRefLen(24), LowPowerRefLen(4), 0xD04141, LV_OPA_COVER);
         if (low_power_clock_left_red_dash_ != nullptr) {
-            lv_obj_align(low_power_clock_left_red_dash_, LV_ALIGN_LEFT_MID, 48, -10);
+            lv_obj_align(low_power_clock_left_red_dash_, LV_ALIGN_TOP_LEFT, LowPowerRefX(54), LowPowerRefY(120));
         }
 
         low_power_clock_left_gray_panel_ = CreateLowPowerBlock(
             low_power_clock_layer_,
-            46,
-            28,
+            LowPowerRefLen(72),
+            LowPowerRefLen(30),
             0x30363D,
             LowPowerClockOpaPercent(82)
         );
         if (low_power_clock_left_gray_panel_ != nullptr) {
-            lv_obj_align(low_power_clock_left_gray_panel_, LV_ALIGN_LEFT_MID, 0, 28);
+            lv_obj_align(low_power_clock_left_gray_panel_, LV_ALIGN_TOP_LEFT, LowPowerRefX(0), LowPowerRefY(145));
             low_power_clock_micro_panel_ = low_power_clock_left_gray_panel_;
             low_power_clock_micro_label_ = lv_label_create(low_power_clock_left_gray_panel_);
-            lv_obj_set_style_text_color(low_power_clock_micro_label_, lv_color_hex(0xC9D1D9), 0);
-            lv_obj_set_style_text_opa(low_power_clock_micro_label_, LV_OPA_70, 0);
-            lv_label_set_text(low_power_clock_micro_label_, "mil");
-            lv_obj_center(low_power_clock_micro_label_);
+            if (low_power_clock_micro_label_ != nullptr) {
+                lv_obj_set_style_text_color(low_power_clock_micro_label_, lv_color_hex(0xC9D1D9), 0);
+                lv_obj_set_style_text_opa(low_power_clock_micro_label_, LV_OPA_COVER, 0);
+                if (hint_font != nullptr) {
+                    lv_obj_set_style_text_font(low_power_clock_micro_label_, hint_font, 0);
+                }
+                lv_label_set_text(low_power_clock_micro_label_, "second");
+                lv_obj_center(low_power_clock_micro_label_);
+            }
         }
 
         low_power_clock_center_rule_ = CreateLowPowerBlock(
             low_power_clock_layer_,
-            106,
-            3,
+            LowPowerRefLen(120),
+            LowPowerRefLen(3),
             0x57606A,
             LowPowerClockOpaPercent(62)
         );
         if (low_power_clock_center_rule_ != nullptr) {
-            lv_obj_align(low_power_clock_center_rule_, LV_ALIGN_CENTER, 54, 26);
+            lv_obj_align(low_power_clock_center_rule_, LV_ALIGN_TOP_LEFT, LowPowerRefX(180), LowPowerRefY(136));
         }
 
         low_power_clock_center_stem_ = CreateLowPowerBlock(
             low_power_clock_layer_,
-            3,
-            32,
+            LowPowerRefLen(3),
+            LowPowerRefLen(34),
             0x57606A,
             LowPowerClockOpaPercent(62)
         );
         if (low_power_clock_center_stem_ != nullptr) {
-            lv_obj_align(low_power_clock_center_stem_, LV_ALIGN_CENTER, -10, 36);
+            lv_obj_align(low_power_clock_center_stem_, LV_ALIGN_TOP_LEFT, LowPowerRefX(186), LowPowerRefY(130));
         }
 
         low_power_clock_blue_top_block_ = CreateLowPowerBlock(
             low_power_clock_layer_,
-            36,
-            120,
+            LowPowerRefLen(40),
+            LowPowerRefLen(135),
             0x01052A,
             LowPowerClockOpaPercent(88)
         );
         if (low_power_clock_blue_top_block_ != nullptr) {
-            lv_obj_align(low_power_clock_blue_top_block_, LV_ALIGN_TOP_MID, -66, 0);
+            lv_obj_align(low_power_clock_blue_top_block_, LV_ALIGN_TOP_LEFT, LowPowerRefX(136), LowPowerRefY(0));
         }
 
         low_power_clock_blue_bottom_block_ = CreateLowPowerBlock(
             low_power_clock_layer_,
-            36,
-            14,
+            LowPowerRefLen(40),
+            LowPowerRefLen(16),
             0x01052A,
             LowPowerClockOpaPercent(88)
         );
         if (low_power_clock_blue_bottom_block_ != nullptr) {
-            lv_obj_align(low_power_clock_blue_bottom_block_, LV_ALIGN_BOTTOM_MID, -66, -86);
+            lv_obj_align(low_power_clock_blue_bottom_block_, LV_ALIGN_TOP_LEFT, LowPowerRefX(136), LowPowerRefY(224));
         }
 
         low_power_clock_top_dial_ = lv_arc_create(low_power_clock_layer_);
         if (low_power_clock_top_dial_ == nullptr) {
             return;
         }
-        lv_obj_set_size(low_power_clock_top_dial_, 56, 56);
-        lv_obj_align(low_power_clock_top_dial_, LV_ALIGN_TOP_RIGHT, -36, 48);
+        lv_obj_set_size(low_power_clock_top_dial_, LowPowerRefLen(56), LowPowerRefLen(56));
+        lv_obj_align(low_power_clock_top_dial_, LV_ALIGN_TOP_LEFT, LowPowerRefX(372 - 28), LowPowerRefY(76 - 28));
         lv_arc_set_bg_angles(low_power_clock_top_dial_, 0, 360);
         lv_arc_set_angles(low_power_clock_top_dial_, 0, 96);
         lv_obj_remove_style(low_power_clock_top_dial_, NULL, LV_PART_KNOB);
         lv_obj_clear_flag(low_power_clock_top_dial_, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_style_arc_width(low_power_clock_top_dial_, 8, LV_PART_MAIN);
-        lv_obj_set_style_arc_width(low_power_clock_top_dial_, 6, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_width(low_power_clock_top_dial_, 8, LV_PART_INDICATOR);
         lv_obj_set_style_arc_color(low_power_clock_top_dial_, lv_color_hex(0x01052A), LV_PART_MAIN);
-        lv_obj_set_style_arc_color(low_power_clock_top_dial_, lv_color_hex(0x1B4965), LV_PART_INDICATOR);
-        lv_obj_set_style_arc_opa(low_power_clock_top_dial_, LowPowerClockOpaPercent(86), LV_PART_MAIN);
-        lv_obj_set_style_arc_opa(low_power_clock_top_dial_, LowPowerClockOpaPercent(80), LV_PART_INDICATOR);
+        lv_obj_set_style_arc_color(low_power_clock_top_dial_, lv_color_hex(0x26D9FF), LV_PART_INDICATOR);
+        lv_obj_set_style_arc_opa(low_power_clock_top_dial_, LowPowerClockOpaPercent(72), LV_PART_MAIN);
+        lv_obj_set_style_arc_opa(low_power_clock_top_dial_, LV_OPA_COVER, LV_PART_INDICATOR);
     }
 
     xiaoxin_low_power_clock_state_t BuildLowPowerClockState() {
@@ -1421,6 +1538,7 @@ private:
             state.time_valid = true;
             state.hour = timeinfo.tm_hour;
             state.minute = timeinfo.tm_min;
+            state.second = timeinfo.tm_sec;
             state.month = timeinfo.tm_mon + 1;
             state.day = timeinfo.tm_mday;
             state.weekday = timeinfo.tm_wday;
@@ -1444,32 +1562,35 @@ private:
 
         const xiaoxin_low_power_clock_state_t state = BuildLowPowerClockState();
         const uint8_t current_minute = state.time_valid ? (uint8_t)state.minute : 0xff;
+        const uint8_t current_second = state.time_valid ? (uint8_t)state.second : 0xff;
         if (!force &&
-            !xiaoxin_low_power_clock_should_refresh(low_power_clock_last_minute_, current_minute)) {
+            !xiaoxin_low_power_clock_should_refresh(low_power_clock_last_minute_, current_minute, low_power_clock_last_second_, current_second)) {
             return;
         }
 
         low_power_clock_last_minute_ = current_minute;
+        low_power_clock_last_second_ = current_second;
         xiaoxin_low_power_clock_model_build(&state, &low_power_clock_snapshot_);
 
         RefreshLowPowerTimeLabelLocked(
             low_power_clock_time_glow_label_,
             low_power_clock_snapshot_.time_text,
-            LV_ALIGN_BOTTOM_RIGHT,
-            -38,
-            -96
+            LV_ALIGN_TOP_LEFT,
+            LowPowerRefX(196),
+            LowPowerRefY(150) + k_low_power_time_y_adjust
         );
         RefreshLowPowerTimeLabelLocked(
             low_power_clock_time_label_,
             low_power_clock_snapshot_.time_text,
-            LV_ALIGN_BOTTOM_RIGHT,
-            -38,
-            -96
+            LV_ALIGN_TOP_LEFT,
+            LowPowerRefX(196),
+            LowPowerRefY(150) + k_low_power_time_y_adjust
         );
         lv_label_set_text(low_power_clock_date_label_, low_power_clock_snapshot_.date_text);
         lv_label_set_text(low_power_clock_sync_label_, low_power_clock_snapshot_.sync_text);
         lv_obj_set_style_bg_color(low_power_clock_sync_dot_, lv_color_hex(low_power_clock_snapshot_.sync_color_hex), 0);
         lv_label_set_text(low_power_clock_hint_label_, low_power_clock_snapshot_.hint_text);
+        UpdateLowPowerSecondGaugeLocked(low_power_clock_snapshot_.second_text, state.second);
     }
 
     void RefreshLowPowerClockAnimationLocked() {
@@ -1479,8 +1600,8 @@ private:
 
         const uint16_t start = xiaoxin_low_power_clock_animation_phase(low_power_clock_animation_tick_++);
         UpdateLowPowerWaveBarsLocked();
+        UpdateLowPowerLeftGaugeTicksLocked(start);
         lv_arc_set_rotation(low_power_clock_inner_arc_, start);
-        lv_arc_set_rotation(low_power_clock_outer_arc_, (start + 180) % 360);
         if (low_power_clock_top_dial_ != nullptr) {
             lv_arc_set_rotation(low_power_clock_top_dial_, (start + 42) % 360);
         }
@@ -1520,7 +1641,7 @@ private:
 
     void StartLowPowerClockRefreshTimer() {
         if (low_power_clock_timer_ != nullptr && !esp_timer_is_active(low_power_clock_timer_)) {
-            ESP_ERROR_CHECK(esp_timer_start_periodic(low_power_clock_timer_, 500 * 1000));
+            ESP_ERROR_CHECK(esp_timer_start_periodic(low_power_clock_timer_, k_low_power_clock_timer_period_us));
         }
     }
 
@@ -2625,25 +2746,23 @@ private:
         lv_obj_clear_flag(low_power_clock_layer_, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(low_power_clock_layer_, LV_OBJ_FLAG_HIDDEN);
 
-        InitializeLowPowerWaveReferenceBlocksLocked();
+        InitializeLowPowerWaveReferenceBlocksLocked(hint_font);
+        InitializeLowPowerLeftGaugeTicksLocked(hint_font);
         InitializeLowPowerWaveBarsLocked();
 
         low_power_clock_outer_arc_ = lv_arc_create(low_power_clock_layer_);
-        lv_obj_set_size(low_power_clock_outer_arc_, DISPLAY_WIDTH - 10, DISPLAY_HEIGHT - 10);
+        lv_obj_set_size(low_power_clock_outer_arc_, 1, 1);
         lv_obj_center(low_power_clock_outer_arc_);
         lv_arc_set_bg_angles(low_power_clock_outer_arc_, 0, 360);
-        lv_arc_set_angles(low_power_clock_outer_arc_, 0, 360);
+        lv_arc_set_angles(low_power_clock_outer_arc_, 0, 0);
         lv_obj_remove_style(low_power_clock_outer_arc_, NULL, LV_PART_KNOB);
         lv_obj_clear_flag(low_power_clock_outer_arc_, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_style_arc_width(low_power_clock_outer_arc_, 2, LV_PART_MAIN);
-        lv_obj_set_style_arc_width(low_power_clock_outer_arc_, 2, LV_PART_INDICATOR);
-        lv_obj_set_style_arc_color(low_power_clock_outer_arc_, lv_color_hex(0x071015), LV_PART_MAIN);
-        lv_obj_set_style_arc_color(low_power_clock_outer_arc_, lv_color_hex(0x123456), LV_PART_INDICATOR);
-        lv_obj_set_style_arc_opa(low_power_clock_outer_arc_, LowPowerClockOpaPercent(35), LV_PART_MAIN);
-        lv_obj_set_style_arc_opa(low_power_clock_outer_arc_, LowPowerClockOpaPercent(35), LV_PART_INDICATOR);
+        lv_obj_set_style_arc_opa(low_power_clock_outer_arc_, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_arc_opa(low_power_clock_outer_arc_, LV_OPA_TRANSP, LV_PART_INDICATOR);
+        lv_obj_add_flag(low_power_clock_outer_arc_, LV_OBJ_FLAG_HIDDEN);
 
         low_power_clock_inner_arc_ = lv_arc_create(low_power_clock_layer_);
-        lv_obj_set_size(low_power_clock_inner_arc_, DISPLAY_WIDTH - 28, DISPLAY_HEIGHT - 28);
+        lv_obj_set_size(low_power_clock_inner_arc_, 1, 1);
         lv_obj_center(low_power_clock_inner_arc_);
         lv_arc_set_bg_angles(low_power_clock_inner_arc_, 0, 360);
         lv_arc_set_angles(low_power_clock_inner_arc_, 0, XIAOXIN_LOW_POWER_CLOCK_ARC_SPAN_DEGREES);
@@ -2654,29 +2773,32 @@ private:
         lv_obj_set_style_arc_color(low_power_clock_inner_arc_, lv_color_hex(0x050A0C), LV_PART_MAIN);
         lv_obj_set_style_arc_color(low_power_clock_inner_arc_, lv_color_hex(0x1B4965), LV_PART_INDICATOR);
         lv_obj_set_style_arc_opa(low_power_clock_inner_arc_, LV_OPA_20, LV_PART_MAIN);
-        lv_obj_set_style_arc_opa(low_power_clock_inner_arc_, LowPowerClockOpaPercent(62), LV_PART_INDICATOR);
+        lv_obj_set_style_arc_opa(low_power_clock_inner_arc_, LowPowerClockOpaPercent(74), LV_PART_INDICATOR);
+        lv_obj_add_flag(low_power_clock_inner_arc_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_style_arc_rounded(low_power_clock_inner_arc_, true, LV_PART_INDICATOR);
 
         low_power_clock_time_glow_label_ = lv_label_create(low_power_clock_layer_);
-        ConfigureLowPowerTimeLabel(low_power_clock_time_glow_label_, clock_font, 0x75DFFF, LowPowerClockOpaPercent(22), 2, 704, 96, 36);
-        lv_obj_align(low_power_clock_time_glow_label_, LV_ALIGN_BOTTOM_RIGHT, -38, -96);
+        ConfigureLowPowerTimeLabel(low_power_clock_time_glow_label_, clock_font, 0x75DFFF, LowPowerClockOpaPercent(24), 1, 560, 150, 28);
+        lv_obj_align(low_power_clock_time_glow_label_, LV_ALIGN_TOP_LEFT, LowPowerRefX(196), LowPowerRefY(150) + k_low_power_time_y_adjust);
 
         low_power_clock_time_label_ = lv_label_create(low_power_clock_layer_);
-        ConfigureLowPowerTimeLabel(low_power_clock_time_label_, clock_font, 0xF6FAFF, LV_OPA_COVER, 2, 672, 88, 32);
-        lv_obj_align(low_power_clock_time_label_, LV_ALIGN_BOTTOM_RIGHT, -38, -96);
+        ConfigureLowPowerTimeLabel(low_power_clock_time_label_, clock_font, 0xF6FAFF, LV_OPA_COVER, 1, 532, 142, 24);
+        lv_obj_align(low_power_clock_time_label_, LV_ALIGN_TOP_LEFT, LowPowerRefX(196), LowPowerRefY(150) + k_low_power_time_y_adjust);
 
         low_power_clock_date_label_ = lv_label_create(low_power_clock_layer_);
         lv_obj_set_style_text_color(low_power_clock_date_label_, lv_color_hex(0x75AFC0), 0);
-        lv_obj_set_style_text_opa(low_power_clock_date_label_, LowPowerClockOpaPercent(90), 0);
+        lv_obj_set_style_text_opa(low_power_clock_date_label_, LV_OPA_COVER, 0);
         lv_obj_set_style_text_font(low_power_clock_date_label_, date_font, 0);
-        lv_obj_align(low_power_clock_date_label_, LV_ALIGN_TOP_LEFT, 96, 34);
+        lv_obj_align(low_power_clock_date_label_, LV_ALIGN_TOP_LEFT, 84, 44);
+        lv_obj_add_flag(low_power_clock_date_label_, LV_OBJ_FLAG_HIDDEN);
 
         low_power_clock_sync_dot_ = lv_obj_create(low_power_clock_layer_);
         lv_obj_remove_style_all(low_power_clock_sync_dot_);
         lv_obj_set_size(low_power_clock_sync_dot_, 6, 6);
         lv_obj_set_style_radius(low_power_clock_sync_dot_, LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_bg_opa(low_power_clock_sync_dot_, LV_OPA_COVER, 0);
-        lv_obj_align(low_power_clock_sync_dot_, LV_ALIGN_BOTTOM_RIGHT, -64, -24);
+        lv_obj_align(low_power_clock_sync_dot_, LV_ALIGN_BOTTOM_RIGHT, -80, -40);
+        lv_obj_add_flag(low_power_clock_sync_dot_, LV_OBJ_FLAG_HIDDEN);
 
         low_power_clock_sync_label_ = lv_label_create(low_power_clock_layer_);
         lv_obj_set_style_text_color(low_power_clock_sync_label_, lv_color_hex(0x75AFC0), 0);
@@ -2684,16 +2806,18 @@ private:
         if (hint_font != nullptr) {
             lv_obj_set_style_text_font(low_power_clock_sync_label_, hint_font, 0);
         }
-        lv_obj_align(low_power_clock_sync_label_, LV_ALIGN_BOTTOM_RIGHT, -22, -20);
+        lv_obj_align(low_power_clock_sync_label_, LV_ALIGN_BOTTOM_RIGHT, -38, -36);
+        lv_obj_add_flag(low_power_clock_sync_label_, LV_OBJ_FLAG_HIDDEN);
 
         low_power_clock_hint_label_ = lv_label_create(low_power_clock_layer_);
         lv_obj_set_style_text_color(low_power_clock_hint_label_, lv_color_hex(0x75AFC0), 0);
-        lv_obj_set_style_text_opa(low_power_clock_hint_label_, LV_OPA_70, 0);
+        lv_obj_set_style_text_opa(low_power_clock_hint_label_, LV_OPA_90, 0);
         if (hint_font != nullptr) {
             lv_obj_set_style_text_font(low_power_clock_hint_label_, hint_font, 0);
         }
         lv_label_set_text(low_power_clock_hint_label_, "POWER \xE5\x94\xA4\xE9\x86\x92");
-        lv_obj_align(low_power_clock_hint_label_, LV_ALIGN_BOTTOM_MID, 0, -18);
+        lv_obj_align(low_power_clock_hint_label_, LV_ALIGN_BOTTOM_MID, 0, -34);
+        lv_obj_add_flag(low_power_clock_hint_label_, LV_OBJ_FLAG_HIDDEN);
         InitializeLowPowerWaveReferenceLabelsLocked(hint_font);
     }
 

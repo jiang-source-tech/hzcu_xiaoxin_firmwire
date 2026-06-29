@@ -12,7 +12,8 @@ extern "C" {
 #define XIAOXIN_LOW_POWER_CLOCK_BATTERY_MAX 8
 #define XIAOXIN_LOW_POWER_CLOCK_SYNC_MAX 8
 #define XIAOXIN_LOW_POWER_CLOCK_HINT_MAX 32
-#define XIAOXIN_LOW_POWER_CLOCK_DEFAULT_BRIGHTNESS 24
+#define XIAOXIN_LOW_POWER_CLOCK_SECOND_MAX 4
+#define XIAOXIN_LOW_POWER_CLOCK_DEFAULT_BRIGHTNESS 48
 #define XIAOXIN_LOW_POWER_CLOCK_ICON_TEXT "\xEF\x83\xB3"
 #define XIAOXIN_LOW_POWER_CLOCK_ARC_SPAN_DEGREES 76
 
@@ -26,6 +27,7 @@ typedef struct {
   bool time_valid;
   int hour;
   int minute;
+  int second;
   int month;
   int day;
   int weekday;
@@ -41,6 +43,7 @@ typedef struct {
   char battery_text[XIAOXIN_LOW_POWER_CLOCK_BATTERY_MAX];
   char sync_text[XIAOXIN_LOW_POWER_CLOCK_SYNC_MAX];
   char hint_text[XIAOXIN_LOW_POWER_CLOCK_HINT_MAX];
+  char second_text[XIAOXIN_LOW_POWER_CLOCK_SECOND_MAX];
   uint32_t sync_color_hex;
   uint8_t brightness_percent;
 } xiaoxin_low_power_clock_snapshot_t;
@@ -52,7 +55,9 @@ void xiaoxin_low_power_clock_model_build(
 
 bool xiaoxin_low_power_clock_should_refresh(
   uint8_t previous_minute,
-  uint8_t current_minute
+  uint8_t current_minute,
+  uint8_t previous_second,
+  uint8_t current_second
 );
 
 uint16_t xiaoxin_low_power_clock_animation_phase(uint32_t tick);
