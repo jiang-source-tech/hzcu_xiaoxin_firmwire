@@ -10,6 +10,7 @@
 #include "assets.h"
 #include "settings.h"
 #include "boot_diagnostics.h"
+#include "runtime_health.h"
 
 #include <cstring>
 #include <string>
@@ -280,6 +281,7 @@ void Application::Run() {
 
         if (bits & MAIN_EVENT_CLOCK_TICK) {
             clock_ticks_++;
+            RuntimeHealthMaybeCheckpoint();
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
         
@@ -1035,6 +1037,7 @@ void Application::Reboot() {
     audio_service_.Stop();
 
     vTaskDelay(pdMS_TO_TICKS(1000));
+    RuntimeHealthForceCheckpoint();
     esp_restart();
 }
 

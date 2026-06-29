@@ -13,6 +13,7 @@
 #include "time_sync_status.h"
 #include "assets/lang_config.h"
 #include "boot_diagnostics.h"
+#include "runtime_health.h"
 
 #include <esp_check.h>
 #include <esp_app_desc.h>
@@ -5449,6 +5450,7 @@ private:
 
         xiaoxin_power_control_handle_long_press(&power_control_);
         GetBacklight()->SetBrightness(0);
+        RuntimeHealthForceCheckpoint();
         gpio_set_level(PWR_Control_PIN, xiaoxin_power_control_power_hold(&power_control_));
         ESP_LOGI(TAG, "PWR long press: power hold released");
 
@@ -5754,6 +5756,7 @@ public:
 
         ESP_LOGI(TAG, "[BOOT] Stage 2/11: Early power source detection");
         DetectPowerSourceEarly();
+        RuntimeHealthStart(on_battery_);
         BootDiagnosticsStart(on_battery_);
         BootDiagnosticsMark("board_power_source_detected");
         s_boot_on_battery = on_battery_;
