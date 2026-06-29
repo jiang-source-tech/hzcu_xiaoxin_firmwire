@@ -22,6 +22,21 @@ def assert_ordered(source: str, *needles: str):
         cursor = index + len(needle)
 
 
+def function_body(source: str, signature: str) -> str:
+    start = source.index(signature)
+    brace = source.index("{", start)
+    depth = 0
+    for index in range(brace, len(source)):
+        char = source[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[brace + 1:index]
+    raise AssertionError(f"function body not found: {signature}")
+
+
 def test_runtime_health_service_is_compiled_and_uses_esp_nvs():
     cmake = read_source(CMAKE_SOURCE)
     header = read_source(RUNTIME_HEALTH_HEADER)
@@ -68,4 +83,45 @@ def test_runtime_health_is_wired_into_startup_tick_reboot_and_poweroff():
         "void RequestPowerOff()",
         "RuntimeHealthForceCheckpoint();",
         "gpio_set_level(PWR_Control_PIN, xiaoxin_power_control_power_hold(&power_control_));",
+    )
+
+
+def test_runtime_health_serial_command_prints_operator_summary():
+    source = read_source(WAVESHARE_146_SOURCE)
+    body = function_body(source, "void InitializeDebugConsole()")
+
+    assert 'const esp_console_cmd_t runtime_health_cmd = {' in body
+    assert '.command = "runtime_health"' in body
+    assert "RuntimeHealthReadSnapshot(&snapshot)" in body
+    assert "xiaoxin_runtime_health_format_duration" in body
+    assert "current_duration" in body
+    assert "last_duration" in body
+    assert "max_duration" in body
+    assert "xiaoxin_runtime_health_reset_label(snapshot.last_reset_kind)" in body
+    assert (
+        '"runtime: current=%s last=%s max=%s reset=%s brownout=%lu short_streak=%lu battery=%d\\n"'
+        in body
+    )
+    assert "snapshot.current_on_battery ? 1 : 0" in body
+    assert "esp_console_cmd_register(&runtime_health_cmd)" in body
+
+
+def test_system_info_json_exposes_runtime_health_before_board():
+    source = read_source(Path("main/boards/common/board.cc"))
+    body = function_body(source, "std::string Board::GetSystemInfoJson()")
+
+    assert '#include "runtime_health.h"' in source
+    assert "xiaoxin_runtime_health_snapshot_t snapshot = {};" in body
+    assert "RuntimeHealthReadSnapshot(&snapshot)" in body
+    assert_ordered(
+        body,
+        'json += R"("ota":{)"',
+        'json += R"("runtime_health":{)"',
+        'json += R"("current_runtime_sec":)" + std::to_string(snapshot.current_runtime_sec)',
+        'json += R"("last_runtime_sec":)" + std::to_string(snapshot.last_runtime_sec)',
+        'json += R"("max_runtime_sec":)" + std::to_string(snapshot.max_runtime_sec)',
+        'json += R"("last_reset":")" + std::string(xiaoxin_runtime_health_reset_label(snapshot.last_reset_kind))',
+        'json += R"("brownout_count":)" + std::to_string(snapshot.brownout_count)',
+        'json += R"("short_run_streak":)" + std::to_string(snapshot.short_run_streak)',
+        'json += R"("board":)" + GetBoardJson();',
     )

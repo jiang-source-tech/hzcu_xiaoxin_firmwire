@@ -1,4 +1,5 @@
 #include "board.h"
+#include "runtime_health.h"
 #include "system_info.h"
 #include "settings.h"
 #include "display/display.h"
@@ -153,6 +154,17 @@ std::string Board::GetSystemInfoJson() {
     json += R"("ota":{)";
     auto ota_partition = esp_ota_get_running_partition();
     json += R"("label":")" + std::string(ota_partition->label) + R"(")";
+    json += R"(},)";
+
+    xiaoxin_runtime_health_snapshot_t snapshot = {};
+    RuntimeHealthReadSnapshot(&snapshot);
+    json += R"("runtime_health":{)";
+    json += R"("current_runtime_sec":)" + std::to_string(snapshot.current_runtime_sec) + R"(,)";
+    json += R"("last_runtime_sec":)" + std::to_string(snapshot.last_runtime_sec) + R"(,)";
+    json += R"("max_runtime_sec":)" + std::to_string(snapshot.max_runtime_sec) + R"(,)";
+    json += R"("last_reset":")" + std::string(xiaoxin_runtime_health_reset_label(snapshot.last_reset_kind)) + R"(",)";
+    json += R"("brownout_count":)" + std::to_string(snapshot.brownout_count) + R"(,)";
+    json += R"("short_run_streak":)" + std::to_string(snapshot.short_run_streak);
     json += R"(},)";
 
     // Append display info

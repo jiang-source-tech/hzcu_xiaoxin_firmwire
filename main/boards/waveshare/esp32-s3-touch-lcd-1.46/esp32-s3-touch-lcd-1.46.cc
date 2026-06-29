@@ -2438,12 +2438,31 @@ private:
         HideSettingsBrightnessSliderLocked();
         SetSettingsBackRowVisibleLocked(false);
         const esp_app_desc_t* app_desc = esp_app_get_description();
-        char text[160] = {};
+        xiaoxin_runtime_health_snapshot_t snapshot = {};
+        RuntimeHealthReadSnapshot(&snapshot);
+        char current_duration[24] = {};
+        char last_duration[24] = {};
+        xiaoxin_runtime_health_format_duration(
+            current_duration,
+            sizeof(current_duration),
+            snapshot.current_runtime_sec
+        );
+        xiaoxin_runtime_health_format_duration(
+            last_duration,
+            sizeof(last_duration),
+            snapshot.last_runtime_sec
+        );
+        const char* reset_label = xiaoxin_runtime_health_reset_label(snapshot.last_reset_kind);
+        char text[192] = {};
         std::snprintf(
             text,
             sizeof(text),
-            "小芯 D151\n桌面助手\n固件 %s",
-            app_desc != nullptr ? app_desc->version : "-"
+            "小芯 D151\n固件 %s\n本次 %s\n上次 %s\n重启 %s\n欠压 %lu次",
+            app_desc != nullptr ? app_desc->version : "-",
+            current_duration,
+            last_duration,
+            reset_label,
+            (unsigned long)snapshot.brownout_count
         );
         lv_label_set_text(settings_title_label_, "关于");
         lv_obj_align(settings_hint_label_, LV_ALIGN_TOP_MID, 0, k_settings_about_body_y);
@@ -5704,6 +5723,53 @@ private:
             .context = this,
         };
         ESP_ERROR_CHECK(esp_console_cmd_register(&boot_diag_cmd));
+
+        const esp_console_cmd_t runtime_health_cmd = {
+            .command = "runtime_health",
+            .help = "print runtime health counters",
+            .hint = nullptr,
+            .func = nullptr,
+            .argtable = nullptr,
+            .func_w_context = [](void* context, int argc, char** argv) -> int {
+                (void)context;
+                (void)argc;
+                (void)argv;
+
+                xiaoxin_runtime_health_snapshot_t snapshot = {};
+                RuntimeHealthReadSnapshot(&snapshot);
+                char current_duration[24] = {};
+                char last_duration[24] = {};
+                char max_duration[24] = {};
+                xiaoxin_runtime_health_format_duration(
+                    current_duration,
+                    sizeof(current_duration),
+                    snapshot.current_runtime_sec
+                );
+                xiaoxin_runtime_health_format_duration(
+                    last_duration,
+                    sizeof(last_duration),
+                    snapshot.last_runtime_sec
+                );
+                xiaoxin_runtime_health_format_duration(
+                    max_duration,
+                    sizeof(max_duration),
+                    snapshot.max_runtime_sec
+                );
+                printf(
+                    "runtime: current=%s last=%s max=%s reset=%s brownout=%lu short_streak=%lu battery=%d\n",
+                    current_duration,
+                    last_duration,
+                    max_duration,
+                    xiaoxin_runtime_health_reset_label(snapshot.last_reset_kind),
+                    (unsigned long)snapshot.brownout_count,
+                    (unsigned long)snapshot.short_run_streak,
+                    snapshot.current_on_battery ? 1 : 0
+                );
+                return 0;
+            },
+            .context = this,
+        };
+        ESP_ERROR_CHECK(esp_console_cmd_register(&runtime_health_cmd));
 
         esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
         repl_config.max_cmdline_length = 128;
