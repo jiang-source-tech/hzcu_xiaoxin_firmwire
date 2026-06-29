@@ -62,6 +62,15 @@ def test_wifi_config_state_refreshes_status_bar_immediately():
     assert "display->UpdateStatusBar(true);" in wifi_config_block
 
 
+def test_wifi_config_state_can_enter_display_standby_when_idle():
+    body = function_body(read_source(APPLICATION_SOURCE), "bool Application::CanEnterSleepMode()")
+
+    assert "const DeviceState state = GetDeviceState();" in body
+    assert "state != kDeviceStateIdle && state != kDeviceStateWifiConfiguring" in body
+    assert "protocol_ && protocol_->IsAudioChannelOpened()" in body
+    assert "!audio_service_.IsIdle()" in body
+
+
 def test_wifi_scan_and_connect_update_top_status_instead_of_leaving_initializing():
     body = function_body(read_source(APPLICATION_SOURCE), "void Application::Initialize()")
     scanning_block = block_after(body, "case NetworkEvent::Scanning:", length=260)
