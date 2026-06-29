@@ -298,17 +298,7 @@ void Application::HandleNetworkConnectedEvent() {
     if (state == kDeviceStateStarting || state == kDeviceStateWifiConfiguring) {
         // Network is ready, start activation
         SetDeviceState(kDeviceStateActivating);
-        if (activation_task_handle_ != nullptr) {
-            ESP_LOGW(TAG, "Activation task already running");
-            return;
-        }
-
-        xTaskCreate([](void* arg) {
-            Application* app = static_cast<Application*>(arg);
-            app->ActivationTask();
-            app->activation_task_handle_ = nullptr;
-            vTaskDelete(NULL);
-        }, "activation", 4096 * 2, this, 2, &activation_task_handle_);
+        StartActivationTask();
     }
 
     // Update the status bar immediately to show the network state
@@ -354,6 +344,26 @@ void Application::HandleActivationDoneEvent() {
     });
 }
 
+void Application::StartActivationTask() {
+    if (activation_task_handle_ != nullptr) {
+        ESP_LOGW(TAG, "Activation task already running");
+        activation_restart_pending_ = true;
+        return;
+    }
+
+    activation_abort_requested_ = false;
+    xTaskCreate([](void* arg) {
+        Application* app = static_cast<Application*>(arg);
+        app->ActivationTask();
+        app->activation_task_handle_ = nullptr;
+        if (app->activation_restart_pending_) {
+            app->activation_restart_pending_ = false;
+            app->StartActivationTask();
+        }
+        vTaskDelete(NULL);
+    }, "activation", 4096 * 2, this, 2, &activation_task_handle_);
+}
+
 void Application::ActivationTask() {
     BootDiagnosticsMark("activation_task_start");
     // Create OTA object for activation process
@@ -361,12 +371,21 @@ void Application::ActivationTask() {
 
     // Check for new assets version
     CheckAssetsVersion();
+    if (activation_abort_requested_) {
+        return;
+    }
 
     // Check for new firmware version
     CheckNewVersion();
+    if (activation_abort_requested_) {
+        return;
+    }
 
     // Initialize the protocol
     InitializeProtocol();
+    if (activation_abort_requested_) {
+        return;
+    }
 
     // Signal completion to main loop
     xEventGroupSetBits(event_group_, MAIN_EVENT_ACTIVATION_DONE);
@@ -437,6 +456,9 @@ void Application::CheckNewVersion() {
 
     auto& board = Board::GetInstance();
     while (true) {
+        if (activation_abort_requested_) {
+            return;
+        }
         auto display = board.GetDisplay();
         display->SetStatus(Lang::Strings::CHECKING_NEW_VERSION);
 
@@ -459,7 +481,7 @@ void Application::CheckNewVersion() {
             ESP_LOGW(TAG, "Check new version failed, retry in %d seconds (%d/%d)", retry_delay, retry_count, MAX_RETRY);
             for (int i = 0; i < retry_delay; i++) {
                 vTaskDelay(pdMS_TO_TICKS(1000));
-                if (GetDeviceState() == kDeviceStateIdle) {
+                if (GetDeviceState() == kDeviceStateIdle || activation_abort_requested_) {
                     break;
                 }
             }
@@ -507,7 +529,7 @@ void Application::CheckNewVersion() {
                 BootDiagnosticsMarkError("activation_poll_failed", err);
                 vTaskDelay(pdMS_TO_TICKS(10000));
             }
-            if (GetDeviceState() == kDeviceStateIdle) {
+            if (GetDeviceState() == kDeviceStateIdle || activation_abort_requested_) {
                 break;
             }
         }
@@ -1159,6 +1181,10 @@ void Application::SetAecMode(AecMode mode) {
 
 void Application::PlaySound(const std::string_view& sound) {
     audio_service_.PlaySound(sound);
+}
+
+void Application::AbortActivationForWifiConfig() {
+    activation_abort_requested_ = true;
 }
 
 void Application::ResetProtocol() {

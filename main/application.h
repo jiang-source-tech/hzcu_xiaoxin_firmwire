@@ -10,6 +10,7 @@
 #include <mutex>
 #include <deque>
 #include <memory>
+#include <atomic>
 
 #include "protocol.h"
 #include "ota.h"
@@ -112,6 +113,7 @@ public:
     AecMode GetAecMode() const { return aec_mode_; }
     void PlaySound(const std::string_view& sound);
     AudioService& GetAudioService() { return audio_service_; }
+    void AbortActivationForWifiConfig();
     
     /**
      * Reset protocol resources (thread-safe)
@@ -143,6 +145,8 @@ private:
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
+    std::atomic_bool activation_abort_requested_{false};
+    std::atomic_bool activation_restart_pending_{false};
 
 
     // Event handlers
@@ -159,6 +163,7 @@ private:
 
     // Activation task (runs in background)
     void ActivationTask();
+    void StartActivationTask();
 
     // Helper methods
     void CheckAssetsVersion();

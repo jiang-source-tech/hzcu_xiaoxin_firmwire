@@ -117,6 +117,44 @@ def test_manual_wifi_reconfiguration_forgets_previous_credentials_before_config_
         assert "ClearSavedWifiCredentialsForReconfiguration();" in following
 
 
+def test_manual_wifi_reconfiguration_can_interrupt_activation_ota_check():
+    wifi_source = read_source(WIFI_BOARD_SOURCE)
+    wifi_body = function_body(wifi_source, "void WifiBoard::EnterWifiConfigMode()")
+    delayed_reconfig_block = braced_block_after(
+        wifi_body,
+        "state == kDeviceStateSpeaking || state == kDeviceStateListening || state == kDeviceStateIdle"
+    )
+
+    assert "state == kDeviceStateActivating" in wifi_body
+    assert "AbortActivationForWifiConfig();" in wifi_body
+    assert "StartWifiConfigMode();" in delayed_reconfig_block
+
+    app_header = read_source(Path("main/application.h"))
+    app_source = read_source(APPLICATION_SOURCE)
+    activation_body = function_body(app_source, "void Application::ActivationTask()")
+    check_version_body = function_body(app_source, "void Application::CheckNewVersion()")
+
+    assert "void AbortActivationForWifiConfig();" in app_header
+    assert "activation_abort_requested_" in app_header
+    assert activation_body.index("CheckNewVersion();") < activation_body.index("InitializeProtocol();")
+    assert "if (activation_abort_requested_) {\n        return;\n    }\n\n    // Initialize the protocol" in activation_body
+    assert "if (activation_abort_requested_) {\n        return;\n    }\n\n    // Signal completion" in activation_body
+    assert "activation_abort_requested_" in check_version_body
+
+
+def test_activation_restart_is_deferred_when_previous_activation_task_is_still_exiting():
+    app_header = read_source(Path("main/application.h"))
+    app_source = read_source(APPLICATION_SOURCE)
+    helper_body = function_body(app_source, "void Application::StartActivationTask()")
+    network_connected_body = function_body(app_source, "void Application::HandleNetworkConnectedEvent()")
+
+    assert "bool activation_restart_pending_" in app_header
+    assert "StartActivationTask();" in network_connected_body
+    assert "activation_restart_pending_ = true;" in helper_body
+    assert "if (app->activation_restart_pending_)" in helper_body
+    assert "app->StartActivationTask();" in helper_body
+
+
 def test_sntp_config_allows_three_servers():
     sdkconfig = read_source(SDKCONFIG_SOURCE)
     sdkconfig_defaults = read_source(SDKCONFIG_DEFAULTS_SOURCE)
