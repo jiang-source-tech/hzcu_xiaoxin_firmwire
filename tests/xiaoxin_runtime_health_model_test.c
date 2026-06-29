@@ -36,10 +36,10 @@ static void duration_formatting_is_compact_and_readable(void) {
   char text[32] = {0};
 
   xiaoxin_runtime_health_format_duration(text, sizeof(text), 0);
-  assert(strcmp(text, "<1m") == 0);
+  assert(strcmp(text, "<1分钟") == 0);
 
   xiaoxin_runtime_health_format_duration(text, sizeof(text), 59);
-  assert(strcmp(text, "<1m") == 0);
+  assert(strcmp(text, "<1分钟") == 0);
 
   xiaoxin_runtime_health_format_duration(text, sizeof(text), 60);
   assert(strcmp(text, "1m 00s") == 0);

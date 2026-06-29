@@ -85,7 +85,7 @@ void xiaoxin_runtime_health_format_duration(
   }
 
   if (seconds < 60U) {
-    (void)snprintf(buffer, buffer_size, "<1m");
+    (void)snprintf(buffer, buffer_size, "<1分钟");
     return;
   }
 
