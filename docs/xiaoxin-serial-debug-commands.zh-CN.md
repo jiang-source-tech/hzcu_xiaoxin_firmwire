@@ -19,6 +19,7 @@ notify_test
 | 命令 | 用途 | 成功输出 | 备注 |
 | --- | --- | --- | --- |
 | `notify_test` | 创建一条测试通知，并切换到通知页面。 | `notify_test: opened notification page` | 每执行一次命令，触发一次测试通知悬浮窗。 |
+| `runtime_health` | 打印运行健康快照。 | `runtime_health: ...` | 用于排查电池供电下反复重启。 |
 
 ## `notify_test`
 
@@ -42,6 +43,10 @@ notify_test: display is not ready
 ```
 
 说明命令执行时显示对象还没有准备好，通常等固件启动完成后再输入一次即可。
+
+## `runtime_health`
+
+`runtime_health`：打印本次运行、上次运行、最长运行、最近重启原因、欠压次数、短运行连续次数和当前供电判断。用于排查电池供电下反复重启。
 
 ## VSCode Monitor 注意事项
 

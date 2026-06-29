@@ -76,6 +76,10 @@ static void protection_requires_three_short_battery_unstable_boots(void) {
   recommended = xiaoxin_runtime_health_protection_recommended(&record);
   assert(recommended);
 
+  record.last_reset_kind = XIAOXIN_RUNTIME_RESET_POWERON;
+  recommended = xiaoxin_runtime_health_protection_recommended(&record);
+  assert(recommended);
+
   record.current_on_battery = false;
   recommended = xiaoxin_runtime_health_protection_recommended(&record);
   assert(!recommended);

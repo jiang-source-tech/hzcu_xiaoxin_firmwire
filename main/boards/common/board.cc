@@ -103,6 +103,14 @@ std::string Board::GetSystemInfoJson() {
             "ota": {
                 "label": "ota_0"
             },
+            "runtime_health": {
+                "current_runtime_sec": 120,
+                "last_runtime_sec": 60,
+                "max_runtime_sec": 3600,
+                "last_reset": "brownout",
+                "brownout_count": 2,
+                "short_run_streak": 1
+            },
             "board": {
                 ...
             }
