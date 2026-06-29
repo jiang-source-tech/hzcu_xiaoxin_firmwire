@@ -7,5 +7,6 @@ void RuntimeHealthStart(bool on_battery);
 void RuntimeHealthMaybeCheckpoint(void);
 void RuntimeHealthForceCheckpoint(void);
 bool RuntimeHealthReadSnapshot(xiaoxin_runtime_health_snapshot_t* out);
+bool RuntimeHealthProtectionRecommended(void);
 
 #endif

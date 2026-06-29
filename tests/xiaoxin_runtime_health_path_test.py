@@ -53,6 +53,19 @@ def test_runtime_health_service_is_compiled_and_uses_esp_nvs():
     assert "RuntimeHealthReadSnapshot" in header
 
 
+def test_runtime_health_exposes_protection_signal_without_gating_boot():
+    header = read_source(RUNTIME_HEALTH_HEADER)
+    source = read_source(RUNTIME_HEALTH_SOURCE)
+    application = read_source(APPLICATION_SOURCE)
+    board = read_source(WAVESHARE_146_SOURCE)
+
+    assert "RuntimeHealthProtectionRecommended(void)" in header
+    body = function_body(source, "bool RuntimeHealthProtectionRecommended(void)")
+    assert "xiaoxin_runtime_health_protection_recommended(&s_record)" in body
+    assert "RuntimeHealthProtectionRecommended" not in application
+    assert "RuntimeHealthProtectionRecommended" not in board
+
+
 def test_runtime_health_is_wired_into_startup_tick_reboot_and_poweroff():
     application = read_source(APPLICATION_SOURCE)
     board = read_source(WAVESHARE_146_SOURCE)

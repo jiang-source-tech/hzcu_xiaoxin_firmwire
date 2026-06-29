@@ -64,11 +64,29 @@ static void reset_labels_cover_known_reset_kinds(void) {
   assert(strcmp(xiaoxin_runtime_health_reset_label(XIAOXIN_RUNTIME_RESET_DEEPSLEEP), "deepsleep") == 0);
 }
 
+static void protection_requires_three_short_battery_unstable_boots(void) {
+  xiaoxin_runtime_health_record_t record = {0};
+  record.short_run_streak = 2;
+  record.current_on_battery = true;
+  record.last_reset_kind = XIAOXIN_RUNTIME_RESET_BROWNOUT;
+  bool recommended = xiaoxin_runtime_health_protection_recommended(&record);
+  assert(!recommended);
+
+  record.short_run_streak = 3;
+  recommended = xiaoxin_runtime_health_protection_recommended(&record);
+  assert(recommended);
+
+  record.current_on_battery = false;
+  recommended = xiaoxin_runtime_health_protection_recommended(&record);
+  assert(!recommended);
+}
+
 int main(void) {
   brownout_short_runs_increment_streak();
   checkpoint_policy_waits_until_a_minute_then_every_five_minutes();
   duration_formatting_is_compact_and_readable();
   reset_labels_cover_known_reset_kinds();
+  protection_requires_three_short_battery_unstable_boots();
   puts("xiaoxin_runtime_health_model tests passed");
   return 0;
 }

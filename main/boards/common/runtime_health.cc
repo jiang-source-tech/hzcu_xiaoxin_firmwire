@@ -184,3 +184,7 @@ bool RuntimeHealthReadSnapshot(xiaoxin_runtime_health_snapshot_t* out) {
     xiaoxin_runtime_health_snapshot_from_record(&record, out);
     return true;
 }
+
+bool RuntimeHealthProtectionRecommended(void) {
+    return xiaoxin_runtime_health_protection_recommended(&s_record);
+}
