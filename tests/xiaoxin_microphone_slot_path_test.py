@@ -51,12 +51,12 @@ def test_waveshare_1_46_speaker_forces_full_software_output_volume():
     assert body.index("audio_codec.SetOutputVolume(100);") > body.index("NoAudioCodecSimplex audio_codec")
 
 
-def test_waveshare_1_46_speaker_keeps_neutral_output_boost():
+def test_waveshare_1_46_speaker_applies_board_output_boost():
     source = read_source()
     body = function_body(source, "virtual AudioCodec* GetAudioCodec() override")
 
-    assert "audio_codec.SetOutputBoost(1.0f);" in body
-    assert body.index("audio_codec.SetOutputBoost(1.0f);") > body.index("NoAudioCodecSimplex audio_codec")
+    assert "audio_codec.SetOutputBoost(AUDIO_OUTPUT_BOOST);" in body
+    assert body.index("audio_codec.SetOutputBoost(AUDIO_OUTPUT_BOOST);") > body.index("NoAudioCodecSimplex audio_codec")
 
 
 def test_no_audio_codec_output_boost_is_applied_before_clipping():
