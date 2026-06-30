@@ -34,6 +34,7 @@ set(SOURCES "audio/audio_codec.cc"
             "mcp_server.cc"
             "system_info.cc"
             "application.cc"
+            "doorbell_mqtt.cc"
             "ota.cc"
             "settings.cc"
             "device_state_machine.cc"
@@ -945,6 +946,7 @@ idf_component_register(SRCS ${SOURCES}
                         efuse
                         bt
                         fatfs
+                        mqtt
                     )
 
 # Use target_compile_definitions to define BOARD_TYPE, BOARD_NAME

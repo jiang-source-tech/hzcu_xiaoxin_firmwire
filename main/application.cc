@@ -5,6 +5,7 @@
 #include "audio_codec.h"
 #include "mqtt_protocol.h"
 #include "websocket_protocol.h"
+#include "doorbell_mqtt.h"
 #include "assets/lang_config.h"
 #include "mcp_server.h"
 #include "assets.h"
@@ -20,6 +21,9 @@
 #include <font_awesome.h>
 
 #define TAG "Application"
+
+// 常驻门铃 MQTT 客户端（设备空闲/待机时被服务器叫醒用）。激活完成后启动一次。
+static DoorbellMqtt g_doorbell_mqtt;
 
 static std::string NormalizeXiaoxinDeviceName(std::string text) {
     const char* variants[] = {"小新", "晓新"};
@@ -342,6 +346,10 @@ void Application::HandleActivationDoneEvent() {
         // Play the success sound to indicate the device is ready
         audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
     });
+
+    // 启动常驻门铃连接：联网与激活均已完成，设备身份（MAC）此时已就绪。
+    // 开发期 broker 允许匿名，凭证留空；后续上线再接入绑定凭证。
+    g_doorbell_mqtt.Start(SystemInfo::GetMacAddress(), "");
 }
 
 void Application::StartActivationTask() {
@@ -590,6 +598,11 @@ void Application::InitializeProtocol() {
     protocol_->OnIncomingJson([this, display](const cJSON* root) {
         // Parse JSON data
         auto type = cJSON_GetObjectItem(root, "type");
+        // 先判空再比较，避免缺失/非字符串的 type 字段导致解引用崩溃。
+        if (!cJSON_IsString(type)) {
+            ESP_LOGW(TAG, "Incoming message has no valid 'type' field");
+            return;
+        }
         if (strcmp(type->valuestring, "tts") == 0) {
             auto state = cJSON_GetObjectItem(root, "state");
             if (strcmp(state->valuestring, "start") == 0) {
@@ -630,6 +643,19 @@ void Application::InitializeProtocol() {
                 Schedule([display, emotion_str = std::string(emotion->valuestring)]() {
                     display->SetEmotion(emotion_str.c_str());
                 });
+            }
+        } else if (strcmp(type->valuestring, "notification") == 0) {
+            // 服务器主动下发的屏幕通知文字（门铃唤醒后经 WebSocket 送达）。
+            auto text = cJSON_GetObjectItem(root, "text");
+            if (cJSON_IsString(text)) {
+                auto duration = cJSON_GetObjectItem(root, "duration_ms");
+                int duration_ms = cJSON_IsNumber(duration) ? duration->valueint : 3000;
+                ESP_LOGI(TAG, "Notification: %s", text->valuestring);
+                Schedule([display, message = std::string(text->valuestring), duration_ms]() {
+                    display->ShowNotification(message.c_str(), duration_ms);
+                });
+            } else {
+                ESP_LOGW(TAG, "Notification message missing 'text'");
             }
         } else if (strcmp(type->valuestring, "mcp") == 0) {
             auto payload = cJSON_GetObjectItem(root, "payload");
