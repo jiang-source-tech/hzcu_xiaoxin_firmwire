@@ -5429,6 +5429,10 @@ private:
         }
 
         low_battery_shutdown_pending_ = false;
+        RuntimeHealthRecordLowBatteryShutdown(
+            last_battery_voltage_mv_,
+            low_battery_shutdown_startup_stage_
+        );
         RuntimeHealthForceCheckpoint();
         xiaoxin_power_control_request_shutdown(&power_control_);
         GetBacklight()->SetBrightness(0);

@@ -85,12 +85,29 @@ static void protection_requires_three_short_battery_unstable_boots(void) {
   assert(!recommended);
 }
 
+static void low_battery_shutdown_diagnostics_are_recorded(void) {
+  xiaoxin_runtime_health_record_t record = {0};
+
+  xiaoxin_runtime_health_record_low_battery_shutdown(&record, 3590, true);
+
+  assert(record.low_battery_shutdown_count == 1);
+  assert(record.last_low_battery_shutdown_voltage_mv == 3590);
+  assert(record.last_low_battery_shutdown_startup_stage);
+
+  xiaoxin_runtime_health_record_low_battery_shutdown(&record, 3620, false);
+
+  assert(record.low_battery_shutdown_count == 2);
+  assert(record.last_low_battery_shutdown_voltage_mv == 3620);
+  assert(!record.last_low_battery_shutdown_startup_stage);
+}
+
 int main(void) {
   brownout_short_runs_increment_streak();
   checkpoint_policy_waits_until_a_minute_then_every_five_minutes();
   duration_formatting_is_compact_and_readable();
   reset_labels_cover_known_reset_kinds();
   protection_requires_three_short_battery_unstable_boots();
+  low_battery_shutdown_diagnostics_are_recorded();
   puts("xiaoxin_runtime_health_model tests passed");
   return 0;
 }

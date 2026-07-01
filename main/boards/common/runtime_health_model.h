@@ -30,8 +30,11 @@ typedef struct {
   uint32_t last_runtime_sec;
   uint32_t max_runtime_sec;
   uint32_t current_checkpoint_sec;
+  uint32_t low_battery_shutdown_count;
+  uint32_t last_low_battery_shutdown_voltage_mv;
   bool current_on_battery;
   bool previous_on_battery;
+  bool last_low_battery_shutdown_startup_stage;
   xiaoxin_runtime_reset_kind_t last_reset_kind;
 } xiaoxin_runtime_health_record_t;
 
@@ -46,8 +49,11 @@ typedef struct {
   uint32_t current_runtime_sec;
   uint32_t last_runtime_sec;
   uint32_t max_runtime_sec;
+  uint32_t low_battery_shutdown_count;
+  uint32_t last_low_battery_shutdown_voltage_mv;
   bool current_on_battery;
   bool previous_on_battery;
+  bool last_low_battery_shutdown_startup_stage;
   xiaoxin_runtime_reset_kind_t last_reset_kind;
 } xiaoxin_runtime_health_snapshot_t;
 
@@ -80,6 +86,12 @@ const char* xiaoxin_runtime_health_reset_label(
 void xiaoxin_runtime_health_snapshot_from_record(
   const xiaoxin_runtime_health_record_t* record,
   xiaoxin_runtime_health_snapshot_t* snapshot
+);
+
+void xiaoxin_runtime_health_record_low_battery_shutdown(
+  xiaoxin_runtime_health_record_t* record,
+  uint32_t voltage_mv,
+  bool startup_stage
 );
 
 #ifdef __cplusplus

@@ -83,6 +83,7 @@ def test_critical_edge_starts_cancelable_shutdown_without_restart():
     assert "snapshot.power_source == XIAOXIN_BATTERY_POWER_EXTERNAL" in cancel
     assert "snapshot.recovered_edge" in cancel
     assert "low_battery_shutdown_pending_ = false;" in cancel
+    assert "RuntimeHealthRecordLowBatteryShutdown(" in finish
     assert "RuntimeHealthForceCheckpoint();" in finish
     assert "xiaoxin_power_control_request_shutdown(&power_control_);" in finish
     assert "gpio_set_level(PWR_Control_PIN, xiaoxin_power_control_power_hold(&power_control_));" in finish

@@ -51,6 +51,10 @@ def test_runtime_health_service_is_compiled_and_uses_esp_nvs():
     assert "RuntimeHealthStart(bool on_battery)" in header
     assert "RuntimeHealthMaybeCheckpoint(void)" in header
     assert "RuntimeHealthReadSnapshot" in header
+    assert "RuntimeHealthRecordLowBatteryShutdown" in header
+    assert "k_low_battery_shutdown_count_key" in source
+    assert "k_last_low_battery_voltage_key" in source
+    assert "k_last_low_battery_stage_key" in source
 
 
 def test_runtime_health_exposes_protection_signal_without_gating_boot():
@@ -117,6 +121,17 @@ def test_runtime_health_serial_command_prints_operator_summary():
     )
     assert "snapshot.current_on_battery ? 1 : 0" in body
     assert "esp_console_cmd_register(&runtime_health_cmd)" in body
+
+
+def test_runtime_health_records_low_battery_shutdown_diagnostics():
+    header = read_source(RUNTIME_HEALTH_HEADER)
+    source = read_source(RUNTIME_HEALTH_SOURCE)
+
+    assert "void RuntimeHealthRecordLowBatteryShutdown(int voltage_mv, bool startup_stage);" in header
+    body = function_body(source, "void RuntimeHealthRecordLowBatteryShutdown(int voltage_mv, bool startup_stage)")
+    assert "xiaoxin_runtime_health_record_low_battery_shutdown(" in body
+    assert "voltage_mv > 0 ? (uint32_t)voltage_mv : 0" in body
+    assert "PersistRecord();" in body
 
 
 def test_system_info_json_exposes_runtime_health_before_board():

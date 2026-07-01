@@ -165,7 +165,26 @@ void xiaoxin_runtime_health_snapshot_from_record(
   snapshot->current_runtime_sec = record->current_checkpoint_sec;
   snapshot->last_runtime_sec = record->last_runtime_sec;
   snapshot->max_runtime_sec = record->max_runtime_sec;
+  snapshot->low_battery_shutdown_count = record->low_battery_shutdown_count;
+  snapshot->last_low_battery_shutdown_voltage_mv =
+    record->last_low_battery_shutdown_voltage_mv;
   snapshot->current_on_battery = record->current_on_battery;
   snapshot->previous_on_battery = record->previous_on_battery;
+  snapshot->last_low_battery_shutdown_startup_stage =
+    record->last_low_battery_shutdown_startup_stage;
   snapshot->last_reset_kind = record->last_reset_kind;
+}
+
+void xiaoxin_runtime_health_record_low_battery_shutdown(
+  xiaoxin_runtime_health_record_t* record,
+  uint32_t voltage_mv,
+  bool startup_stage
+) {
+  if (record == NULL) {
+    return;
+  }
+
+  record->low_battery_shutdown_count++;
+  record->last_low_battery_shutdown_voltage_mv = voltage_mv;
+  record->last_low_battery_shutdown_startup_stage = startup_stage;
 }

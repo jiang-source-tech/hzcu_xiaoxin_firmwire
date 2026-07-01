@@ -23,6 +23,9 @@ static constexpr const char* k_current_checkpoint_sec_key = "cur_sec";
 static constexpr const char* k_current_on_battery_key = "cur_bat";
 static constexpr const char* k_previous_on_battery_key = "prev_bat";
 static constexpr const char* k_last_reset_kind_key = "last_reset";
+static constexpr const char* k_low_battery_shutdown_count_key = "lb_count";
+static constexpr const char* k_last_low_battery_voltage_key = "lb_mv";
+static constexpr const char* k_last_low_battery_stage_key = "lb_startup";
 
 static constexpr uint32_t k_short_runtime_threshold_sec = 60U;
 
@@ -93,11 +96,16 @@ static void LoadRecord(void) {
     ReadU32(handle, k_last_runtime_sec_key, &s_record.last_runtime_sec);
     ReadU32(handle, k_max_runtime_sec_key, &s_record.max_runtime_sec);
     ReadU32(handle, k_current_checkpoint_sec_key, &s_record.current_checkpoint_sec);
+    ReadU32(handle, k_low_battery_shutdown_count_key, &s_record.low_battery_shutdown_count);
+    ReadU32(handle, k_last_low_battery_voltage_key, &s_record.last_low_battery_shutdown_voltage_mv);
     if (ReadU32(handle, k_current_on_battery_key, &value)) {
         s_record.current_on_battery = value != 0;
     }
     if (ReadU32(handle, k_previous_on_battery_key, &value)) {
         s_record.previous_on_battery = value != 0;
+    }
+    if (ReadU32(handle, k_last_low_battery_stage_key, &value)) {
+        s_record.last_low_battery_shutdown_startup_stage = value != 0;
     }
     if (ReadU32(handle, k_last_reset_kind_key, &value)) {
         s_record.last_reset_kind = (xiaoxin_runtime_reset_kind_t)value;
@@ -124,8 +132,11 @@ static void PersistRecord(void) {
     WriteU32(handle, k_last_runtime_sec_key, s_record.last_runtime_sec);
     WriteU32(handle, k_max_runtime_sec_key, s_record.max_runtime_sec);
     WriteU32(handle, k_current_checkpoint_sec_key, s_record.current_checkpoint_sec);
+    WriteU32(handle, k_low_battery_shutdown_count_key, s_record.low_battery_shutdown_count);
+    WriteU32(handle, k_last_low_battery_voltage_key, s_record.last_low_battery_shutdown_voltage_mv);
     WriteU32(handle, k_current_on_battery_key, s_record.current_on_battery ? 1U : 0U);
     WriteU32(handle, k_previous_on_battery_key, s_record.previous_on_battery ? 1U : 0U);
+    WriteU32(handle, k_last_low_battery_stage_key, s_record.last_low_battery_shutdown_startup_stage ? 1U : 0U);
     WriteU32(handle, k_last_reset_kind_key, (uint32_t)s_record.last_reset_kind);
 
     err = nvs_commit(handle);
@@ -167,6 +178,15 @@ void RuntimeHealthForceCheckpoint(void) {
     }
 
     s_record.current_checkpoint_sec = SystemInfo::GetUptimeSeconds();
+    PersistRecord();
+}
+
+void RuntimeHealthRecordLowBatteryShutdown(int voltage_mv, bool startup_stage) {
+    xiaoxin_runtime_health_record_low_battery_shutdown(
+        &s_record,
+        voltage_mv > 0 ? (uint32_t)voltage_mv : 0,
+        startup_stage
+    );
     PersistRecord();
 }
 
