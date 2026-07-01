@@ -42,35 +42,47 @@
 
 ## 设计
 
+### 决策口径
+
+低电和临界关机只以 `xiaoxin_battery_state_update()` 产出的状态机 snapshot 为准。ADC 电压是状态机输入，也是日志和校准依据，但板级代码不再另起一套并行的 LOW / CRITICAL 电压判断。
+
+现有状态机已经通过 `xiaoxin_battery_level.c` 将电压映射为百分比，再用百分比和确认时间判断状态：
+
+| 状态转换 | 状态机阈值 | 当前曲线约等效带载电压 | 当前确认时间 |
+| --- | ---: | ---: | ---: |
+| UNKNOWN/NORMAL -> LOW | <= 20% | 约 3700mV | idle 20s / voice 45s |
+| LOW -> CRITICAL | <= 10% | 约 3600mV | idle 10s / voice 30s |
+| CRITICAL -> LOW | >= 18% | 约 3660mV | 15s |
+| LOW -> NORMAL | >= 30% | 约 3750mV | 10s |
+
+本设计采用这套状态机阈值，不在板级代码里重复定义另一套 LOW / CRITICAL 电压。如果后续硬件实测证明阈值不合适，应先修改 `xiaoxin_battery_level.c` 或 `xiaoxin_battery_state.c` 并配套测试，而不是在板级代码里绕过状态机。
+
 ### 状态策略
 
 采用两档策略：
 
 1. 低电提醒
-   - 带载电压持续低于低电阈值，或状态机进入 LOW。
+   - 状态机进入 LOW。
    - 显示低电提示。
    - 可以轻度降低背光，但不停止宠物、动画、网络或音频。
    - 系统继续正常运行。
 
 2. 临界主动关机
-   - 带载电压持续低于临界阈值，或状态机进入 CRITICAL。
+   - 状态机进入 CRITICAL。
    - 显示“电量不足，即将关机”提示。
    - 短暂延迟后关背光、记录诊断、释放 `PWR_Control_PIN`。
    - 设备真正断电，不调用 `esp_restart()`。
 
-### 建议阈值
+### 阈值调整原则
 
-阈值先作为板级常量实现，后续可以根据真实电池测试校准：
+本次实现不新增板级低电电压阈值。阈值由状态机集中维护：
 
-| 条件 | 初始值 | 行为 |
-| --- | ---: | --- |
-| 低电提醒电压 | 3600mV | 持续满足后提示低电 |
-| 临界关机电压 | 3450mV | 持续满足后主动关机 |
-| 低电确认时间 | 20s | 抑制瞬时负载波动误报 |
-| 临界确认时间 | 5s | 尾电阶段快速关机，避免 brownout |
-| 启动低电保护 | 3500mV | 启动早期若持续过低，只显示提示后关机 |
+1. LOW 由 `k_normal_to_low_percent` 控制。
+2. CRITICAL 由 `k_low_to_critical_percent` 控制。
+3. LOW / CRITICAL 的确认时间由 `required_ms_for()` 对应常量控制。
+4. 启动保护使用同一套状态机结果，不单独定义一个更低的启动电压。
 
-这些阈值基于单节锂电池带载电压，而不是开路电压。由于不同 1500mAh 电池内阻差异较大，最终值需要通过串口日志或实测电压微调。
+如果实测发现 10% / 3600mV 仍然太晚，下一步应把 CRITICAL 阈值上调，例如从 10% 调到 12%-15%，并让所有 LOW / CRITICAL 行为继续共用同一套状态机。
 
 ### ADC 采样
 
@@ -83,6 +95,20 @@
 5. 打印节流日志，例如每 60s 输出一次电压、估算百分比、电源来源和状态。
 
 采样失败时不触发关机。连续多次失败只记录诊断，并保持现有状态。
+
+如果后续确认 1.46C 存在可靠的 USB/充电检测 GPIO，应将它转成 `xiaoxin_battery_power_hint_t` 传入状态机。没有硬件提示时，先使用状态机现有的高电压、快速上升、稳定高位和交替采样检测来识别外部供电。
+
+### `GetBatteryLevel()` 语义
+
+小新板级 `GetBatteryLevel(int& level, bool& charging, bool& discharging)` 从最近一次电池状态机 snapshot 生成结果：
+
+1. 当 `percent_reliable == true` 时返回 `true`，`level = display_percent`，范围 0-100。
+2. `charging = snapshot.power_source == XIAOXIN_BATTERY_POWER_EXTERNAL`。
+3. `discharging = snapshot.power_source == XIAOXIN_BATTERY_POWER_BATTERY`。
+4. 当外部供电导致百分比不可靠时返回 `false`，避免把 USB 电压误报成 100% 电池。
+5. ADC 尚未初始化、没有有效样本、或电源来源仍 UNKNOWN 时返回 `false`。
+
+这让系统状态 JSON 和 UI 能在电池供电时拿到真实电量，同时避免外部供电时显示虚假的电池百分比。
 
 ### 低电提示
 
@@ -105,18 +131,22 @@ CRITICAL 状态确认后进入一次性关机流程：
 5. 释放 `PWR_Control_PIN`。
 6. 进入已有 `WaitForPowerButtonReleaseAndSleep()` 或等效收尾路径。
 
+释放 `PWR_Control_PIN` 是低电关机的核心动作。执行后电源锁存可能立刻打开，VCC 可能在 `esp_deep_sleep_start()` 执行前就下降；这属于预期结果。深睡眠只是外部供电仍存在或电源没有立刻塌陷时的收尾，不是关机成功的必要条件。
+
 如果电压已经接近 brownout，提示可能来不及完整显示，但流程仍应尽快释放电源保持。
 
 ### 启动保护
 
 启动早期已经会识别电池供电。新增启动低电保护：
 
-1. 电池供电且启动早期 ADC 持续低于启动低电阈值时，不进入完整应用启动。
+1. 电池供电且启动早期状态机确认 CRITICAL 时，不进入完整应用启动。
 2. 初始化屏幕和背光到最低可读状态。
 3. 显示低电提示数秒。
 4. 释放电源保持关机。
 
 这避免尾电电池在重启时反复拉起 Wi-Fi、屏幕和 PSRAM，造成启动失败循环。
+
+如果 `RuntimeHealthProtectionRecommended()` 返回 true，说明已经出现电池供电下连续短运行不稳定复位。启动保护应把它作为补充信号：在电池供电且 runtime health 建议保护时，尽早显示恢复/低电提示并关机，避免继续启动完整系统。它不替代电池状态机；它覆盖的是“已经来不及稳定采样就反复 brownout”的场景。
 
 ### 诊断
 
@@ -136,15 +166,16 @@ CRITICAL 状态确认后进入一次性关机流程：
 3. 电压在阈值附近抖动：依靠持续时间和状态机滞回抑制反复提示。
 4. 临界关机流程重复触发：用一次性标志忽略后续触发。
 5. 显示对象未就绪：跳过 UI 提示，直接记录诊断并关机。
+6. LOW 恢复：状态机 recovered_edge 出现，或外部供电确认后，隐藏低电提示并恢复正常显示策略。
 
 ## 测试计划
 
-1. 扩展 `xiaoxin_battery_state_test.c`，覆盖 LOW 与 CRITICAL 的确认时间、滞回和边沿事件。
-2. 新增板级路径测试，确认小新板卡不再让 `GetBatteryLevel()` 永远返回 `false`。
+1. 扩展 `xiaoxin_battery_state_test.c`，覆盖 LOW 与 CRITICAL 的确认时间、滞回、边沿事件和阈值等效电压说明。
+2. 新增板级路径测试，确认小新板卡在 `percent_reliable == true` 时 `GetBatteryLevel()` 返回最近 snapshot 的 `display_percent`，并正确填充 charging/discharging。
 3. 新增路径测试，确认临界低电调用主动关机流程，而不是 `esp_restart()`。
-4. 新增启动保护路径测试，确认电池供电且启动电压过低时不会继续完整启动。
+4. 新增启动保护路径测试，确认电池供电且启动状态为 CRITICAL 或 runtime health 建议保护时不会继续完整启动。
 5. 运行现有电池、电源控制、启动诊断和 runtime health 测试。
-6. 硬件验证：用可调电源或低电电池观察 3.6V 附近提示、3.45V 附近主动关机、关机后不自动重启。
+6. 硬件验证：用可调电源或低电电池观察约 3.7V/20% 附近提示、约 3.6V/10% 附近主动关机、关机后不自动重启。
 
 ## 实施顺序
 
@@ -163,4 +194,3 @@ CRITICAL 状态确认后进入一次性关机流程：
 4. USB/外部供电不触发低电关机。
 5. 现有手动电源键关机不回退。
 6. 所有相关自动化测试通过。
-
