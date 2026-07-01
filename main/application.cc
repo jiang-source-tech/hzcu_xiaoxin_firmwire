@@ -78,6 +78,12 @@ bool Application::SetDeviceState(DeviceState state) {
 
 void Application::Initialize() {
     auto& board = Board::GetInstance();
+    if (board.ShouldSkipApplicationStartup()) {
+        BootDiagnosticsMark("app_startup_low_battery_protection");
+        BootDiagnosticsFlush();
+        return;
+    }
+
     BootDiagnosticsMark("app_initialize_start");
     SetDeviceState(kDeviceStateStarting);
 

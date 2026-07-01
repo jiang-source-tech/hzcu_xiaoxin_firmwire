@@ -5471,6 +5471,29 @@ private:
             return;
         }
 
+        if (!low_battery_shutdown_startup_stage_) {
+            int voltage_mv = 0;
+            const bool sample_valid = ReadBatteryVoltageMv(&voltage_mv);
+            const uint32_t now_ms = BatteryNowMs();
+            if (sample_valid) {
+                last_battery_voltage_mv_ = voltage_mv;
+                last_battery_sample_ms_ = now_ms;
+            }
+            battery_snapshot_ = xiaoxin_battery_state_update(
+                &battery_context_,
+                voltage_mv,
+                sample_valid,
+                sample_valid ? CurrentBatteryPowerHint(voltage_mv) : XIAOXIN_BATTERY_POWER_HINT_UNKNOWN,
+                XIAOXIN_BATTERY_LOAD_IDLE,
+                now_ms
+            );
+            battery_has_snapshot_ = true;
+            CancelLowBatteryShutdownIfRecovered(battery_snapshot_);
+            if (!low_battery_shutdown_pending_) {
+                return;
+            }
+        }
+
         low_battery_shutdown_pending_ = false;
         RuntimeHealthRecordLowBatteryShutdown(
             last_battery_voltage_mv_,
@@ -6112,6 +6135,10 @@ public:
         }
 
         WifiBoard::StartNetwork();
+    }
+
+    bool ShouldSkipApplicationStartup() override {
+        return startup_low_battery_protection_;
     }
 
     virtual AudioCodec* GetAudioCodec() override {

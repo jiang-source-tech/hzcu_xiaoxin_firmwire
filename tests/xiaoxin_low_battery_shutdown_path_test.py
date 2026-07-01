@@ -5,10 +5,12 @@ BOARD_SOURCE = Path(
     "main/boards/waveshare/esp32-s3-touch-lcd-1.46/"
     "esp32-s3-touch-lcd-1.46.cc"
 )
+APPLICATION_SOURCE = Path("main/application.cc")
+BOARD_HEADER = Path("main/boards/common/board.h")
 
 
-def read_source() -> str:
-    return BOARD_SOURCE.read_text(encoding="utf-8")
+def read_source(path: Path = BOARD_SOURCE) -> str:
+    return path.read_text(encoding="utf-8")
 
 
 def function_body(source: str, signature: str) -> str:
@@ -83,6 +85,17 @@ def test_critical_edge_starts_cancelable_shutdown_without_restart():
     assert "snapshot.power_source == XIAOXIN_BATTERY_POWER_EXTERNAL" in cancel
     assert "snapshot.recovered_edge" in cancel
     assert "low_battery_shutdown_pending_ = false;" in cancel
+    final_check = finish[finish.index("if (!low_battery_shutdown_startup_stage_)") :]
+    assert_ordered(
+        final_check,
+        "ReadBatteryVoltageMv(&voltage_mv)",
+        "xiaoxin_battery_state_update(",
+        "CancelLowBatteryShutdownIfRecovered(battery_snapshot_);",
+        "if (!low_battery_shutdown_pending_) {",
+        "return;",
+        "low_battery_shutdown_pending_ = false;",
+        "xiaoxin_power_control_request_shutdown(&power_control_);",
+    )
     assert "RuntimeHealthRecordLowBatteryShutdown(" in finish
     assert "RuntimeHealthForceCheckpoint();" in finish
     assert "xiaoxin_power_control_request_shutdown(&power_control_);" in finish
@@ -120,10 +133,15 @@ def test_get_battery_level_reports_only_reliable_snapshot_percent():
 
 def test_startup_protection_uses_runtime_health_before_full_app_work():
     source = read_source()
+    application = read_source(APPLICATION_SOURCE)
+    board_header = read_source(BOARD_HEADER)
     constructor = function_body(source, "CustomBoard()")
     start_network = function_body(source, "void StartNetwork() override")
+    initialize = function_body(application, "void Application::Initialize()")
 
     assert "startup_low_battery_protection_" in source
+    assert "virtual bool ShouldSkipApplicationStartup() { return false; }" in board_header
+    assert "bool ShouldSkipApplicationStartup() override" in source
     assert "RuntimeHealthProtectionRecommended()" in constructor
     assert "XIAOXIN_BATTERY_STATE_CRITICAL" not in constructor
     assert_ordered(
@@ -135,6 +153,17 @@ def test_startup_protection_uses_runtime_health_before_full_app_work():
     )
     assert "if (startup_low_battery_protection_)" in start_network
     assert "return;" in start_network
+    assert_ordered(
+        initialize,
+        "auto& board = Board::GetInstance();",
+        "if (board.ShouldSkipApplicationStartup())",
+        "return;",
+        "BootDiagnosticsMark(\"app_initialize_start\");",
+        "SetDeviceState(kDeviceStateStarting);",
+        "display->SetupUI();",
+        "auto codec = board.GetAudioCodec();",
+        "board.StartNetwork();",
+    )
 
 
 def test_battery_console_command_prints_last_sample_and_state():
