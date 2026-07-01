@@ -812,6 +812,7 @@ void Application::HandleToggleChatEvent() {
         AbortSpeaking(kAbortReasonNone);
     } else if (state == kDeviceStateListening) {
         protocol_->CloseAudioChannel();
+        SetDeviceState(kDeviceStateIdle);
     }
 }
 
