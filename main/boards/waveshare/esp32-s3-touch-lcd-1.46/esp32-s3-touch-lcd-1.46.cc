@@ -245,9 +245,10 @@ static constexpr int16_t k_notification_slide_pitch = 116;
 static constexpr uint8_t k_low_power_wave_bar_count = 20;
 static constexpr uint8_t k_low_power_wave_bar_min_level = 1;
 static constexpr uint8_t k_low_power_wave_bar_max_level = 12;
+static constexpr uint8_t k_low_power_wave_bar_step = 3;
 static constexpr uint8_t k_low_power_left_gauge_point_count = 120;
 static constexpr uint8_t k_low_power_left_gauge_tick_count = 40;
-static constexpr uint64_t k_low_power_clock_timer_period_us = 100 * 1000;
+static constexpr uint64_t k_low_power_clock_timer_period_us = 50 * 1000;
 static constexpr int16_t k_notification_clear_button_w = 104;
 static constexpr int16_t k_notification_clear_button_h = 32;
 static constexpr int16_t k_notification_clear_button_y = 46;
@@ -1030,9 +1031,6 @@ private:
     lv_obj_t* settings_brightness_back_button_label_ = nullptr;
     lv_obj_t* low_power_clock_layer_ = nullptr;
     lv_obj_t* low_power_wave_bar_layer_ = nullptr;
-    lv_obj_t* low_power_wave_bars_[k_low_power_wave_bar_count] = {};
-    lv_obj_t* low_power_left_gauge_pixels_[k_low_power_left_gauge_point_count] = {};
-    lv_obj_t* low_power_left_gauge_ticks_[k_low_power_left_gauge_tick_count] = {};
     lv_obj_t* low_power_clock_outer_arc_ = nullptr;
     lv_obj_t* low_power_clock_inner_arc_ = nullptr;
     lv_obj_t* low_power_clock_top_dial_ = nullptr;
@@ -1059,10 +1057,12 @@ private:
     xiaoxin_settings_item_t settings_items_[k_settings_item_max_count] = {};
     xiaoxin_low_power_clock_snapshot_t low_power_clock_snapshot_ = {};
     uint8_t low_power_wave_bar_levels_[k_low_power_wave_bar_count] = {};
+    uint8_t low_power_wave_bar_target_levels_[k_low_power_wave_bar_count] = {};
     uint32_t low_power_wave_random_state_ = 0xA5A55A5AU;
     uint8_t low_power_clock_last_minute_ = 0xff;
     uint8_t low_power_clock_last_second_ = 0xff;
     uint32_t low_power_clock_animation_tick_ = 0;
+    uint16_t low_power_clock_motion_angle_ = 0;
     uint8_t settings_item_count_ = 0;
     SettingsView settings_view_ = SettingsView::List;
     bool low_power_clock_visible_ = false;
@@ -1255,19 +1255,116 @@ private:
             return;
         }
         for (uint8_t i = 0; i < k_low_power_wave_bar_count; ++i) {
-            if (low_power_wave_bars_[i] == nullptr) {
-                continue;
-            }
-            const uint8_t level = (uint8_t)(
+            const uint8_t target = (uint8_t)(
                 k_low_power_wave_bar_min_level +
                 (NextLowPowerWaveRandomLocked() % k_low_power_wave_bar_max_level)
             );
+            low_power_wave_bar_target_levels_[i] = target;
+
+            uint8_t level = low_power_wave_bar_levels_[i];
+            if (level < target) {
+                level = (uint8_t)(level + std::min<uint8_t>(k_low_power_wave_bar_step, (uint8_t)(target - level)));
+            } else if (level > target) {
+                level = (uint8_t)(level - std::min<uint8_t>(k_low_power_wave_bar_step, (uint8_t)(level - target)));
+            }
             low_power_wave_bar_levels_[i] = level;
-            const int16_t h = LowPowerRefLen((int16_t)((level - 1U) * 4U + 3U));
-            const int16_t x = LowPowerRefLen((int16_t)(i * 6U));
-            const int16_t y = LowPowerRefLen((int16_t)(90 - (int16_t)((level - 1U) * 4U) - 46));
-            lv_obj_set_size(low_power_wave_bars_[i], LowPowerRefLen(4), h);
-            lv_obj_set_pos(low_power_wave_bars_[i], x, y);
+        }
+    }
+
+    void DrawLowPowerLeftGaugeLocked(lv_layer_t* layer, uint16_t angle) {
+        if (layer == nullptr) {
+            return;
+        }
+
+        lv_draw_rect_dsc_t pixel_dsc;
+        lv_draw_rect_dsc_init(&pixel_dsc);
+        pixel_dsc.bg_color = lv_color_hex(0x707070);
+        pixel_dsc.bg_opa = LowPowerClockOpaPercent(78);
+
+        lv_draw_line_dsc_t tick_dsc;
+        lv_draw_line_dsc_init(&tick_dsc);
+        tick_dsc.opa = LowPowerClockOpaPercent(88);
+        tick_dsc.round_start = 1;
+        tick_dsc.round_end = 1;
+
+        for (uint8_t i = 0; i < k_low_power_left_gauge_point_count; ++i) {
+            const uint16_t a = (uint16_t)((angle + i * 3U) % 360U);
+            const int16_t x_ref = (int16_t)std::lround(118.0 * std::cos(k_low_power_ref_rad * a)) - 2;
+            const int16_t y_ref = (int16_t)std::lround(118.0 * std::sin(k_low_power_ref_rad * a)) + 120;
+
+            lv_area_t pixel_area;
+            pixel_area.x1 = LowPowerRefX(x_ref);
+            pixel_area.y1 = LowPowerRefY(y_ref);
+            pixel_area.x2 = pixel_area.x1;
+            pixel_area.y2 = pixel_area.y1;
+            lv_draw_rect(layer, &pixel_dsc, &pixel_area);
+
+            if ((i % 3U) != 0U) {
+                continue;
+            }
+
+            int16_t len_ref = 6;
+            int16_t width = LowPowerRefLen(2);
+            tick_dsc.color = lv_color_hex(0x787878);
+            if ((i % 12U) == 0U) {
+                len_ref = 30;
+                width = LowPowerRefLen(4);
+                tick_dsc.color = lv_color_hex(0xA0A0A0);
+            } else if ((i % 6U) == 0U) {
+                len_ref = 18;
+                width = LowPowerRefLen(3);
+                tick_dsc.color = lv_color_hex(0x8C8C8C);
+            }
+
+            tick_dsc.width = width;
+            lv_point_precise_set(&tick_dsc.p1, LowPowerRefX(x_ref), LowPowerRefY(y_ref));
+            lv_point_precise_set(&tick_dsc.p2, LowPowerRefX(x_ref - len_ref), LowPowerRefY(y_ref));
+            lv_draw_line(layer, &tick_dsc);
+        }
+    }
+
+    void DrawLowPowerWaveBarsLocked(lv_layer_t* layer) {
+        if (layer == nullptr) {
+            return;
+        }
+
+        lv_draw_rect_dsc_t bar_dsc;
+        lv_draw_rect_dsc_init(&bar_dsc);
+        bar_dsc.bg_color = lv_color_hex(0xA9C7E8);
+        bar_dsc.bg_opa = LV_OPA_COVER;
+        bar_dsc.radius = 1;
+
+        for (uint8_t i = 0; i < k_low_power_wave_bar_count; ++i) {
+            const uint8_t level = low_power_wave_bar_levels_[i];
+            for (uint8_t j = 0; j < level; ++j) {
+                const int16_t x = LowPowerRefX((int16_t)(190 + i * 6U));
+                const int16_t y = LowPowerRefY((int16_t)(90 - j * 4U));
+                lv_area_t bar_area;
+                bar_area.x1 = x;
+                bar_area.y1 = y;
+                bar_area.x2 = (int16_t)(x + LowPowerRefLen(4) - 1);
+                bar_area.y2 = (int16_t)(y + LowPowerRefLen(3) - 1);
+                lv_draw_rect(layer, &bar_dsc, &bar_area);
+            }
+        }
+    }
+
+    void DrawLowPowerWaveMotionLocked(lv_event_t* e) {
+        if (e == nullptr) {
+            return;
+        }
+        lv_layer_t* layer = lv_event_get_layer(e);
+        DrawLowPowerLeftGaugeLocked(layer, low_power_clock_motion_angle_);
+        DrawLowPowerWaveBarsLocked(layer);
+    }
+
+    static void LowPowerWaveMotionDrawEvent(lv_event_t* e) {
+        if (e == nullptr || lv_event_get_code(e) != LV_EVENT_DRAW_MAIN) {
+            return;
+        }
+        auto* self = static_cast<PaopaoPetDisplay*>(lv_event_get_user_data(e));
+        if (self != nullptr) {
+            self->DrawLowPowerWaveMotionLocked(e);
         }
     }
 
@@ -1281,23 +1378,15 @@ private:
             return;
         }
         lv_obj_remove_style_all(low_power_wave_bar_layer_);
-        lv_obj_set_size(low_power_wave_bar_layer_, LowPowerRefLen(118), LowPowerRefLen(47));
-        lv_obj_align(low_power_wave_bar_layer_, LV_ALIGN_TOP_LEFT, LowPowerRefX(190), LowPowerRefY(46));
+        lv_obj_set_size(low_power_wave_bar_layer_, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+        lv_obj_align(low_power_wave_bar_layer_, LV_ALIGN_TOP_LEFT, 0, 0);
         lv_obj_clear_flag(low_power_wave_bar_layer_, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_clear_flag(low_power_wave_bar_layer_, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(low_power_wave_bar_layer_, LowPowerWaveMotionDrawEvent, LV_EVENT_DRAW_MAIN, this);
 
         for (uint8_t i = 0; i < k_low_power_wave_bar_count; ++i) {
             low_power_wave_bar_levels_[i] = (uint8_t)(1U + (i * 5U) % k_low_power_wave_bar_max_level);
-            low_power_wave_bars_[i] = lv_obj_create(low_power_wave_bar_layer_);
-            if (low_power_wave_bars_[i] == nullptr) {
-                continue;
-            }
-            lv_obj_remove_style_all(low_power_wave_bars_[i]);
-            lv_obj_set_style_bg_color(low_power_wave_bars_[i], lv_color_hex(0xA9C7E8), 0);
-            lv_obj_set_style_bg_opa(low_power_wave_bars_[i], LV_OPA_COVER, 0);
-            lv_obj_set_style_radius(low_power_wave_bars_[i], 1, 0);
-            lv_obj_clear_flag(low_power_wave_bars_[i], LV_OBJ_FLAG_SCROLLABLE);
-            lv_obj_clear_flag(low_power_wave_bars_[i], LV_OBJ_FLAG_CLICKABLE);
+            low_power_wave_bar_target_levels_[i] = low_power_wave_bar_levels_[i];
         }
         UpdateLowPowerWaveBarsLocked();
     }
@@ -1351,81 +1440,7 @@ private:
         }
     }
 
-    void UpdateLowPowerLeftGaugeTicksLocked(uint16_t angle) {
-        uint8_t tick_index = 0;
-        for (uint8_t i = 0; i < k_low_power_left_gauge_point_count; ++i) {
-            const uint16_t a = (uint16_t)((angle + i * 3U) % 360U);
-            const int16_t x_ref = (int16_t)std::lround(118.0 * std::cos(k_low_power_ref_rad * a)) - 2;
-            const int16_t y_ref = (int16_t)std::lround(118.0 * std::sin(k_low_power_ref_rad * a)) + 120;
-
-            if (low_power_left_gauge_pixels_[i] != nullptr) {
-                lv_obj_align(low_power_left_gauge_pixels_[i], LV_ALIGN_TOP_LEFT, LowPowerRefX(x_ref), LowPowerRefY(y_ref));
-            }
-
-            if ((i % 3U) != 0U) {
-                continue;
-            }
-
-            int16_t len_ref = 6;
-            int16_t h = LowPowerRefLen(2);
-            if ((i % 12U) == 0U) {
-                len_ref = 30;
-                h = LowPowerRefLen(4);
-            } else if ((i % 6U) == 0U) {
-                len_ref = 18;
-                h = LowPowerRefLen(3);
-            }
-
-            if (tick_index < k_low_power_left_gauge_tick_count && low_power_left_gauge_ticks_[tick_index] != nullptr) {
-                lv_obj_set_size(low_power_left_gauge_ticks_[tick_index], LowPowerRefLen(len_ref), h);
-                lv_obj_align(low_power_left_gauge_ticks_[tick_index], LV_ALIGN_TOP_LEFT, LowPowerRefX(x_ref - len_ref), (int16_t)(LowPowerRefY(y_ref) - h / 2));
-            }
-            ++tick_index;
-        }
-    }
-
-    void InitializeLowPowerLeftGaugeTicksLocked(const lv_font_t* hint_font) {
-        uint8_t tick_index = 0;
-        for (uint8_t i = 0; i < k_low_power_left_gauge_point_count; ++i) {
-            low_power_left_gauge_pixels_[i] = CreateLowPowerBlock(
-                low_power_clock_layer_,
-                1,
-                1,
-                0x707070,
-                LowPowerClockOpaPercent(78)
-            );
-            if ((i % 3U) != 0U) {
-                continue;
-            }
-
-            int16_t len_ref = 6;
-            int16_t h = LowPowerRefLen(2);
-            uint32_t color = 0x787878;
-            if ((i % 12U) == 0U) {
-                len_ref = 30;
-                h = LowPowerRefLen(4);
-                color = 0xA0A0A0;
-            } else if ((i % 6U) == 0U) {
-                len_ref = 18;
-                h = LowPowerRefLen(3);
-                color = 0x8C8C8C;
-            }
-
-            if (tick_index >= k_low_power_left_gauge_tick_count) {
-                continue;
-            }
-
-            low_power_left_gauge_ticks_[tick_index] = CreateLowPowerBlock(
-                low_power_clock_layer_,
-                LowPowerRefLen(len_ref),
-                h,
-                color,
-                LowPowerClockOpaPercent(88)
-            );
-            ++tick_index;
-        }
-        UpdateLowPowerLeftGaugeTicksLocked(0);
-
+    void InitializeLowPowerSecondGaugeLocked(const lv_font_t* hint_font) {
         low_power_clock_second_label_ = lv_label_create(low_power_clock_layer_);
         lv_obj_set_style_text_color(low_power_clock_second_label_, lv_color_hex(0xF6FAFF), 0);
         lv_obj_set_style_text_opa(low_power_clock_second_label_, LV_OPA_COVER, 0);
@@ -1599,8 +1614,11 @@ private:
         }
 
         const uint16_t start = xiaoxin_low_power_clock_animation_phase(low_power_clock_animation_tick_++);
+        low_power_clock_motion_angle_ = start;
         UpdateLowPowerWaveBarsLocked();
-        UpdateLowPowerLeftGaugeTicksLocked(start);
+        if (low_power_wave_bar_layer_ != nullptr) {
+            lv_obj_invalidate(low_power_wave_bar_layer_);
+        }
         lv_arc_set_rotation(low_power_clock_inner_arc_, start);
         if (low_power_clock_top_dial_ != nullptr) {
             lv_arc_set_rotation(low_power_clock_top_dial_, (start + 42) % 360);
@@ -2747,7 +2765,7 @@ private:
         lv_obj_add_flag(low_power_clock_layer_, LV_OBJ_FLAG_HIDDEN);
 
         InitializeLowPowerWaveReferenceBlocksLocked(hint_font);
-        InitializeLowPowerLeftGaugeTicksLocked(hint_font);
+        InitializeLowPowerSecondGaugeLocked(hint_font);
         InitializeLowPowerWaveBarsLocked();
 
         low_power_clock_outer_arc_ = lv_arc_create(low_power_clock_layer_);

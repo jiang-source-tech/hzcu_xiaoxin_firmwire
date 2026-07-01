@@ -71,7 +71,8 @@ def test_low_power_clock_uses_reference_sprite_coordinate_mapping():
 
     compact_source = compact(source)
     for snippet in [
-        "lv_obj_align(low_power_wave_bar_layer_, LV_ALIGN_TOP_LEFT, LowPowerRefX(190), LowPowerRefY(46));",
+        "const int16_t x = LowPowerRefX((int16_t)(190 + i * 6U));",
+        "const int16_t y = LowPowerRefY((int16_t)(90 - j * 4U));",
         "lv_obj_align(cell, LV_ALIGN_TOP_LEFT, LowPowerRefX(186 + i * 30), LowPowerRefY(2));",
         "lv_obj_align(low_power_clock_left_red_dash_, LV_ALIGN_TOP_LEFT, LowPowerRefX(54), LowPowerRefY(120));",
         "lv_obj_align(low_power_clock_left_gray_panel_, LV_ALIGN_TOP_LEFT, LowPowerRefX(0), LowPowerRefY(145));",
@@ -197,7 +198,7 @@ def test_low_power_clock_refresh_uses_dedicated_timer_with_display_lock():
     assert ".name = \"low_power_clock\"" in source
     assert "void StartLowPowerClockRefreshTimer()" in source
     assert "void StopLowPowerClockRefreshTimer()" in source
-    assert "static constexpr uint64_t k_low_power_clock_timer_period_us = 100 * 1000;" in source
+    assert "static constexpr uint64_t k_low_power_clock_timer_period_us = 50 * 1000;" in source
     assert "esp_timer_start_periodic(low_power_clock_timer_, k_low_power_clock_timer_period_us)" in source
     assert "esp_timer_stop(low_power_clock_timer_)" in source
 
@@ -257,8 +258,9 @@ def test_low_power_clock_uses_wave_amoled_objects_instead_of_snake():
 
     assert "static constexpr uint8_t k_low_power_wave_bar_count = 20;" in source
     assert "lv_obj_t* low_power_wave_bar_layer_ = nullptr;" in source
-    assert "lv_obj_t* low_power_wave_bars_[k_low_power_wave_bar_count] = {};" in source
+    assert "lv_obj_t* low_power_wave_bars_[k_low_power_wave_bar_count] = {};" not in source
     assert "uint8_t low_power_wave_bar_levels_[k_low_power_wave_bar_count] = {};" in source
+    assert "uint8_t low_power_wave_bar_target_levels_[k_low_power_wave_bar_count] = {};" in source
     assert "uint32_t low_power_wave_random_state_" in source
     assert "lv_obj_t* low_power_clock_snake_bg_" not in source
     assert "LowPowerSnakeCell" not in source
@@ -273,18 +275,16 @@ def test_low_power_clock_ports_wave_reference_static_effects():
     ]
 
     assert "InitializeLowPowerWaveReferenceBlocksLocked(hint_font);" in init_section
-    assert "InitializeLowPowerLeftGaugeTicksLocked(hint_font);" in init_section
+    assert "InitializeLowPowerSecondGaugeLocked(hint_font);" in init_section
     assert "InitializeLowPowerWaveBarsLocked();" in init_section
     assert "InitializeLowPowerWaveReferenceLabelsLocked(hint_font);" in init_section
     assert "low_power_wave_bar_layer_ = lv_obj_create(low_power_clock_layer_);" in source
-    assert "lv_obj_set_size(low_power_wave_bar_layer_, LowPowerRefLen(118), LowPowerRefLen(47));" in source
-    assert "lv_obj_align(low_power_wave_bar_layer_, LV_ALIGN_TOP_LEFT, LowPowerRefX(190), LowPowerRefY(46));" in source
-    assert "lv_obj_set_style_bg_color(low_power_wave_bars_[i], lv_color_hex(0xA9C7E8), 0);" in source
-    assert "lv_obj_set_style_bg_opa(low_power_wave_bars_[i], LV_OPA_COVER, 0);" in source
+    assert "lv_obj_set_size(low_power_wave_bar_layer_, DISPLAY_WIDTH, DISPLAY_HEIGHT);" in source
+    assert "lv_obj_add_event_cb(low_power_wave_bar_layer_, LowPowerWaveMotionDrawEvent, LV_EVENT_DRAW_MAIN, this);" in source
     assert "low_power_clock_second_label_ = lv_label_create(low_power_clock_layer_);" in source
     assert "const int16_t x_ref = (int16_t)std::lround(118.0 * std::cos(k_low_power_ref_rad * a)) - 2;" in source
     assert "const int16_t y_ref = (int16_t)std::lround(118.0 * std::sin(k_low_power_ref_rad * a)) + 120;" in source
-    assert "lv_obj_align(low_power_left_gauge_ticks_[tick_index], LV_ALIGN_TOP_LEFT, LowPowerRefX(x_ref - len_ref), (int16_t)(LowPowerRefY(y_ref) - h / 2));" in source
+    assert "lv_draw_line(layer, &tick_dsc);" in source
     assert "lv_obj_align(low_power_clock_second_label_, LV_ALIGN_TOP_LEFT, LowPowerRefX(24), LowPowerRefY(124));" in source
     assert "lv_obj_center(low_power_clock_micro_label_);" in source
     assert "LowPowerRefLen(72)," in source
@@ -338,35 +338,51 @@ def test_low_power_clock_left_gauge_rolls_like_wave_reference():
 
     assert "static constexpr uint8_t k_low_power_left_gauge_point_count = 120;" in source
     assert "static constexpr uint8_t k_low_power_left_gauge_tick_count = 40;" in source
-    assert "lv_obj_t* low_power_left_gauge_pixels_[k_low_power_left_gauge_point_count] = {};" in source
-    assert "lv_obj_t* low_power_left_gauge_ticks_[k_low_power_left_gauge_tick_count] = {};" in source
-    assert "void UpdateLowPowerLeftGaugeTicksLocked(uint16_t angle)" in source
+    assert "lv_obj_t* low_power_left_gauge_pixels_[k_low_power_left_gauge_point_count] = {};" not in source
+    assert "lv_obj_t* low_power_left_gauge_ticks_[k_low_power_left_gauge_tick_count] = {};" not in source
+    assert "void DrawLowPowerLeftGaugeLocked(lv_layer_t* layer, uint16_t angle)" in source
 
-    update_section = source[
-        source.index("void UpdateLowPowerLeftGaugeTicksLocked(uint16_t angle)"):
-        source.index("void InitializeLowPowerLeftGaugeTicksLocked", source.index("void UpdateLowPowerLeftGaugeTicksLocked(uint16_t angle)"))
+    draw_section = source[
+        source.index("void DrawLowPowerLeftGaugeLocked(lv_layer_t* layer, uint16_t angle)"):
+        source.index("void DrawLowPowerWaveBarsLocked", source.index("void DrawLowPowerLeftGaugeLocked(lv_layer_t* layer, uint16_t angle)"))
     ]
-    compact_update = compact(update_section)
-    assert "const uint16_t a = (uint16_t)((angle + i * 3U) % 360U);" in update_section
-    assert "std::cos(k_low_power_ref_rad * a)" in update_section
-    assert "std::sin(k_low_power_ref_rad * a)" in update_section
-    assert "lv_obj_align(low_power_left_gauge_pixels_[i], LV_ALIGN_TOP_LEFT, LowPowerRefX(x_ref), LowPowerRefY(y_ref));" in update_section
-    assert compact("lv_obj_align(low_power_left_gauge_ticks_[tick_index], LV_ALIGN_TOP_LEFT, LowPowerRefX(x_ref - len_ref), (int16_t)(LowPowerRefY(y_ref) - h / 2));") in compact_update
-
-    init_section = source[
-        source.index("void InitializeLowPowerLeftGaugeTicksLocked"):
-        source.index("void InitializeLowPowerWaveReferenceBlocksLocked", source.index("void InitializeLowPowerLeftGaugeTicksLocked"))
-    ]
-    assert "low_power_left_gauge_pixels_[i] = CreateLowPowerBlock(" in init_section
-    assert "low_power_left_gauge_ticks_[tick_index] = CreateLowPowerBlock(" in init_section
-    assert "UpdateLowPowerLeftGaugeTicksLocked(0);" in init_section
+    assert "const uint16_t a = (uint16_t)((angle + i * 3U) % 360U);" in draw_section
+    assert "std::cos(k_low_power_ref_rad * a)" in draw_section
+    assert "std::sin(k_low_power_ref_rad * a)" in draw_section
+    assert "lv_draw_rect(layer, &pixel_dsc, &pixel_area);" in draw_section
+    assert "lv_draw_line(layer, &tick_dsc);" in draw_section
 
     animation_section = source[
         source.index("void RefreshLowPowerClockAnimationLocked()"):
         source.index("void RefreshLowPowerClockScreenFromTimer()")
     ]
-    assert "UpdateLowPowerLeftGaugeTicksLocked(start);" in animation_section
+    assert "UpdateLowPowerLeftGaugeTicksLocked(start);" not in animation_section
+    assert "lv_obj_invalidate(low_power_wave_bar_layer_);" in animation_section
     assert "lv_obj_create(low_power_clock_layer_)" not in animation_section
+
+
+def test_low_power_clock_wave_animation_uses_single_draw_layer_and_fast_bouncy_targets():
+    source = read_source()
+
+    assert "lv_obj_t* low_power_wave_bars_[k_low_power_wave_bar_count] = {};" not in source
+    assert "uint8_t low_power_wave_bar_target_levels_[k_low_power_wave_bar_count] = {};" in source
+    assert "static constexpr uint8_t k_low_power_wave_bar_step = 3;" in source
+    assert "static void LowPowerWaveMotionDrawEvent(lv_event_t* e)" in source
+
+    update_section = source[
+        source.index("void UpdateLowPowerWaveBarsLocked()"):
+        source.index("void DrawLowPowerLeftGaugeLocked", source.index("void UpdateLowPowerWaveBarsLocked()"))
+    ]
+    assert "low_power_wave_bar_target_levels_[i]" in update_section
+    assert "(low_power_clock_animation_tick_ % 4U) == 0U" not in update_section
+    assert "low_power_wave_bar_target_levels_[i] = target;" in update_section
+    assert "if (level < target)" in update_section
+    assert "std::min<uint8_t>(k_low_power_wave_bar_step, (uint8_t)(target - level))" in update_section
+    assert "else if (level > target)" in update_section
+    assert "std::min<uint8_t>(k_low_power_wave_bar_step, (uint8_t)(level - target))" in update_section
+    assert "low_power_wave_bar_levels_[i] = level;" in update_section
+    assert "lv_obj_set_size(low_power_wave_bars_[i]" not in update_section
+    assert "lv_obj_set_pos(low_power_wave_bars_[i]" not in update_section
 
 
 def test_low_power_clock_uses_supported_lvgl_opacity_values():
