@@ -876,10 +876,10 @@ int main(void) {
   sustained_low_enters_low_once();
   low_requires_hysteresis_to_recover();
   sustained_critical_enters_critical();
-  unknown_can_enter_critical_without_low_first();
-  critical_edge_is_one_shot_until_recovery();
   startup_sustained_low_enters_low();
   startup_sustained_critical_enters_critical();
+  unknown_can_enter_critical_without_low_first();
+  critical_edge_is_one_shot_until_recovery();
   voice_active_extends_low_confirmation();
   invalid_and_nonpositive_samples_do_not_change_state_or_ema();
   extreme_low_samples_do_not_change_state_or_ema();
