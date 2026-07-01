@@ -803,11 +803,22 @@ public:
     }
 
     virtual void ShowNotification(const char* notification, int duration_ms = 3000) override {
-        LcdDisplay::ShowNotification(notification, duration_ms);
-        {
-            DisplayLockGuard lock(this);
-            RaiseOverlayObjects();
-        }
+        // Route push notifications into the heads-up notification UI so they are
+        // visible above the full-screen expression (the base-class status-bar
+        // label is covered by the expression and cannot be seen on this board).
+        const char* body = (notification != nullptr) ? notification : "";
+        uint32_t ttl = (duration_ms > 8000) ? (uint32_t)duration_ms : 8000u;
+        DisplayLockGuard lock(this);
+        const xiaoxin_notification_event_t event = {
+            .type = XIAOXIN_NOTIFICATION_EVENT_REMINDER,
+            .title = "小芯",
+            .body = body,
+            .tag = nullptr,
+            .priority = 0,
+            .ttl_ms = ttl,
+        };
+        UpsertNotificationEventLocked(event);
+        RaiseOverlayObjects();
     }
 
     bool UpsertNotification(
@@ -2957,6 +2968,9 @@ private:
 
         notification_heads_up_body_label_ = lv_label_create(notification_heads_up_layer_);
         lv_obj_set_width(notification_heads_up_body_label_, 154);
+        // Longer notification bodies exceed the fixed banner width; scroll
+        // them horizontally so the full text remains readable.
+        lv_label_set_long_mode(notification_heads_up_body_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_style_text_color(notification_heads_up_body_label_, lv_color_hex(0x4A5568), 0);
         lv_obj_set_style_text_opa(notification_heads_up_body_label_, LV_OPA_COVER, 0);
         lv_obj_set_style_text_align(notification_heads_up_body_label_, LV_TEXT_ALIGN_LEFT, 0);
