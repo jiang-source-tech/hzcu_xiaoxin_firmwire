@@ -19,8 +19,9 @@ notify_test
 | 命令 | 用途 | 成功输出 | 备注 |
 | --- | --- | --- | --- |
 | `notify_test` | 创建一条测试通知，并切换到通知页面。 | `notify_test: opened notification page` | 每执行一次命令，触发一次测试通知悬浮窗。 |
+| `boot_diag` | 打印上一次启动和当前启动的诊断轨迹。 | `previous boot (...)` / `current boot (...)` | 用于排查电池启动卡住、Wi-Fi/OTA/应用初始化阶段失败等问题。 |
 | `battery` | 打印当前电池监测状态。 | `battery: voltage=...` | 只能作为 USB 接入后的辅助诊断；接 USB 会让板子进入 USB/外部供电场景，不能用它验收纯电池低电关机。 |
-| `runtime_health` | 打印运行健康快照。 | `runtime_health: ...` | 用于排查电池供电下反复重启；低电关机后重新插 USB，可用它读取上一次低电关机记录。 |
+| `runtime_health` | 打印运行健康快照。 | `runtime: current=...` | 用于排查电池供电下反复重启；低电关机后重新插 USB，可用它读取上一次低电关机记录。 |
 
 ## `notify_test`
 
@@ -45,9 +46,33 @@ notify_test: display is not ready
 
 说明命令执行时显示对象还没有准备好，通常等固件启动完成后再输入一次即可。
 
+## `boot_diag`
+
+`boot_diag` 打印上一次启动和当前启动的诊断轨迹。输出通常是两行：
+
+```text
+previous boot (battery): boot_start>...
+current boot (usb): boot_start>...
+```
+
+如果 NVS 里没有对应记录，会显示：
+
+```text
+previous boot: <empty>
+current boot: <empty>
+```
+
+这个命令适合在设备出现“电池启动后卡住、反复重启、OTA 或 Wi-Fi 阶段异常”时使用。低电导致设备关机后，也可以重新插 USB 查看上一次电池启动卡在了哪个阶段。
+
 ## `runtime_health`
 
 `runtime_health`：打印本次运行、上次运行、最长运行、最近重启原因、欠压次数、短运行连续次数、当前供电判断，以及持久化保存的低电主动关机次数、最近低电关机电压和阶段。用于排查电池供电下反复重启。
+
+输出格式：
+
+```text
+runtime: current=<duration> last=<duration> max=<duration> reset=<kind> brownout=<count> short_streak=<count> battery=<0|1> low_shutdowns=<count> low_mv=<mV> low_stage=<startup|runtime>
+```
 
 低电关机后，设备已经断电，不能在纯电池状态下继续输入串口命令。此时重新插 USB 再执行 `runtime_health`，重点看：
 
@@ -58,6 +83,12 @@ notify_test: display is not ready
 ## `battery`
 
 打印小新 1.46C 当前电池监测状态：最近 ADC 电压、样本年龄、状态机状态、电源来源、显示百分比、显示档位、百分比是否可靠，以及低电关机是否正在等待执行。
+
+输出格式：
+
+```text
+battery: voltage=<mV> age=<ms> state=<unknown|normal|low|critical> source=<unknown|battery|external> percent=<0-100> level=<0-4> reliable=<0|1> shutdown_pending=<0|1>
+```
 
 注意：当前小新固件的交互控制台通常走 USB Serial/JTAG。插入 USB 线后，板子会同时得到 USB/外部供电，电池状态机可能切到 `source=external`，百分比也可能变成不可靠。因此 `battery` 命令适合确认“固件是否在采样、状态机是否更新、插 USB 后是否识别成外部供电”，不适合验收“纯电池供电下何时 LOW/CRITICAL/关机”。
 
@@ -93,4 +124,9 @@ Warning: Writing to serial is timing out
 main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc
 ```
 
-当前命令在 `InitializeDebugConsole()` 中注册。以后新增串口调试命令时，请同步更新本文档。
+当前命令在 `InitializeDebugConsole()` 中注册。以后新增、删除或修改串口调试命令时，需要同步维护：
+
+1. 本文档的“当前命令列表”和对应命令章节。
+2. 命令的成功输出格式。
+3. 使用限制，尤其是命令是否会因为 USB 供电改变被测场景。
+4. `tests/xiaoxin_serial_debug_command_test.py` 里的文档覆盖检查。

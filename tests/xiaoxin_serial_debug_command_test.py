@@ -6,6 +6,7 @@ SOURCE = Path(
     "esp32-s3-touch-lcd-1.46.cc"
 )
 SDKCONFIG = Path("sdkconfig")
+DOCS = Path("docs/xiaoxin-serial-debug-commands.zh-CN.md")
 
 
 def read_source() -> str:
@@ -51,3 +52,19 @@ def test_notify_test_command_registers_usb_repl_and_opens_notification_page():
     assert "notification already shown" not in source
     assert "OpenNotificationPageForDebug()" in body
     assert "SetCardPagerPage(XIAOXIN_CARD_PAGE_NOTIFICATIONS)" in debug_page_body
+
+
+def test_serial_debug_command_docs_cover_registered_xiaoxin_commands():
+    source = read_source()
+    body = function_body(source, "void InitializeDebugConsole()")
+    docs = DOCS.read_text(encoding="utf-8")
+
+    commands = ["notify_test", "boot_diag", "battery", "runtime_health"]
+    for command in commands:
+        assert f'.command = "{command}"' in body
+        assert f"| `{command}` |" in docs
+        assert f"## `{command}`" in docs
+
+    assert "USB 接入后的辅助诊断" in docs
+    assert "low_shutdowns=<count>" in docs
+    assert "tests/xiaoxin_serial_debug_command_test.py" in docs
