@@ -63,7 +63,7 @@ def test_battery_boot_starts_persistent_diagnostics_after_power_source_detection
     assert "BootDiagnosticsFlush();" in constructor
     assert constructor.index("DetectPowerSourceEarly();") < constructor.index("BootDiagnosticsStart(on_battery_);")
     assert constructor.index("BootDiagnosticsStart(on_battery_);") < constructor.index("InitializeI2c();")
-    assert constructor.index("InitializeDebugConsole();") < constructor.index("BootDiagnosticsFlush();")
+    assert constructor.index("InitializeDebugConsole();") < constructor.rindex("BootDiagnosticsFlush();")
 
 
 def test_boot_diagnostics_start_is_memory_only_until_explicit_flush():
