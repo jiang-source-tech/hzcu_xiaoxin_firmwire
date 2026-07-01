@@ -364,9 +364,17 @@ static void display_level_has_hysteresis(void) {
   snapshot = feed(&ctx, 3950, XIAOXIN_BATTERY_LOAD_IDLE, 18000);
   assert(snapshot.display_level == 4);
 
-  for (uint32_t now_ms = 23000; snapshot.display_level == 4 && now_ms <= 87000; now_ms += 5000) {
+  for (uint32_t now_ms = 23000; now_ms <= 33000; now_ms += 5000) {
     snapshot = feed(&ctx, 3800, XIAOXIN_BATTERY_LOAD_IDLE, now_ms);
+    assert(snapshot.display_level == 4);
+    assert(snapshot.display_percent >= 65);
   }
+
+  snapshot = feed(&ctx, 3800, XIAOXIN_BATTERY_LOAD_IDLE, 38000);
+  assert(snapshot.display_level == 3);
+  assert(snapshot.display_percent < 65);
+
+  snapshot = feed(&ctx, 3800, XIAOXIN_BATTERY_LOAD_IDLE, 43000);
   assert(snapshot.display_level == 3);
   assert(snapshot.display_percent < 65);
 }
