@@ -60,6 +60,7 @@ def test_low_edge_shows_one_time_warning_without_stopping_core_tasks():
     handler = function_body(source, "void HandleBatterySnapshot(const xiaoxin_battery_snapshot_t& snapshot)")
 
     assert "snapshot.low_edge" in handler
+    assert "snapshot.state == XIAOXIN_BATTERY_STATE_LOW" not in handler
     assert 'ShowNotification("电量低，请尽快充电"' in handler
     assert "InitializeMotion()" not in handler
     assert "StartNetwork()" not in handler
@@ -75,6 +76,7 @@ def test_critical_edge_starts_cancelable_shutdown_without_restart():
 
     assert "CancelLowBatteryShutdownIfRecovered(snapshot);" in handler
     assert "snapshot.critical_edge" in handler
+    assert "snapshot.state == XIAOXIN_BATTERY_STATE_CRITICAL" not in handler
     assert "BeginLowBatteryShutdown(false);" in handler
     assert 'ShowNotification("电量不足，即将关机"' in begin
     assert "esp_timer_start_once(low_battery_shutdown_timer_" in begin
@@ -107,6 +109,7 @@ def test_startup_protection_uses_runtime_health_before_full_app_work():
 
     assert "startup_low_battery_protection_" in source
     assert "RuntimeHealthProtectionRecommended()" in constructor
+    assert "XIAOXIN_BATTERY_STATE_CRITICAL" not in constructor
     assert_ordered(
         constructor,
         "RuntimeHealthStart(on_battery_);",
