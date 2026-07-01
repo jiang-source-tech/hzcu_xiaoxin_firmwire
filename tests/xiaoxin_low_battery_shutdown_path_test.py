@@ -73,6 +73,7 @@ def test_critical_edge_starts_cancelable_shutdown_without_restart():
     finish = function_body(source, "void FinishLowBatteryShutdown()")
     cancel = function_body(source, "void CancelLowBatteryShutdownIfRecovered(const xiaoxin_battery_snapshot_t& snapshot)")
 
+    assert "CancelLowBatteryShutdownIfRecovered(snapshot);" in handler
     assert "snapshot.critical_edge" in handler
     assert "BeginLowBatteryShutdown(false);" in handler
     assert 'ShowNotification("电量不足，即将关机"' in begin
