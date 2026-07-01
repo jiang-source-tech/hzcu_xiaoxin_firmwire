@@ -5919,14 +5919,17 @@ private:
                     snapshot.max_runtime_sec
                 );
                 printf(
-                    "runtime: current=%s last=%s max=%s reset=%s brownout=%lu short_streak=%lu battery=%d\n",
+                    "runtime: current=%s last=%s max=%s reset=%s brownout=%lu short_streak=%lu battery=%d low_shutdowns=%lu low_mv=%lu low_stage=%s\n",
                     current_duration,
                     last_duration,
                     max_duration,
                     xiaoxin_runtime_health_reset_label(snapshot.last_reset_kind),
                     (unsigned long)snapshot.brownout_count,
                     (unsigned long)snapshot.short_run_streak,
-                    snapshot.current_on_battery ? 1 : 0
+                    snapshot.current_on_battery ? 1 : 0,
+                    (unsigned long)snapshot.low_battery_shutdown_count,
+                    (unsigned long)snapshot.last_low_battery_shutdown_voltage_mv,
+                    snapshot.last_low_battery_shutdown_startup_stage ? "startup" : "runtime"
                 );
                 return 0;
             },

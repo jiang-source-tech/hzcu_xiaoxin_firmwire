@@ -124,10 +124,14 @@ def test_runtime_health_serial_command_prints_operator_summary():
     assert "max_duration" in body
     assert "xiaoxin_runtime_health_reset_label(snapshot.last_reset_kind)" in body
     assert (
-        '"runtime: current=%s last=%s max=%s reset=%s brownout=%lu short_streak=%lu battery=%d\\n"'
+        '"runtime: current=%s last=%s max=%s reset=%s brownout=%lu short_streak=%lu battery=%d '
+        'low_shutdowns=%lu low_mv=%lu low_stage=%s\\n"'
         in body
     )
     assert "snapshot.current_on_battery ? 1 : 0" in body
+    assert "snapshot.low_battery_shutdown_count" in body
+    assert "snapshot.last_low_battery_shutdown_voltage_mv" in body
+    assert 'snapshot.last_low_battery_shutdown_startup_stage ? "startup" : "runtime"' in body
     assert "esp_console_cmd_register(&runtime_health_cmd)" in body
 
 

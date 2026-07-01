@@ -39,7 +39,7 @@
 - `main/boards/common/runtime_health.h`: declare `RuntimeHealthRecordLowBatteryShutdown(int voltage_mv, bool startup_stage)`.
 - `main/boards/common/runtime_health.cc`: persist and expose low-battery shutdown diagnostics.
 - `tests/xiaoxin_runtime_health_model_test.c`: C unit coverage for low-battery shutdown diagnostics.
-- `docs/xiaoxin-serial-debug-commands.zh-CN.md`: document the `battery` command if the file exists; create it only if the repo already uses that path by the time the task runs.
+- `docs/xiaoxin-serial-debug-commands.zh-CN.md`: document the `battery` command as USB-attached auxiliary diagnostics, and document `runtime_health` as the post-shutdown way to read persisted low-battery records.
 
 ---
 
@@ -1315,6 +1315,8 @@ git commit -m "feat: gate startup after repeated low battery resets"
 **Interfaces:**
 - Produces `battery` console command.
 - Command prints last ADC voltage, sample age, state, power source, display percent, display level, and pending shutdown flag.
+- `battery` is not a pure-battery validation path because USB Serial/JTAG powers the board.
+- `runtime_health` prints persisted low-battery shutdown count, last voltage, and startup/runtime stage so the operator can read the previous low-battery shutdown after reconnecting USB.
 
 - [ ] **Step 1: Add label helpers**
 
@@ -1394,7 +1396,9 @@ If `docs/xiaoxin-serial-debug-commands.zh-CN.md` exists, add:
 ```markdown
 ### `battery`
 
-打印小新 1.46C 电池监测状态：最近 ADC 电压、样本年龄、状态机状态、电源来源、显示百分比、显示档位、百分比是否可靠，以及低电关机是否正在等待执行。
+打印小新 1.46C 当前电池监测状态：最近 ADC 电压、样本年龄、状态机状态、电源来源、显示百分比、显示档位、百分比是否可靠，以及低电关机是否正在等待执行。
+
+注意：USB Serial/JTAG 接入会让板子同时获得 USB/外部供电，因此 `battery` 只能作为 USB 接入后的辅助诊断，不能用来验收纯电池低电关机。纯电池低电关机后重新插 USB，应使用 `runtime_health` 查看上一次低电主动关机记录。
 ```
 
 If the file does not exist, do not create a new documentation tree for this task.
@@ -1497,7 +1501,8 @@ On the Waveshare 1.46C board with a bench supply or known low battery:
 5. No USB inserted during CRITICAL window: GPIO7 power hold is released, backlight goes dark, board powers off, and firmware does not call `esp_restart()`.
 6. USB inserted during CRITICAL warning before GPIO7 release: shutdown is canceled if external power is confirmed by the monitor before `FinishLowBatteryShutdown()`.
 7. Repeated brownout history on battery: `RuntimeHealthProtectionRecommended()` causes minimal display warning and skips full startup work before shutdown.
-8. Serial `battery` command prints voltage, state, source, percent, level, reliable flag, and shutdown pending flag.
+8. After a low-battery power-off, reconnect USB and run serial `runtime_health`: it prints the persisted low-battery shutdown count, last shutdown voltage, and whether the shutdown happened during startup or runtime.
+9. With USB connected, serial `battery` command prints the current voltage, state, source, percent, level, reliable flag, and shutdown pending flag; this is auxiliary USB-attached diagnostics, not pure-battery validation.
 ```
 
 - [ ] **Step 7: Final commit if verification fixes were needed**
