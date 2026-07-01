@@ -57,7 +57,7 @@ def test_runtime_health_service_is_compiled_and_uses_esp_nvs():
     assert "k_last_low_battery_stage_key" in source
 
 
-def test_runtime_health_exposes_protection_signal_without_gating_boot():
+def test_runtime_health_protection_signal_gates_xiaoxin_startup_only():
     header = read_source(RUNTIME_HEALTH_HEADER)
     source = read_source(RUNTIME_HEALTH_SOURCE)
     application = read_source(APPLICATION_SOURCE)
@@ -67,7 +67,15 @@ def test_runtime_health_exposes_protection_signal_without_gating_boot():
     body = function_body(source, "bool RuntimeHealthProtectionRecommended(void)")
     assert "xiaoxin_runtime_health_protection_recommended(&s_record)" in body
     assert "RuntimeHealthProtectionRecommended" not in application
-    assert "RuntimeHealthProtectionRecommended" not in board
+    assert "startup_low_battery_protection_ = on_battery_ && RuntimeHealthProtectionRecommended();" in board
+    constructor = function_body(board, "CustomBoard()")
+    assert_ordered(
+        constructor,
+        "RuntimeHealthStart(on_battery_);",
+        "startup_low_battery_protection_ = on_battery_ && RuntimeHealthProtectionRecommended();",
+        "InitializeSpd2010Display();",
+        "HandleStartupLowBatteryProtection();",
+    )
 
 
 def test_runtime_health_is_wired_into_startup_tick_reboot_and_poweroff():

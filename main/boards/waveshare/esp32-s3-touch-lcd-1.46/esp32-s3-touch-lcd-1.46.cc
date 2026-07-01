@@ -4972,6 +4972,7 @@ private:
     bool boot_poll_pressed_ = false;
     bool pwr_ignore_until_release_ = false;
     bool on_battery_ = false;
+    bool startup_low_battery_protection_ = false;
     static CustomBoard* instance_;
 
     void InitializePowerHoldEarly() {
@@ -5421,6 +5422,18 @@ private:
             ESP_LOGW(TAG, "Low battery shutdown timer start failed: %s", esp_err_to_name(err));
             FinishLowBatteryShutdown();
         }
+    }
+
+    void HandleStartupLowBatteryProtection() {
+        if (!startup_low_battery_protection_) {
+            return;
+        }
+
+        ESP_LOGW(TAG, "Runtime health recommends startup low battery protection");
+        if (display_ != nullptr) {
+            display_->ShowNotification("电量不足，请充电后再启动", 3000);
+        }
+        BeginLowBatteryShutdown(true);
     }
 
     void FinishLowBatteryShutdown() {
@@ -5887,6 +5900,7 @@ public:
         ESP_LOGI(TAG, "[BOOT] Stage 2/11: Early power source detection");
         DetectPowerSourceEarly();
         RuntimeHealthStart(on_battery_);
+        startup_low_battery_protection_ = on_battery_ && RuntimeHealthProtectionRecommended();
         BootDiagnosticsStart(on_battery_);
         BootDiagnosticsMark("board_power_source_detected");
         s_boot_on_battery = on_battery_;
@@ -5916,6 +5930,13 @@ public:
             GetBacklight()->RestoreBrightness();
         }
         StartBatteryMonitor();
+        HandleStartupLowBatteryProtection();
+        if (startup_low_battery_protection_) {
+            BootDiagnosticsMark("board_startup_low_battery_protection");
+            BootDiagnosticsFlush();
+            ESP_LOGW(TAG, "[BOOT] Startup low battery protection active; skipping full board init");
+            return;
+        }
 
         ESP_LOGI(TAG, "[BOOT] Stage 8/11: Touch controller");
         BootDiagnosticsMark("board_touch_start");
@@ -6018,6 +6039,11 @@ public:
     }
 
     void StartNetwork() override {
+        if (startup_low_battery_protection_) {
+            ESP_LOGW(TAG, "Skipping network startup during low battery protection");
+            return;
+        }
+
         if (on_battery_) {
             vTaskDelay(pdMS_TO_TICKS(300));
         }
