@@ -5369,6 +5369,10 @@ private:
             return;
         }
 
+        if (low_battery_shutdown_startup_stage_) {
+            return;
+        }
+
         const bool external_power = snapshot.power_source == XIAOXIN_BATTERY_POWER_EXTERNAL;
         const bool recovered = snapshot.recovered_edge;
         if (!external_power && !recovered) {

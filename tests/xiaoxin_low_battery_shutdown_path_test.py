@@ -91,6 +91,21 @@ def test_critical_edge_starts_cancelable_shutdown_without_restart():
     assert "esp_restart()" not in finish
 
 
+def test_startup_stage_shutdown_is_not_canceled_by_recovery_path():
+    source = read_source()
+    cancel = function_body(source, "void CancelLowBatteryShutdownIfRecovered(const xiaoxin_battery_snapshot_t& snapshot)")
+
+    assert_ordered(
+        cancel,
+        "if (!low_battery_shutdown_pending_) {",
+        "if (low_battery_shutdown_startup_stage_) {",
+        "return;",
+        "const bool external_power = snapshot.power_source == XIAOXIN_BATTERY_POWER_EXTERNAL;",
+    )
+    assert "low_battery_shutdown_pending_ = false;" in cancel
+    assert "low_battery_shutdown_startup_stage_ = false;" in cancel
+
+
 def test_get_battery_level_reports_only_reliable_snapshot_percent():
     source = read_source()
     body = function_body(source, "virtual bool GetBatteryLevel(int& level, bool& charging, bool& discharging) override")
