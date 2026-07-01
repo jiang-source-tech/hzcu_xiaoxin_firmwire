@@ -129,7 +129,7 @@ def test_settings_overlay_labels_are_valid_utf8_chinese():
 
     assert 'lv_label_set_text(settings_title_label_, "设置")' in source
     assert 'lv_label_set_text(settings_back_label_, "退出设置")' in source
-    assert '"小芯 D151\\n桌面助手\\n固件 %s"' in source
+    assert '"小芯 D151\\n固件 %s\\n本次 %s\\n上次 %s\\n重启 %s\\n欠压 %lu次"' in source
     assert "\\n构建 %s %s" not in source
     assert 'lv_label_set_text(settings_title_label_, "关于")' in source
     assert 'lv_label_set_text(settings_title_label_, "亮度")' in source
@@ -465,10 +465,19 @@ def test_about_page_prioritizes_xiaoxin_product_identity():
     body = function_body(source, "void RenderSettingsAboutPage()")
 
     assert "#include <esp_app_desc.h>" in source
+    assert '#include "runtime_health.h"' in source
     assert "esp_app_get_description()" in body
+    assert "RuntimeHealthReadSnapshot(&snapshot)" in body
+    assert "xiaoxin_runtime_health_format_duration" in body
+    assert "xiaoxin_runtime_health_reset_label(snapshot.last_reset_kind)" in body
     assert "小芯 D151" in body
-    assert "桌面助手" in body
     assert "固件 %s" in body
+    assert "本次 %s" in body
+    assert "上次 %s" in body
+    assert "重启 %s" in body
+    assert "欠压 %lu次" in body
+    assert "snapshot.brownout_count" in body
+    assert "桌面助手" not in body
     assert "构建 %s %s" not in body
     assert "Waveshare ESP32-S3 Touch LCD 1.46" not in body
 

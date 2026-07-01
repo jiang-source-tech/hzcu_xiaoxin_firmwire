@@ -2,6 +2,59 @@
 
 ## 2026-07-01 00:00:00 +08:00
 
+### 运行时健康诊断与异常重启可观测性
+
+#### 背景
+
+设备在电池供电、棕断、短运行后重启等场景下，需要比单次启动日志更稳定的运行时健康记录，方便现场判断是否存在电源不稳、短时间反复重启或异常复位。此前 `main` 已有运行时健康模型，本次将 `codex/runtime-health-diagnostics` 分支中的 NVS 持久化服务、串口诊断和系统信息导出合并进来，并保留 `main` 中更紧凑的 `<1m` 时长显示。
+
+#### 修改内容
+
+- 新增 `RuntimeHealth` 服务：
+  - 启动时读取 NVS 中的运行记录，记录本次复位原因、电池供电状态、启动次数、棕断次数、短运行连续次数、最近/最大/当前运行时长。
+  - 在开机、周期 tick、重启和关机场景保存检查点，减少异常掉电后信息丢失。
+  - 新增 `RuntimeHealthProtectionRecommended()`，当电池供电下连续短运行且复位原因不稳定时给出保守保护建议信号，但当前只暴露信号，不直接阻断启动。
+- 新增串口诊断命令：
+  - Waveshare ESP32-S3 Touch LCD 1.46/1.46C 调试控制台注册 `runtime_health` 命令。
+  - 输出 current/last/max runtime、last reset、brownout count、short streak 和 battery 状态，方便现场快速读取。
+- 扩展系统信息：
+  - `Board::GetSystemInfoJson()` 增加 `runtime_health` 字段。
+  - `SystemInfo` 增加 uptime 秒数接口，供运行时健康检查点使用。
+- 文档与测试：
+  - 更新路线图和串口调试命令文档。
+  - 新增主机侧 runtime health model C 测试和 Python 路径测试。
+  - 合并冲突解析时保留 `main` 中 `<1m` 的短时长格式，并引入 diagnostics 分支的保护建议模型测试。
+
+#### 涉及文件
+
+- `main/boards/common/runtime_health.cc`
+- `main/boards/common/runtime_health.h`
+- `main/boards/common/runtime_health_model.c`
+- `main/boards/common/runtime_health_model.h`
+- `main/boards/common/board.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `main/application.cc`
+- `main/system_info.cc`
+- `main/system_info.h`
+- `main/CMakeLists.txt`
+- `tests/xiaoxin_runtime_health_model_test.c`
+- `tests/xiaoxin_runtime_health_path_test.py`
+- `tests/xiaoxin_settings_path_test.py`
+- `docs/xiaoxin-feature-roadmap.zh-CN.md`
+- `docs/xiaoxin-serial-debug-commands.zh-CN.md`
+- `docs/superpowers/plans/2026-06-29-runtime-health-diagnostics.md`
+- `docs/update.md`
+
+#### 验证结果
+
+- `$env:PATH='D:\msys64\ucrt64\bin;' + $env:PATH; gcc -std=c99 -Wall -Wextra -Werror tests\xiaoxin_runtime_health_model_test.c main\boards\common\runtime_health_model.c -I main\boards\common -o build\xiaoxin_runtime_health_model_test.exe; .\build\xiaoxin_runtime_health_model_test.exe`：通过，输出 `xiaoxin_runtime_health_model tests passed`。
+- `python -m pytest tests/xiaoxin_runtime_health_path_test.py tests/xiaoxin_settings_path_test.py`：通过，`39 passed`。
+- `python -m pytest tests`：通过，`167 passed`。
+- `$env:PATH='D:\msys64\ucrt64\bin;' + $env:PATH; g++ -std=c++17 -Wall -Wextra -Werror tests\speaker_output_limiter_test.cc main\audio\speaker_output_limiter.cc -I main\audio -o build\speaker_output_limiter_test.exe; .\build\speaker_output_limiter_test.exe`：通过，输出 `speaker_output_limiter tests passed`。
+- `git diff --check --cached`：通过，无 whitespace error。
+
+## 2026-07-01 00:00:00 +08:00
+
 ### Waveshare ESP32-S3 Touch LCD 1.46/1.46C 扬声器输出削波余量调整
 
 #### 背景

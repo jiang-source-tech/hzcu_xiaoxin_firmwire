@@ -1,6 +1,7 @@
 #ifndef _SYSTEM_INFO_H_
 #define _SYSTEM_INFO_H_
 
+#include <cstdint>
 #include <string>
 
 #include <esp_err.h>
@@ -14,6 +15,7 @@ public:
     static std::string GetMacAddress();
     static std::string GetChipModelName();
     static std::string GetUserAgent();
+    static uint32_t GetUptimeSeconds();
     static esp_err_t PrintTaskCpuUsage(TickType_t xTicksToWait);
     static void PrintTaskList();
     static void PrintHeapStats();

@@ -2,6 +2,7 @@
 
 #include <freertos/task.h>
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <esp_flash.h>
 #include <esp_mac.h>
 #include <esp_system.h>
@@ -52,6 +53,10 @@ std::string SystemInfo::GetUserAgent() {
     auto app_desc = esp_app_get_description();
     auto user_agent = std::string(BOARD_NAME "/") + app_desc->version;
     return user_agent;
+}
+
+uint32_t SystemInfo::GetUptimeSeconds() {
+    return (uint32_t)(esp_timer_get_time() / 1000000ULL);
 }
 
 esp_err_t SystemInfo::PrintTaskCpuUsage(TickType_t xTicksToWait) {

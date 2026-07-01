@@ -48,6 +48,8 @@ set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg"
 list(APPEND SOURCES
     "boards/common/board.cc"
     "boards/common/boot_diagnostics.cc"
+    "boards/common/runtime_health.cc"
+    "boards/common/runtime_health_model.c"
     "boards/common/wifi_board.cc"
     "boards/common/time_sync_status.cc"
     "boards/common/ml307_board.cc"

@@ -75,6 +75,18 @@ bool xiaoxin_runtime_health_should_checkpoint(
   return now_sec - last_saved_sec >= 300U;
 }
 
+bool xiaoxin_runtime_health_protection_recommended(
+  const xiaoxin_runtime_health_record_t* record
+) {
+  if (record == NULL) {
+    return false;
+  }
+
+  return record->current_on_battery &&
+         is_unstable_reset(record->last_reset_kind) &&
+         record->short_run_streak >= 3U;
+}
+
 void xiaoxin_runtime_health_format_duration(
   char* buffer,
   size_t buffer_size,

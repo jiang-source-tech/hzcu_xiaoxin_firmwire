@@ -63,6 +63,10 @@ bool xiaoxin_runtime_health_should_checkpoint(
   uint32_t now_sec
 );
 
+bool xiaoxin_runtime_health_protection_recommended(
+  const xiaoxin_runtime_health_record_t* record
+);
+
 void xiaoxin_runtime_health_format_duration(
   char* buffer,
   size_t buffer_size,
