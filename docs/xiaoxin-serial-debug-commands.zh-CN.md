@@ -19,6 +19,7 @@ notify_test
 | 命令 | 用途 | 成功输出 | 备注 |
 | --- | --- | --- | --- |
 | `notify_test` | 创建一条测试通知，并切换到通知页面。 | `notify_test: opened notification page` | 每执行一次命令，触发一次测试通知悬浮窗。 |
+| `battery` | 打印电池监测状态。 | `battery: voltage=...` | 查看最近 ADC 电压、样本年龄、状态机状态、电源来源、显示百分比、显示档位、百分比是否可靠，以及低电关机是否正在等待执行。 |
 | `runtime_health` | 打印运行健康快照。 | `runtime_health: ...` | 用于排查电池供电下反复重启。 |
 
 ## `notify_test`
@@ -47,6 +48,10 @@ notify_test: display is not ready
 ## `runtime_health`
 
 `runtime_health`：打印本次运行、上次运行、最长运行、最近重启原因、欠压次数、短运行连续次数和当前供电判断。用于排查电池供电下反复重启。
+
+## `battery`
+
+打印小新 1.46C 电池监测状态：最近 ADC 电压、样本年龄、状态机状态、电源来源、显示百分比、显示档位、百分比是否可靠，以及低电关机是否正在等待执行。
 
 ## VSCode Monitor 注意事项
 

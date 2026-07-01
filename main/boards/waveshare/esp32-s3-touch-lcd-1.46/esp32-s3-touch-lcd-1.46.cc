@@ -597,6 +597,32 @@ static uint32_t PaopaoImageScaleForVisualSize(paopao_pet_state_t state) {
     return (((uint32_t)k_pet_target_visual_longest * k_pet_image_scale_base) + visual_longest / 2) / visual_longest;
 }
 
+static const char* BatteryStateLabel(xiaoxin_battery_state_t state) {
+    switch (state) {
+        case XIAOXIN_BATTERY_STATE_NORMAL:
+            return "normal";
+        case XIAOXIN_BATTERY_STATE_LOW:
+            return "low";
+        case XIAOXIN_BATTERY_STATE_CRITICAL:
+            return "critical";
+        case XIAOXIN_BATTERY_STATE_UNKNOWN:
+        default:
+            return "unknown";
+    }
+}
+
+static const char* BatteryPowerSourceLabel(xiaoxin_battery_power_source_t source) {
+    switch (source) {
+        case XIAOXIN_BATTERY_POWER_BATTERY:
+            return "battery";
+        case XIAOXIN_BATTERY_POWER_EXTERNAL:
+            return "external";
+        case XIAOXIN_BATTERY_POWER_UNKNOWN:
+        default:
+            return "unknown";
+    }
+}
+
 class PaopaoPetDisplay : public SpiLcdDisplay {
 public:
     PaopaoPetDisplay(
@@ -5804,6 +5830,39 @@ private:
             .context = this,
         };
         ESP_ERROR_CHECK(esp_console_cmd_register(&boot_diag_cmd));
+
+        const esp_console_cmd_t battery_cmd = {
+            .command = "battery",
+            .help = "Print battery monitor state",
+            .hint = nullptr,
+            .func = [](int argc, char** argv) -> int {
+                (void)argc;
+                (void)argv;
+                auto* self = CustomBoard::Instance();
+                if (self == nullptr) {
+                    printf("battery: board is not ready\n");
+                    return 0;
+                }
+
+                const uint32_t now_ms = self->BatteryNowMs();
+                const uint32_t age_ms = self->last_battery_sample_ms_ == 0
+                    ? 0
+                    : now_ms - self->last_battery_sample_ms_;
+                printf(
+                    "battery: voltage=%dmV age=%lums state=%s source=%s percent=%d level=%u reliable=%d shutdown_pending=%d\n",
+                    self->last_battery_voltage_mv_,
+                    (unsigned long)age_ms,
+                    BatteryStateLabel(self->battery_snapshot_.state),
+                    BatteryPowerSourceLabel(self->battery_snapshot_.power_source),
+                    self->battery_snapshot_.display_percent,
+                    (unsigned)self->battery_snapshot_.display_level,
+                    self->battery_snapshot_.percent_reliable ? 1 : 0,
+                    self->low_battery_shutdown_pending_ ? 1 : 0
+                );
+                return 0;
+            },
+        };
+        ESP_ERROR_CHECK(esp_console_cmd_register(&battery_cmd));
 
         const esp_console_cmd_t runtime_health_cmd = {
             .command = "runtime_health",
