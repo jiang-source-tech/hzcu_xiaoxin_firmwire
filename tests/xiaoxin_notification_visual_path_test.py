@@ -247,8 +247,8 @@ def test_low_battery_notification_uses_status_copy_without_percent():
     source = read_source()
     status_body = function_body(source, "virtual void UpdateStatusBar(bool update_all = false) override")
 
-    assert "xiaoxin_battery_context_t battery_context_ = {};" not in source
-    assert "xiaoxin_battery_snapshot_t battery_snapshot_ = {};" not in source
+    assert "battery_context_" not in status_body
+    assert "battery_snapshot_" not in status_body
     assert "RefreshBatterySnapshotLocked();" not in status_body
     assert "ApplyBatteryOverlayLevel();" not in status_body
     assert "SyncLowBatteryNotificationLocked();" not in status_body
@@ -275,9 +275,10 @@ def test_low_battery_notification_reacts_to_state_changes_at_same_percent():
 
 def test_battery_overlay_uses_stable_display_level():
     source = read_source()
+    status_body = function_body(source, "virtual void UpdateStatusBar(bool update_all = false) override")
 
     assert "void ApplyBatteryOverlayLevel()" not in source
-    assert "battery_snapshot_.display_level" not in source
+    assert "battery_snapshot_.display_level" not in status_body
     assert "k_system_battery_w" not in source
 
 
