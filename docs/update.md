@@ -2,6 +2,75 @@
 
 ## 2026-07-01 00:00:00 +08:00
 
+### Waveshare ESP32-S3 Touch LCD 1.46/1.46C 低电主动关机、诊断与总览电量显示
+
+#### 背景
+
+实机使用 1500mAh 单节锂电池供电时可运行约 11 小时，但尾电阶段会出现背光变暗、系统无法正常工作、尝试重启后无法启动并最终关机的现象。该现象更接近电池尾电负载下压降触发 brownout，而不是应用层有意重启。
+
+当前 1.46C 板卡没有独立 fuel gauge 或 PMIC，固件只能使用 GPIO8 / ADC1_CH7 的电池分压采样，以及 GPIO7 / `PWR_Control_PIN` 的电源保持锁存。因此本轮目标是在 brownout 前用现有 ADC 状态机主动识别 LOW / CRITICAL，提示用户，并在临界低电时释放电源保持，让设备真正断电，而不是在尾电边缘反复重启。
+
+#### 修改内容
+
+- 接入运行时电池监测：复用现有 GPIO8 / ADC1_CH7 分压采样，周期读取 ADC 电压并送入 `xiaoxin_battery_state_update()`；板级代码不另起 LOW / CRITICAL 电压阈值，统一以状态机百分比阈值为准。
+- 状态机阈值保持为 LOW `<=20%`（约 `3700mV`）和 CRITICAL `<=10%`（约 `3600mV`），后续若实测需要调整，应修改状态机或放电曲线，而不是绕过状态机。
+- LOW 低电只在 `snapshot.low_edge` 边沿触发一次 `电量低，请尽快充电`，不停止宠物、动画、Wi-Fi、音频等核心体验。
+- CRITICAL 临界低电只在 `snapshot.critical_edge` 边沿进入一次性关机流程，显示 `电量不足，即将关机`，等待约 3 秒后记录诊断并释放 `PWR_Control_PIN`。
+- CRITICAL 等待窗口内继续采样；如果确认外部供电或恢复信号到达，则取消自动关机并提示 `已接入电源`。
+- 低电主动关机不调用 `esp_restart()`；释放 GPIO7 是核心动作，`esp_deep_sleep_start()` 只属于可能执行到的收尾。
+- 启动保护改为优先使用 `RuntimeHealthProtectionRecommended()`。电池供电且命中保护建议时，显示 `电量不足，请充电后再启动`，跳过完整应用启动并进入低电关机流程。
+- `Application::Initialize()` 在 `Board::GetInstance()` 后检查 `Board::ShouldSkipApplicationStartup()`，命中后不继续拉起完整 UI、音频、MCP、网络等应用路径。
+- `GetBatteryLevel()` 改为从最近可靠的状态机 snapshot 返回 `display_percent`，并正确填充 charging / discharging。外部供电、未知来源、无有效样本或百分比不可靠时返回 `false`。
+- 总览页“设备状态”卡片详情行新增四格粗粒度电量显示，复用 `display_level`，包括 `电量 [■■■■]`、`低电 [■□□□]`、`即将关机 [□□□□]`、`外部供电` 和 `电量检测中`。
+- 电池采样更新时会把 snapshot 推给总览页；如果用户正停留在总览页，四格电量会随采样刷新。
+- 串口命令文档更新为当前真实命令集：`notify_test`、`boot_diag`、`battery`、`runtime_health`，并新增测试防止注册命令和文档脱节。
+- `battery` 串口命令打印最近 ADC 电压、样本年龄、状态机状态、电源来源、显示百分比、四格档位、可靠标志和低电关机 pending 标志，但它只是 USB 接入后的辅助诊断，不能验收纯电池低电关机。
+- `runtime_health` 输出增加低电主动关机持久化字段：`low_shutdowns`、`low_mv`、`low_stage`。低电断电后重新插 USB，可用它读取上一次低电关机记录。
+- Runtime health 记录主动低电关机次数、最近一次低电关机电压、发生阶段是 startup 还是 runtime，并支持在未 start 的启动保护路径中先加载 NVS 再写入记录。
+- 新增低电主动关机设计 spec 和实施 plan，明确 USB 插入竞态、启动保护优先级、纯电池硬件验收方式和状态机阈值权威性。
+
+#### 涉及文件
+
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_battery_state.c`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_battery_state.h`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_power_control.c`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_power_control.h`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_overview_model.c`
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/xiaoxin_overview_model.h`
+- `main/boards/common/board.h`
+- `main/boards/common/runtime_health.cc`
+- `main/boards/common/runtime_health.h`
+- `main/boards/common/runtime_health_model.c`
+- `main/boards/common/runtime_health_model.h`
+- `main/application.cc`
+- `tests/xiaoxin_battery_state_test.c`
+- `tests/xiaoxin_power_control_test.c`
+- `tests/xiaoxin_runtime_health_model_test.c`
+- `tests/xiaoxin_runtime_health_path_test.py`
+- `tests/xiaoxin_low_battery_shutdown_path_test.py`
+- `tests/xiaoxin_power_latch_path_test.py`
+- `tests/xiaoxin_notification_visual_path_test.py`
+- `tests/xiaoxin_boot_diagnostics_path_test.py`
+- `tests/xiaoxin_serial_debug_command_test.py`
+- `tests/xiaoxin_overview_model_test.c`
+- `docs/xiaoxin-serial-debug-commands.zh-CN.md`
+- `docs/superpowers/specs/2026-07-01-xiaoxin-low-battery-shutdown-design.zh-CN.md`
+- `docs/superpowers/plans/2026-07-01-xiaoxin-low-battery-shutdown.md`
+- `docs/update.md`
+
+#### 验证结果
+
+- `xiaoxin_battery_state_test`：通过，输出 `xiaoxin_battery_state tests passed`。
+- `xiaoxin_power_control_test`：通过，输出 `xiaoxin_power_control tests passed`。
+- `xiaoxin_runtime_health_model_test`：通过，输出 `xiaoxin_runtime_health_model tests passed`。
+- `xiaoxin_overview_model_test`：通过，输出 `xiaoxin_overview_model tests passed`。
+- `python -m pytest tests -q`：通过，`178 passed`。
+- `git diff --check`：通过，无 whitespace error；Windows shell 仅提示若干文件下次 Git 触碰时 LF 会替换为 CRLF。
+- `idf.py build`：当前 PowerShell 未加载 ESP-IDF 环境，`idf.py` 不可识别，未完成固件级构建。发布固件前仍需在 ESP-IDF shell 中执行完整构建。
+
+## 2026-07-01 00:00:00 +08:00
+
 ### 运行时健康诊断与异常重启可观测性
 
 #### 背景
