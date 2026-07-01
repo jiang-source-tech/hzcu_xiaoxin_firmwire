@@ -182,6 +182,9 @@ void RuntimeHealthForceCheckpoint(void) {
 }
 
 void RuntimeHealthRecordLowBatteryShutdown(int voltage_mv, bool startup_stage) {
+    if (!s_started) {
+        LoadRecord();
+    }
     xiaoxin_runtime_health_record_low_battery_shutdown(
         &s_record,
         voltage_mv > 0 ? (uint32_t)voltage_mv : 0,

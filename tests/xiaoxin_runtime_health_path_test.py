@@ -129,6 +129,8 @@ def test_runtime_health_records_low_battery_shutdown_diagnostics():
 
     assert "void RuntimeHealthRecordLowBatteryShutdown(int voltage_mv, bool startup_stage);" in header
     body = function_body(source, "void RuntimeHealthRecordLowBatteryShutdown(int voltage_mv, bool startup_stage)")
+    assert "if (!s_started) {" in body
+    assert "LoadRecord();" in body
     assert "xiaoxin_runtime_health_record_low_battery_shutdown(" in body
     assert "voltage_mv > 0 ? (uint32_t)voltage_mv : 0" in body
     assert "PersistRecord();" in body

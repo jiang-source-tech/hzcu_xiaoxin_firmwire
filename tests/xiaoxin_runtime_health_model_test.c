@@ -87,6 +87,7 @@ static void protection_requires_three_short_battery_unstable_boots(void) {
 
 static void low_battery_shutdown_diagnostics_are_recorded(void) {
   xiaoxin_runtime_health_record_t record = {0};
+  xiaoxin_runtime_health_snapshot_t snapshot = {0};
 
   xiaoxin_runtime_health_record_low_battery_shutdown(&record, 3590, true);
 
@@ -99,6 +100,12 @@ static void low_battery_shutdown_diagnostics_are_recorded(void) {
   assert(record.low_battery_shutdown_count == 2);
   assert(record.last_low_battery_shutdown_voltage_mv == 3620);
   assert(!record.last_low_battery_shutdown_startup_stage);
+
+  xiaoxin_runtime_health_snapshot_from_record(&record, &snapshot);
+
+  assert(snapshot.low_battery_shutdown_count == 2);
+  assert(snapshot.last_low_battery_shutdown_voltage_mv == 3620);
+  assert(!snapshot.last_low_battery_shutdown_startup_stage);
 }
 
 int main(void) {
