@@ -1,0 +1,129 @@
+from pathlib import Path
+
+
+BOARD_SOURCE = Path(
+    "main/boards/waveshare/esp32-s3-touch-lcd-1.46/"
+    "esp32-s3-touch-lcd-1.46.cc"
+)
+
+
+def read_source() -> str:
+    return BOARD_SOURCE.read_text(encoding="utf-8")
+
+
+def function_body(source: str, signature: str) -> str:
+    start = source.index(signature)
+    brace = source.index("{", start)
+    depth = 0
+    for index in range(brace, len(source)):
+        char = source[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[brace + 1 : index]
+    raise AssertionError(f"function body not found: {signature}")
+
+
+def assert_ordered(source: str, *needles: str):
+    cursor = 0
+    for needle in needles:
+        index = source.find(needle, cursor)
+        assert index != -1, f"missing ordered fragment: {needle}"
+        cursor = index + len(needle)
+
+
+def test_board_wires_adc_samples_into_battery_state_machine():
+    source = read_source()
+    constructor = function_body(source, "CustomBoard()")
+    monitor = function_body(source, "void RefreshBatteryStateFromTimer()")
+    reader = function_body(source, "bool ReadBatteryVoltageMv(int* voltage_mv)")
+
+    assert '#include "xiaoxin_battery_state.h"' in source
+    assert "xiaoxin_battery_context_t battery_context_" in source
+    assert "xiaoxin_battery_snapshot_t battery_snapshot_" in source
+    assert "esp_timer_handle_t battery_monitor_timer_" in source
+    assert "battery_adc_available_" in reader
+    assert "adc_oneshot_read(" in reader
+    assert "adc_cali_raw_to_voltage(" in reader
+    assert "pin_voltage_mv * k_battery_voltage_divider" in reader
+    assert "xiaoxin_battery_state_update(" in monitor
+    assert "XIAOXIN_BATTERY_LOAD_IDLE" in monitor
+    assert "HandleBatterySnapshot(battery_snapshot_);" in monitor
+    assert "StartBatteryMonitor();" in constructor
+    assert_ordered(constructor, "InitializeSpd2010Display();", "StartBatteryMonitor();")
+
+
+def test_low_edge_shows_one_time_warning_without_stopping_core_tasks():
+    source = read_source()
+    handler = function_body(source, "void HandleBatterySnapshot(const xiaoxin_battery_snapshot_t& snapshot)")
+
+    assert "snapshot.low_edge" in handler
+    assert 'ShowNotification("电量低，请尽快充电"' in handler
+    assert "InitializeMotion()" not in handler
+    assert "StartNetwork()" not in handler
+    assert "SetEnabled(false)" not in handler
+
+
+def test_critical_edge_starts_cancelable_shutdown_without_restart():
+    source = read_source()
+    handler = function_body(source, "void HandleBatterySnapshot(const xiaoxin_battery_snapshot_t& snapshot)")
+    begin = function_body(source, "void BeginLowBatteryShutdown(bool startup_stage)")
+    finish = function_body(source, "void FinishLowBatteryShutdown()")
+    cancel = function_body(source, "void CancelLowBatteryShutdownIfRecovered(const xiaoxin_battery_snapshot_t& snapshot)")
+
+    assert "snapshot.critical_edge" in handler
+    assert "BeginLowBatteryShutdown(false);" in handler
+    assert 'ShowNotification("电量不足，即将关机"' in begin
+    assert "esp_timer_start_once(low_battery_shutdown_timer_" in begin
+    assert "snapshot.power_source == XIAOXIN_BATTERY_POWER_EXTERNAL" in cancel
+    assert "snapshot.recovered_edge" in cancel
+    assert "low_battery_shutdown_pending_ = false;" in cancel
+    assert "RuntimeHealthForceCheckpoint();" in finish
+    assert "xiaoxin_power_control_request_shutdown(&power_control_);" in finish
+    assert "gpio_set_level(PWR_Control_PIN, xiaoxin_power_control_power_hold(&power_control_));" in finish
+    assert "esp_restart()" not in begin
+    assert "esp_restart()" not in finish
+
+
+def test_get_battery_level_reports_only_reliable_snapshot_percent():
+    source = read_source()
+    body = function_body(source, "virtual bool GetBatteryLevel(int& level, bool& charging, bool& discharging) override")
+
+    assert "battery_has_snapshot_" in body
+    assert "battery_snapshot_.percent_reliable" in body
+    assert "level = battery_snapshot_.display_percent;" in body
+    assert "charging = battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_EXTERNAL;" in body
+    assert "discharging = battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_BATTERY;" in body
+    assert "return true;" in body
+
+
+def test_startup_protection_uses_runtime_health_before_full_app_work():
+    source = read_source()
+    constructor = function_body(source, "CustomBoard()")
+    start_network = function_body(source, "void StartNetwork() override")
+
+    assert "startup_low_battery_protection_" in source
+    assert "RuntimeHealthProtectionRecommended()" in constructor
+    assert_ordered(
+        constructor,
+        "RuntimeHealthStart(on_battery_);",
+        "startup_low_battery_protection_ = on_battery_ && RuntimeHealthProtectionRecommended();",
+        "InitializeSpd2010Display();",
+        "HandleStartupLowBatteryProtection();",
+    )
+    assert "if (startup_low_battery_protection_)" in start_network
+    assert "return;" in start_network
+
+
+def test_battery_console_command_prints_last_sample_and_state():
+    source = read_source()
+    body = function_body(source, "void InitializeDebugConsole()")
+
+    assert 'const esp_console_cmd_t battery_cmd = {' in body
+    assert '.command = "battery"' in body
+    assert "battery_snapshot_.state" in body
+    assert "battery_snapshot_.power_source" in body
+    assert "last_battery_voltage_mv_" in body
+    assert "esp_console_cmd_register(&battery_cmd)" in body

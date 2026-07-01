@@ -98,21 +98,22 @@ def test_battery_network_start_keeps_settling_delay_without_dimming_splash():
     assert "vTaskDelay(pdMS_TO_TICKS(3000));" not in start_network
 
 
-def test_runtime_battery_level_reporting_is_disabled_but_boot_power_detection_remains():
+def test_runtime_battery_level_reporting_uses_reliable_state_snapshot_and_boot_detection_remains():
     source = read_source()
     runtime_battery = function_body(source, "virtual bool GetBatteryLevel(int& level, bool& charging, bool& discharging) override")
     boot_detection = function_body(source, "void DetectPowerSourceEarly()")
 
-    assert "(void)level;" in runtime_battery
-    assert "(void)charging;" in runtime_battery
-    assert "(void)discharging;" in runtime_battery
-    assert "ReadBatteryVoltageMv()" not in runtime_battery
-    assert "xiaoxin_battery_percent_from_mv" not in runtime_battery
+    assert "battery_has_snapshot_" in runtime_battery
+    assert "battery_snapshot_.percent_reliable" in runtime_battery
+    assert "level = battery_snapshot_.display_percent;" in runtime_battery
+    assert "charging = battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_EXTERNAL;" in runtime_battery
+    assert "discharging = battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_BATTERY;" in runtime_battery
     assert "return false;" in runtime_battery
+    assert "return true;" in runtime_battery
 
     assert "InitializeBatteryAdc();" in boot_detection
     assert "adc_oneshot_read(" in boot_detection
-    assert "on_battery_ = voltage_mv <= 4500;" in boot_detection
+    assert "on_battery_ = voltage_mv <= k_external_power_voltage_mv;" in boot_detection
 
 
 def test_battery_boot_does_not_use_diagnostic_backlight_blinks():

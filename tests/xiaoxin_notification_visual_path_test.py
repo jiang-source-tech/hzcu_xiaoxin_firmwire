@@ -247,7 +247,6 @@ def test_low_battery_notification_uses_status_copy_without_percent():
     source = read_source()
     status_body = function_body(source, "virtual void UpdateStatusBar(bool update_all = false) override")
 
-    assert '#include "xiaoxin_battery_state.h"' not in source
     assert "xiaoxin_battery_context_t battery_context_ = {};" not in source
     assert "xiaoxin_battery_snapshot_t battery_snapshot_ = {};" not in source
     assert "RefreshBatterySnapshotLocked();" not in status_body
