@@ -164,6 +164,21 @@ static void build_todo_item(
   );
 }
 
+static uint8_t clamp_battery_level(uint8_t level) {
+  return level > 4 ? 4 : level;
+}
+
+static void format_battery_blocks(char* buffer, size_t buffer_size, uint8_t level) {
+  static const char* levels[] = {
+    "[□□□□]",
+    "[■□□□]",
+    "[■■□□]",
+    "[■■■□]",
+    "[■■■■]",
+  };
+  snprintf(buffer, buffer_size, "%s", levels[clamp_battery_level(level)]);
+}
+
 static void build_device_item(
   const xiaoxin_overview_state_t* state,
   xiaoxin_overview_snapshot_t* snapshot
@@ -176,10 +191,37 @@ static void build_device_item(
     network_connected ? "WiFi 已连接" : "离线模式"
   );
 
-  copy_detail(
-    snapshot,
-    XIAOXIN_OVERVIEW_DEVICE_INDEX,
-    network_connected ? "设备运行中" : "等待联网"
+  if (state == NULL || state->battery_power_source == XIAOXIN_BATTERY_POWER_UNKNOWN) {
+    copy_detail(snapshot, XIAOXIN_OVERVIEW_DEVICE_INDEX, "电量检测中");
+    return;
+  }
+
+  if (state->battery_power_source == XIAOXIN_BATTERY_POWER_EXTERNAL) {
+    copy_detail(snapshot, XIAOXIN_OVERVIEW_DEVICE_INDEX, "外部供电");
+    return;
+  }
+
+  if (!state->battery_known) {
+    copy_detail(snapshot, XIAOXIN_OVERVIEW_DEVICE_INDEX, "电量检测中");
+    return;
+  }
+
+  char blocks[24] = {};
+  format_battery_blocks(blocks, sizeof(blocks), state->battery_level);
+
+  const char* label = "电量";
+  if (state->battery_state == XIAOXIN_BATTERY_STATE_LOW) {
+    label = "低电";
+  } else if (state->battery_state == XIAOXIN_BATTERY_STATE_CRITICAL) {
+    label = "即将关机";
+  }
+
+  snprintf(
+    snapshot->detail_storage[XIAOXIN_OVERVIEW_DEVICE_INDEX],
+    XIAOXIN_OVERVIEW_DETAIL_MAX,
+    "%s %s",
+    label,
+    blocks
   );
 }
 

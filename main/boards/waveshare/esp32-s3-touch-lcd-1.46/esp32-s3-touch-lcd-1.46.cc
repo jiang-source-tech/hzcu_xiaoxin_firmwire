@@ -1023,6 +1023,13 @@ public:
         SetCardPagerPage(XIAOXIN_CARD_PAGE_NOTIFICATIONS);
     }
 
+    void UpdateOverviewBatterySnapshot(const xiaoxin_battery_snapshot_t& snapshot) {
+        DisplayLockGuard lock(this);
+        overview_battery_snapshot_ = snapshot;
+        overview_battery_has_snapshot_ = true;
+        RefreshOverviewPageIfVisible();
+    }
+
 private:
     TaskHandle_t render_task_ = nullptr;
     esp_timer_handle_t low_power_clock_timer_ = nullptr;
@@ -1131,6 +1138,8 @@ private:
     char notification_heads_up_rendered_body_[XIAOXIN_CARD_NOTIFICATION_BODY_MAX] = {};
     char notification_heads_up_rendered_tag_[XIAOXIN_CARD_NOTIFICATION_TAG_MAX] = {};
     xiaoxin_overview_snapshot_t overview_snapshot_ = {};
+    xiaoxin_battery_snapshot_t overview_battery_snapshot_ = {};
+    bool overview_battery_has_snapshot_ = false;
     paopao_pet_trigger_context_t trigger_;
     paopao_pet_mood_context_t mood_ = {};
     paopao_pet_behavior_context_t behavior_ = {};
@@ -3941,6 +3950,13 @@ private:
         state.network_connected = SystemOverlayNetworkState() == XIAOXIN_SYSTEM_OVERLAY_NETWORK_CONNECTED;
         state.battery_power_source = XIAOXIN_BATTERY_POWER_UNKNOWN;
         state.battery_known = false;
+        if (overview_battery_has_snapshot_) {
+            state.battery_state = overview_battery_snapshot_.state;
+            state.battery_power_source = overview_battery_snapshot_.power_source;
+            state.battery_percent = overview_battery_snapshot_.display_percent;
+            state.battery_level = overview_battery_snapshot_.display_level;
+            state.battery_known = overview_battery_snapshot_.percent_reliable;
+        }
 
         state.weather_configured = false;
         state.weather_available = false;
@@ -5381,8 +5397,13 @@ private:
     void HandleBatterySnapshot(const xiaoxin_battery_snapshot_t& snapshot) {
         CancelLowBatteryShutdownIfRecovered(snapshot);
 
-        if (snapshot.low_edge && display_ != nullptr) {
-            display_->ShowNotification("电量低，请尽快充电", 3000);
+        auto* display = static_cast<PaopaoPetDisplay*>(display_);
+        if (display != nullptr) {
+            display->UpdateOverviewBatterySnapshot(snapshot);
+        }
+
+        if (snapshot.low_edge && display != nullptr) {
+            display->ShowNotification("电量低，请尽快充电", 3000);
         }
 
         if (snapshot.critical_edge) {

@@ -168,6 +168,25 @@ def test_status_bar_refreshes_visible_overview_snapshot():
     assert "RenderCardPage(XIAOXIN_CARD_PAGE_OVERVIEW, false);" in refresh_body
 
 
+def test_battery_monitor_refreshes_visible_overview_snapshot():
+    source = read_source()
+    public_refresh_body = function_body(source, "void UpdateOverviewBatterySnapshot(const xiaoxin_battery_snapshot_t& snapshot)")
+    battery_body = function_body(source, "void HandleBatterySnapshot(const xiaoxin_battery_snapshot_t& snapshot)")
+    overview_state_body = function_body(source, "xiaoxin_overview_state_t BuildOverviewState()")
+
+    assert "DisplayLockGuard lock(this);" in public_refresh_body
+    assert "overview_battery_snapshot_ = snapshot;" in public_refresh_body
+    assert "overview_battery_has_snapshot_ = true;" in public_refresh_body
+    assert "RefreshOverviewPageIfVisible();" in public_refresh_body
+    assert "display->UpdateOverviewBatterySnapshot(snapshot);" in battery_body
+    assert "xiaoxin_battery_snapshot_t overview_battery_snapshot_ = {};" in source
+    assert "bool overview_battery_has_snapshot_ = false;" in source
+    assert "state.battery_state = overview_battery_snapshot_.state;" in overview_state_body
+    assert "state.battery_power_source = overview_battery_snapshot_.power_source;" in overview_state_body
+    assert "state.battery_level = overview_battery_snapshot_.display_level;" in overview_state_body
+    assert "state.battery_known = overview_battery_snapshot_.percent_reliable;" in overview_state_body
+
+
 def test_home_screen_does_not_create_wifi_status_overlay():
     source = read_source()
     status_body = function_body(source, "virtual void UpdateStatusBar(bool update_all = false) override")

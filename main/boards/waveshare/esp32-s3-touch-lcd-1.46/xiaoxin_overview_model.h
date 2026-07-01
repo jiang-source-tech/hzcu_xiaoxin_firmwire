@@ -25,6 +25,7 @@ typedef struct {
   xiaoxin_battery_state_t battery_state;
   xiaoxin_battery_power_source_t battery_power_source;
   int battery_percent;
+  uint8_t battery_level;
   bool battery_known;
   bool weather_available;
   bool weather_configured;
