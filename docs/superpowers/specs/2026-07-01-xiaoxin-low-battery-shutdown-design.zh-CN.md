@@ -51,8 +51,9 @@
 | 状态转换 | 状态机阈值 | 当前曲线约等效带载电压 | 当前确认时间 |
 | --- | ---: | ---: | ---: |
 | UNKNOWN/NORMAL -> LOW | <= 20% | 约 3700mV | idle 20s / voice 45s |
+| UNKNOWN -> CRITICAL | <= 10% | 约 3600mV | idle 10s / voice 30s |
 | LOW -> CRITICAL | <= 10% | 约 3600mV | idle 10s / voice 30s |
-| CRITICAL -> LOW | >= 18% | 约 3660mV | 15s |
+| CRITICAL -> LOW | >= 18% | 约 3680mV | 15s |
 | LOW -> NORMAL | >= 30% | 约 3750mV | 10s |
 
 本设计采用这套状态机阈值，不在板级代码里重复定义另一套 LOW / CRITICAL 电压。如果后续硬件实测证明阈值不合适，应先修改 `xiaoxin_battery_level.c` 或 `xiaoxin_battery_state.c` 并配套测试，而不是在板级代码里绕过状态机。
@@ -114,6 +115,7 @@
 
 LOW 状态首次确认时触发一次用户可见提示：
 
+- 使用 snapshot 的 `low_edge` 标志触发一次性提示，而不是每次看到 `state == LOW` 都重复弹出。
 - 显示低电通知或系统 overlay。
 - 播放低电提示音可以后续再做，本次不强制。
 - 背光是否降低应保守处理：如果降低，必须允许用户在交互中仍然看清屏幕。
@@ -124,12 +126,13 @@ LOW 状态首次确认时触发一次用户可见提示：
 
 CRITICAL 状态确认后进入一次性关机流程：
 
-1. 标记 `low_battery_shutdown_requested_`，避免重复触发。
+1. 使用 snapshot 的 `critical_edge` 标志触发关机流程，并标记 `low_battery_shutdown_requested_`，避免重复触发。
 2. 显示“电量不足，即将关机”提示，持续约 2-3 秒。
-3. 调用 runtime health checkpoint，记录低电主动关机原因。
-4. 设置背光为 0。
-5. 释放 `PWR_Control_PIN`。
-6. 进入已有 `WaitForPowerButtonReleaseAndSleep()` 或等效收尾路径。
+3. 提示等待期间继续采样；如果状态机确认外部供电，或电压明显反弹并产生恢复信号，则取消本次关机并清除一次性关机标志。
+4. 调用 runtime health checkpoint，记录低电主动关机原因。
+5. 设置背光为 0。
+6. 释放 `PWR_Control_PIN`。
+7. 进入已有 `WaitForPowerButtonReleaseAndSleep()` 或等效收尾路径。
 
 释放 `PWR_Control_PIN` 是低电关机的核心动作。执行后电源锁存可能立刻打开，VCC 可能在 `esp_deep_sleep_start()` 执行前就下降；这属于预期结果。深睡眠只是外部供电仍存在或电源没有立刻塌陷时的收尾，不是关机成功的必要条件。
 
@@ -137,16 +140,16 @@ CRITICAL 状态确认后进入一次性关机流程：
 
 ### 启动保护
 
-启动早期已经会识别电池供电。新增启动低电保护：
+启动早期已经会识别电池供电。新增启动低电保护时要区分两个阶段：
 
-1. 电池供电且启动早期状态机确认 CRITICAL 时，不进入完整应用启动。
-2. 初始化屏幕和背光到最低可读状态。
-3. 显示低电提示数秒。
-4. 释放电源保持关机。
+1. 快速保护阶段：`RuntimeHealthProtectionRecommended()` 是启动早期的主要可用信号。它来自 NVS 历史数据，不需要等待 ADC 状态机 10 秒确认窗口。电池供电且 runtime health 建议保护时，尽早显示恢复/低电提示并关机，不进入完整应用启动。
+2. 状态机接管阶段：如果没有命中 runtime health 快速保护，系统可以继续完成必要启动，并启动 ADC 周期采样。状态机确认 CRITICAL 后再触发运行期临界关机流程。
+3. 最小 UI 阶段：快速保护需要提示用户时，只初始化显示提示所需的最小屏幕和背光路径，不拉起 Wi-Fi、音频和完整应用。
+4. 释放电源保持：提示结束后释放 `PWR_Control_PIN`。
 
 这避免尾电电池在重启时反复拉起 Wi-Fi、屏幕和 PSRAM，造成启动失败循环。
 
-如果 `RuntimeHealthProtectionRecommended()` 返回 true，说明已经出现电池供电下连续短运行不稳定复位。启动保护应把它作为补充信号：在电池供电且 runtime health 建议保护时，尽早显示恢复/低电提示并关机，避免继续启动完整系统。它不替代电池状态机；它覆盖的是“已经来不及稳定采样就反复 brownout”的场景。
+状态机的 UNKNOWN -> CRITICAL 路径仍然有价值，但它不是启动早期的快速门禁。它覆盖的是首次有效采样已经处于尾电、并且设备有足够时间完成确认窗口的场景。
 
 ### 诊断
 
@@ -167,15 +170,17 @@ CRITICAL 状态确认后进入一次性关机流程：
 4. 临界关机流程重复触发：用一次性标志忽略后续触发。
 5. 显示对象未就绪：跳过 UI 提示，直接记录诊断并关机。
 6. LOW 恢复：状态机 recovered_edge 出现，或外部供电确认后，隐藏低电提示并恢复正常显示策略。
+7. CRITICAL 提示期间插入 USB：如果外部供电确认或电压恢复信号在释放电源保持前到达，取消本次自动关机。
 
 ## 测试计划
 
 1. 扩展 `xiaoxin_battery_state_test.c`，覆盖 LOW 与 CRITICAL 的确认时间、滞回、边沿事件和阈值等效电压说明。
 2. 新增板级路径测试，确认小新板卡在 `percent_reliable == true` 时 `GetBatteryLevel()` 返回最近 snapshot 的 `display_percent`，并正确填充 charging/discharging。
-3. 新增路径测试，确认临界低电调用主动关机流程，而不是 `esp_restart()`。
-4. 新增启动保护路径测试，确认电池供电且启动状态为 CRITICAL 或 runtime health 建议保护时不会继续完整启动。
-5. 运行现有电池、电源控制、启动诊断和 runtime health 测试。
-6. 硬件验证：用可调电源或低电电池观察约 3.7V/20% 附近提示、约 3.6V/10% 附近主动关机、关机后不自动重启。
+3. 新增路径测试，确认 `low_edge` 只触发一次低电提示，`critical_edge` 触发主动关机流程而不是 `esp_restart()`。
+4. 新增路径测试，确认 CRITICAL 提示期间外部供电确认或恢复信号会取消自动关机。
+5. 新增启动保护路径测试，确认电池供电且 runtime health 建议保护时不会继续完整启动；状态机 CRITICAL 只在采样确认后接管运行期关机。
+6. 运行现有电池、电源控制、启动诊断和 runtime health 测试。
+7. 硬件验证：用可调电源或低电电池观察约 3.7V/20% 附近提示、约 3.6V/10% 附近主动关机、关机后不自动重启。
 
 ## 实施顺序
 
