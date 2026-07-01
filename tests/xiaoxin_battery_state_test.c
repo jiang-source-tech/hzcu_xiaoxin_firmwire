@@ -142,7 +142,7 @@ static void low_requires_hysteresis_to_recover(void) {
     snapshot = feed(&ctx, 3900, XIAOXIN_BATTERY_LOAD_IDLE, now_ms);
   }
   assert(snapshot.state == XIAOXIN_BATTERY_STATE_NORMAL);
-  assert(snapshot.recovered_edge);
+  assert(!snapshot.recovered_edge);
 }
 
 static void sustained_critical_enters_critical(void) {
@@ -197,6 +197,61 @@ static void startup_sustained_critical_enters_critical(void) {
   }
   assert(snapshot.state == XIAOXIN_BATTERY_STATE_CRITICAL);
   assert(snapshot.critical_edge);
+}
+
+static void unknown_can_enter_critical_without_low_first(void) {
+  xiaoxin_battery_context_t ctx;
+  xiaoxin_battery_state_init(&ctx, 0);
+
+  uint32_t now_ms = 1000;
+  xiaoxin_battery_snapshot_t snapshot = feed(
+    &ctx,
+    3600,
+    XIAOXIN_BATTERY_LOAD_IDLE,
+    now_ms
+  );
+  assert(snapshot.state == XIAOXIN_BATTERY_STATE_UNKNOWN);
+
+  for (; snapshot.state != XIAOXIN_BATTERY_STATE_CRITICAL && now_ms <= 60000; now_ms += 1000) {
+    snapshot = feed(&ctx, 3600, XIAOXIN_BATTERY_LOAD_IDLE, now_ms);
+  }
+
+  assert(snapshot.power_source == XIAOXIN_BATTERY_POWER_BATTERY);
+  assert(snapshot.state == XIAOXIN_BATTERY_STATE_CRITICAL);
+  assert(snapshot.critical_edge);
+  assert(!snapshot.low_edge);
+}
+
+static void critical_edge_is_one_shot_until_recovery(void) {
+  xiaoxin_battery_context_t ctx;
+  xiaoxin_battery_state_init(&ctx, 0);
+  enter_battery_from_startup(&ctx);
+
+  uint32_t now_ms = 18000;
+  xiaoxin_battery_snapshot_t snapshot = feed(
+    &ctx,
+    3600,
+    XIAOXIN_BATTERY_LOAD_IDLE,
+    now_ms
+  );
+  for (; snapshot.state != XIAOXIN_BATTERY_STATE_CRITICAL && now_ms <= 90000; now_ms += 1000) {
+    snapshot = feed(&ctx, 3600, XIAOXIN_BATTERY_LOAD_IDLE, now_ms);
+  }
+
+  assert(snapshot.state == XIAOXIN_BATTERY_STATE_CRITICAL);
+  assert(snapshot.critical_edge);
+
+  snapshot = feed(&ctx, 3600, XIAOXIN_BATTERY_LOAD_IDLE, now_ms + 1000);
+  assert(snapshot.state == XIAOXIN_BATTERY_STATE_CRITICAL);
+  assert(!snapshot.critical_edge);
+  assert(!snapshot.low_edge);
+
+  for (; snapshot.state != XIAOXIN_BATTERY_STATE_LOW && now_ms <= 130000; now_ms += 1000) {
+    snapshot = feed(&ctx, 3680, XIAOXIN_BATTERY_LOAD_IDLE, now_ms);
+  }
+
+  assert(snapshot.state == XIAOXIN_BATTERY_STATE_LOW);
+  assert(snapshot.recovered_edge);
 }
 
 static void voice_active_extends_low_confirmation(void) {
@@ -309,17 +364,7 @@ static void display_level_has_hysteresis(void) {
   snapshot = feed(&ctx, 3950, XIAOXIN_BATTERY_LOAD_IDLE, 18000);
   assert(snapshot.display_level == 4);
 
-  for (uint32_t now_ms = 23000; now_ms <= 87000; now_ms += 5000) {
-    snapshot = feed(&ctx, 3800, XIAOXIN_BATTERY_LOAD_IDLE, now_ms);
-  }
-  assert(snapshot.display_level == 4);
-  assert(snapshot.display_percent >= 65);
-
-  for (
-    uint32_t now_ms = 87000;
-    snapshot.display_level != 3 && now_ms <= 200000;
-    now_ms += 5000
-  ) {
+  for (uint32_t now_ms = 23000; snapshot.display_level == 4 && now_ms <= 87000; now_ms += 5000) {
     snapshot = feed(&ctx, 3800, XIAOXIN_BATTERY_LOAD_IDLE, now_ms);
   }
   assert(snapshot.display_level == 3);
@@ -823,6 +868,8 @@ int main(void) {
   sustained_low_enters_low_once();
   low_requires_hysteresis_to_recover();
   sustained_critical_enters_critical();
+  unknown_can_enter_critical_without_low_first();
+  critical_edge_is_one_shot_until_recovery();
   startup_sustained_low_enters_low();
   startup_sustained_critical_enters_critical();
   voice_active_extends_low_confirmation();

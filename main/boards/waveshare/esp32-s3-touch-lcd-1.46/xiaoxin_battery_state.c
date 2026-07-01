@@ -513,11 +513,14 @@ xiaoxin_battery_snapshot_t xiaoxin_battery_state_update(
     }
   } else if (ctx->power_source == XIAOXIN_BATTERY_POWER_UNKNOWN &&
              quality == XIAOXIN_BATTERY_SAMPLE_VALID) {
+    const bool critically_low_percent =
+      ctx->estimated_percent <= k_low_to_critical_percent;
     if (ctx->unknown_since_ms == 0) {
       ctx->unknown_since_ms = now_ms;
     }
     update_discharge_window(ctx, voltage_mv, now_ms);
-    if (ctx->smoothed_voltage_mv < 4080 && has_normal_discharge_feature(ctx)) {
+    if ((ctx->smoothed_voltage_mv < 4080 && has_normal_discharge_feature(ctx)) ||
+        critically_low_percent) {
       if (ctx->battery_candidate_since_ms == 0) {
         ctx->battery_candidate_since_ms = now_ms;
       }
@@ -611,9 +614,8 @@ xiaoxin_battery_snapshot_t xiaoxin_battery_state_update(
     critical_edge = desired == XIAOXIN_BATTERY_STATE_CRITICAL &&
                     previous != XIAOXIN_BATTERY_STATE_CRITICAL;
     recovered_edge =
-      (previous == XIAOXIN_BATTERY_STATE_LOW ||
-       previous == XIAOXIN_BATTERY_STATE_CRITICAL) &&
-      desired == XIAOXIN_BATTERY_STATE_NORMAL;
+      previous == XIAOXIN_BATTERY_STATE_CRITICAL &&
+      desired == XIAOXIN_BATTERY_STATE_LOW;
   }
 
   if (ctx->state_edges_suppressed_until_reconfirmed && desired == ctx->state) {
