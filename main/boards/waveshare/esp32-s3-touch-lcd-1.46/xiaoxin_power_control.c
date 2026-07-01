@@ -11,6 +11,10 @@ void xiaoxin_power_control_init(xiaoxin_power_control_t* power) {
 }
 
 void xiaoxin_power_control_handle_long_press(xiaoxin_power_control_t* power) {
+  xiaoxin_power_control_request_shutdown(power);
+}
+
+void xiaoxin_power_control_request_shutdown(xiaoxin_power_control_t* power) {
   if (power == 0) {
     return;
   }

@@ -5308,7 +5308,7 @@ private:
             return;
         }
 
-        xiaoxin_power_control_handle_long_press(&power_control_);
+        xiaoxin_power_control_request_shutdown(&power_control_);
         GetBacklight()->SetBrightness(0);
         RuntimeHealthForceCheckpoint();
         gpio_set_level(PWR_Control_PIN, xiaoxin_power_control_power_hold(&power_control_));
