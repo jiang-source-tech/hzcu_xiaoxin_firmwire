@@ -55,6 +55,7 @@ extern "C" {
 #include "paopao_pet_gif_assets.h"
 #include "paopao_pet_state.h"
 #include "paopao_pet_trigger.h"
+#include "xiaoxin_battery_state.h"
 #include "xiaoxin_card_pager.h"
 #include "xiaoxin_overview_model.h"
 #include "xiaoxin_notification_heads_up.h"
@@ -119,6 +120,9 @@ static constexpr uint32_t k_pet_render_task_stack_bytes = 12 * 1024;
 static constexpr uint32_t k_power_off_release_poll_ms = 20;
 static constexpr adc_channel_t k_battery_adc_channel = ADC_CHANNEL_7;
 static constexpr int k_battery_voltage_divider = 3;
+static constexpr int k_external_power_voltage_mv = 4500;
+static constexpr uint64_t k_battery_monitor_interval_us = 2 * 1000 * 1000;
+static constexpr uint8_t k_battery_runtime_sample_count = 4;
 static constexpr uint32_t k_motion_poll_ms = 50;
 static constexpr uint32_t k_shake_cooldown_ms = 1800;
 static constexpr int32_t k_shake_delta_threshold = 12000;
@@ -4947,6 +4951,13 @@ private:
     adc_cali_handle_t battery_adc_cali_handle_ = nullptr;
     bool battery_adc_initialized_ = false;
     bool battery_adc_available_ = false;
+    xiaoxin_battery_context_t battery_context_ = {};
+    xiaoxin_battery_snapshot_t battery_snapshot_ = {};
+    bool battery_context_initialized_ = false;
+    bool battery_has_snapshot_ = false;
+    int last_battery_voltage_mv_ = 0;
+    uint32_t last_battery_sample_ms_ = 0;
+    esp_timer_handle_t battery_monitor_timer_ = nullptr;
     button_handle_t boot_btn, pwr_btn;
     button_driver_t* boot_btn_driver_ = nullptr;
     button_driver_t* pwr_btn_driver_ = nullptr;
@@ -5010,7 +5021,7 @@ private:
 
         const int voltage_mv = sample_count > 0 ? voltage_sum / sample_count : 0;
         // Li-ion battery max ~4200mV; USB is ~5000mV. Use 4500mV as threshold.
-        on_battery_ = voltage_mv <= 4500;
+        on_battery_ = voltage_mv <= k_external_power_voltage_mv;
         ESP_LOGI(TAG, "[BOOT] Early power detection: %dmV → %s",
             voltage_mv,
             on_battery_ ? "battery" : "USB/external");
@@ -5229,6 +5240,117 @@ private:
 
         battery_adc_available_ = true;
         ESP_LOGI(TAG, "Battery ADC initialized on GPIO8 / ADC1 channel 7");
+    }
+
+    bool ReadBatteryVoltageMv(int* voltage_mv) {
+        if (voltage_mv == nullptr) {
+            return false;
+        }
+        if (!battery_adc_available_) {
+            return false;
+        }
+
+        int voltage_sum = 0;
+        uint8_t sample_count = 0;
+        for (uint8_t i = 0; i < k_battery_runtime_sample_count; ++i) {
+            int raw_value = 0;
+            int pin_voltage_mv = 0;
+            if (adc_oneshot_read(battery_adc_handle_, k_battery_adc_channel, &raw_value) != ESP_OK) {
+                continue;
+            }
+            if (adc_cali_raw_to_voltage(battery_adc_cali_handle_, raw_value, &pin_voltage_mv) != ESP_OK) {
+                continue;
+            }
+            voltage_sum += pin_voltage_mv * k_battery_voltage_divider;
+            sample_count++;
+        }
+
+        if (sample_count == 0) {
+            return false;
+        }
+
+        *voltage_mv = voltage_sum / sample_count;
+        return true;
+    }
+
+    uint32_t BatteryNowMs() const {
+        return (uint32_t)(esp_timer_get_time() / 1000);
+    }
+
+    xiaoxin_battery_power_hint_t CurrentBatteryPowerHint(int voltage_mv) const {
+        if (voltage_mv > k_external_power_voltage_mv) {
+            return XIAOXIN_BATTERY_POWER_HINT_EXTERNAL;
+        }
+        if (on_battery_) {
+            return XIAOXIN_BATTERY_POWER_HINT_BATTERY;
+        }
+        return XIAOXIN_BATTERY_POWER_HINT_UNKNOWN;
+    }
+
+    void StartBatteryMonitor() {
+        if (battery_monitor_timer_ != nullptr) {
+            return;
+        }
+
+        const uint32_t now_ms = BatteryNowMs();
+        xiaoxin_battery_state_init(&battery_context_, now_ms);
+        battery_snapshot_ = xiaoxin_battery_state_snapshot(&battery_context_);
+        battery_context_initialized_ = true;
+        battery_has_snapshot_ = true;
+
+        const esp_timer_create_args_t battery_timer_args = {
+            .callback = [](void* arg) {
+                static_cast<CustomBoard*>(arg)->RefreshBatteryStateFromTimer();
+            },
+            .arg = this,
+            .dispatch_method = ESP_TIMER_TASK,
+            .name = "battery_monitor",
+            .skip_unhandled_events = true,
+        };
+
+        esp_err_t err = esp_timer_create(&battery_timer_args, &battery_monitor_timer_);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Battery monitor timer create failed: %s", esp_err_to_name(err));
+            return;
+        }
+
+        RefreshBatteryStateFromTimer();
+        err = esp_timer_start_periodic(battery_monitor_timer_, k_battery_monitor_interval_us);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Battery monitor timer start failed: %s", esp_err_to_name(err));
+        }
+    }
+
+    void RefreshBatteryStateFromTimer() {
+        if (!battery_context_initialized_) {
+            xiaoxin_battery_state_init(&battery_context_, BatteryNowMs());
+            battery_context_initialized_ = true;
+        }
+
+        int voltage_mv = 0;
+        const bool sample_valid = ReadBatteryVoltageMv(&voltage_mv);
+        const uint32_t now_ms = BatteryNowMs();
+        if (sample_valid) {
+            last_battery_voltage_mv_ = voltage_mv;
+            last_battery_sample_ms_ = now_ms;
+        }
+
+        battery_snapshot_ = xiaoxin_battery_state_update(
+            &battery_context_,
+            voltage_mv,
+            sample_valid,
+            sample_valid ? CurrentBatteryPowerHint(voltage_mv) : XIAOXIN_BATTERY_POWER_HINT_UNKNOWN,
+            XIAOXIN_BATTERY_LOAD_IDLE,
+            now_ms
+        );
+        battery_has_snapshot_ = true;
+        HandleBatterySnapshot(battery_snapshot_);
+    }
+
+    void HandleBatterySnapshot(const xiaoxin_battery_snapshot_t& snapshot) {
+        if (snapshot.low_edge && display_ != nullptr) {
+            display_->ShowNotification("电量低，请尽快充电", 3000);
+        }
     }
 
     void RunMotionLoop() {
@@ -5692,6 +5814,7 @@ public:
         } else {
             GetBacklight()->RestoreBrightness();
         }
+        StartBatteryMonitor();
 
         ESP_LOGI(TAG, "[BOOT] Stage 8/11: Touch controller");
         BootDiagnosticsMark("board_touch_start");
@@ -5815,10 +5938,17 @@ public:
     }
 
     virtual bool GetBatteryLevel(int& level, bool& charging, bool& discharging) override {
-        (void)level;
-        (void)charging;
-        (void)discharging;
-        return false;
+        charging = false;
+        discharging = false;
+
+        if (!battery_has_snapshot_ || !battery_snapshot_.percent_reliable) {
+            return false;
+        }
+
+        level = battery_snapshot_.display_percent;
+        charging = battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_EXTERNAL;
+        discharging = battery_snapshot_.power_source == XIAOXIN_BATTERY_POWER_BATTERY;
+        return true;
     }
 
     virtual Display* GetDisplay() override {
