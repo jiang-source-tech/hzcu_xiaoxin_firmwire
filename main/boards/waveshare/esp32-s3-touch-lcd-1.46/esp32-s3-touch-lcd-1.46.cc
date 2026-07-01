@@ -122,6 +122,7 @@ static constexpr adc_channel_t k_battery_adc_channel = ADC_CHANNEL_7;
 static constexpr int k_battery_voltage_divider = 3;
 static constexpr int k_external_power_voltage_mv = 4500;
 static constexpr uint64_t k_battery_monitor_interval_us = 2 * 1000 * 1000;
+static constexpr uint64_t k_low_battery_shutdown_delay_us = 3 * 1000 * 1000;
 static constexpr uint8_t k_battery_runtime_sample_count = 4;
 static constexpr uint32_t k_motion_poll_ms = 50;
 static constexpr uint32_t k_shake_cooldown_ms = 1800;
@@ -4958,6 +4959,9 @@ private:
     int last_battery_voltage_mv_ = 0;
     uint32_t last_battery_sample_ms_ = 0;
     esp_timer_handle_t battery_monitor_timer_ = nullptr;
+    esp_timer_handle_t low_battery_shutdown_timer_ = nullptr;
+    bool low_battery_shutdown_pending_ = false;
+    bool low_battery_shutdown_startup_stage_ = false;
     button_handle_t boot_btn, pwr_btn;
     button_driver_t* boot_btn_driver_ = nullptr;
     button_driver_t* pwr_btn_driver_ = nullptr;
@@ -5348,8 +5352,101 @@ private:
     }
 
     void HandleBatterySnapshot(const xiaoxin_battery_snapshot_t& snapshot) {
+        CancelLowBatteryShutdownIfRecovered(snapshot);
+
         if (snapshot.low_edge && display_ != nullptr) {
             display_->ShowNotification("电量低，请尽快充电", 3000);
+        }
+
+        if (snapshot.critical_edge) {
+            BeginLowBatteryShutdown(false);
+        }
+    }
+
+    void CancelLowBatteryShutdownIfRecovered(const xiaoxin_battery_snapshot_t& snapshot) {
+        if (!low_battery_shutdown_pending_) {
+            return;
+        }
+
+        const bool external_power = snapshot.power_source == XIAOXIN_BATTERY_POWER_EXTERNAL;
+        const bool recovered = snapshot.recovered_edge;
+        if (!external_power && !recovered) {
+            return;
+        }
+
+        if (low_battery_shutdown_timer_ != nullptr) {
+            esp_timer_stop(low_battery_shutdown_timer_);
+        }
+        low_battery_shutdown_pending_ = false;
+        low_battery_shutdown_startup_stage_ = false;
+        ESP_LOGI(TAG, "Low battery shutdown canceled: external=%d recovered=%d", external_power ? 1 : 0, recovered ? 1 : 0);
+        if (display_ != nullptr) {
+            display_->ShowNotification("已接入电源", 2000);
+        }
+    }
+
+    void BeginLowBatteryShutdown(bool startup_stage) {
+        if (low_battery_shutdown_pending_ || xiaoxin_power_control_shutdown_requested(&power_control_)) {
+            return;
+        }
+
+        low_battery_shutdown_pending_ = true;
+        low_battery_shutdown_startup_stage_ = startup_stage;
+        if (display_ != nullptr) {
+            display_->ShowNotification("电量不足，即将关机", 3000);
+        }
+
+        if (low_battery_shutdown_timer_ == nullptr) {
+            const esp_timer_create_args_t shutdown_timer_args = {
+                .callback = [](void* arg) {
+                    static_cast<CustomBoard*>(arg)->FinishLowBatteryShutdown();
+                },
+                .arg = this,
+                .dispatch_method = ESP_TIMER_TASK,
+                .name = "low_battery_off",
+                .skip_unhandled_events = true,
+            };
+            esp_err_t err = esp_timer_create(&shutdown_timer_args, &low_battery_shutdown_timer_);
+            if (err != ESP_OK) {
+                ESP_LOGW(TAG, "Low battery shutdown timer create failed: %s", esp_err_to_name(err));
+                FinishLowBatteryShutdown();
+                return;
+            }
+        } else {
+            esp_timer_stop(low_battery_shutdown_timer_);
+        }
+
+        esp_err_t err = esp_timer_start_once(low_battery_shutdown_timer_, k_low_battery_shutdown_delay_us);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Low battery shutdown timer start failed: %s", esp_err_to_name(err));
+            FinishLowBatteryShutdown();
+        }
+    }
+
+    void FinishLowBatteryShutdown() {
+        if (!low_battery_shutdown_pending_) {
+            return;
+        }
+
+        low_battery_shutdown_pending_ = false;
+        RuntimeHealthForceCheckpoint();
+        xiaoxin_power_control_request_shutdown(&power_control_);
+        GetBacklight()->SetBrightness(0);
+        gpio_set_level(PWR_Control_PIN, xiaoxin_power_control_power_hold(&power_control_));
+        ESP_LOGI(TAG, "Low battery shutdown: power hold released (startup=%d voltage=%dmV)",
+            low_battery_shutdown_startup_stage_ ? 1 : 0,
+            last_battery_voltage_mv_);
+
+        if (power_off_task_ == nullptr) {
+            xTaskCreatePinnedToCore(
+                PowerOffTask,
+                "pwr_off",
+                3072,
+                this,
+                4,
+                &power_off_task_,
+                1
+            );
         }
     }
 
