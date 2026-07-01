@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <vector>
 
+#include "../main/audio/speaker_output_enhancer.h"
 #include "../main/audio/speaker_output_limiter.h"
 
 static void peak_from_minus_3_dbfs_leaves_headroom() {
@@ -40,11 +41,20 @@ static void invalid_peak_falls_back_to_full_scale() {
     assert(pcm[1] == 32767);
 }
 
+static void default_enhancer_limiter_leaves_headroom_for_waveshare_output_boost() {
+    constexpr float kWaveshareOutputBoost = 1.6f;
+    SpeakerOutputEnhancer::Config config;
+    int16_t peak = speaker_output_limiter_peak_from_db(config.limiter_ceiling_db);
+
+    assert(static_cast<float>(peak) * kWaveshareOutputBoost <= static_cast<float>(INT16_MAX));
+}
+
 int main(void) {
     peak_from_minus_3_dbfs_leaves_headroom();
     limiter_clamps_positive_and_negative_samples();
     limiter_keeps_length_for_empty_and_normal_frames();
     invalid_peak_falls_back_to_full_scale();
+    default_enhancer_limiter_leaves_headroom_for_waveshare_output_boost();
     puts("speaker_output_limiter tests passed");
     return 0;
 }

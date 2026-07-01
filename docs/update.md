@@ -1,5 +1,31 @@
 ﻿# Update
 
+## 2026-07-01 00:00:00 +08:00
+
+### Waveshare ESP32-S3 Touch LCD 1.46/1.46C 扬声器输出削波余量调整
+
+#### 背景
+
+实机反馈在保持音量的情况下，外放听感有杂音、不够清晰。当前播放链路已经启用 `SpeakerOutputEnhancer`，并且目标板在 codec 写出前还会使用 `AUDIO_OUTPUT_BOOST = 1.6f`。原默认 limiter ceiling 为 `-2.5 dBFS`，峰值乘以后级 boost 后仍可能触达最终 I2S 输出饱和区，听感上容易表现为毛刺、破音或嘈杂。
+
+#### 修改内容
+
+- 将 `SpeakerOutputEnhancer::Config` 默认 limiter ceiling 从 `-2.5 dBFS` 调整为 `-4.5 dBFS`。
+- 保持 DRC makeup gain、EQ 人声/提示音频段增强、软件音量 100 和 `AUDIO_OUTPUT_BOOST = 1.6f` 不变，优先减少削波杂音而不是直接降低整体响度。
+- 扩展主机侧 limiter 测试，覆盖默认 enhancer limiter 在 Waveshare 1.6 倍后级 boost 下仍保留峰值余量。
+
+#### 涉及文件
+
+- `main/audio/speaker_output_enhancer.h`
+- `tests/speaker_output_limiter_test.cc`
+- `docs/update.md`
+
+#### 验证结果
+
+- `$env:PATH='D:\msys64\ucrt64\bin;' + $env:PATH; g++ -std=c++17 -Wall -Wextra -Werror tests\speaker_output_limiter_test.cc main\audio\speaker_output_limiter.cc -I main\audio -o build\speaker_output_limiter_test.exe; .\build\speaker_output_limiter_test.exe`：通过，输出 `speaker_output_limiter tests passed`。
+- `git diff --check`：通过，无 whitespace error。
+- `& 'D:\Espressif\frameworks\esp-idf-v5.5.4\export.ps1'; D:\Espressif\tools\ninja\1.12.1\ninja.exe -C build esp-idf/main/CMakeFiles/__idf_main.dir/audio/speaker_output_enhancer.cc.obj`：通过，成功构建 `speaker_output_enhancer.cc.obj`。
+
 ## 2026-06-28 00:00:00 +08:00
 
 ### Waveshare ESP32-S3 Touch LCD 1.46/1.46C 扬声器输出增强器更响清晰版
