@@ -104,3 +104,39 @@ def test_wake_word_listening_restart_arms_stt_thinking_suppression_before_send_s
     assert listening_restart.index("SuppressSttThinkingFor(kSttThinkingSuppressionWindowUs);") < listening_restart.index(
         "protocol_->SendStartListening(GetDefaultListeningMode());"
     )
+
+
+def test_vad_true_while_listening_clears_stt_thinking_suppression_before_led_refresh():
+    body = function_body(read_source(APPLICATION), "void Application::Run()")
+    vad_section = switch_case(body, "if (bits & MAIN_EVENT_VAD_CHANGE) {", "if (bits & MAIN_EVENT_SCHEDULE) {")
+
+    assert "if (GetDeviceState() == kDeviceStateListening) {" in vad_section
+    assert "if (audio_service_.IsVoiceDetected()) {" in vad_section
+    assert "ClearSttThinkingSuppression();" in vad_section
+    assert "led->OnStateChanged();" in vad_section
+    assert vad_section.index("ClearSttThinkingSuppression();") < vad_section.index("led->OnStateChanged();")
+
+
+def test_manual_start_listening_from_speaking_arms_suppression_before_listening_state():
+    body = function_body(read_source(APPLICATION), "void Application::HandleStartListeningEvent()")
+    speaking_branch = body[body.index("else if (state == kDeviceStateSpeaking) {") :]
+
+    assert "AbortSpeaking(kAbortReasonNone);" in speaking_branch
+    assert "SuppressSttThinkingFor(kSttThinkingSuppressionWindowUs);" in speaking_branch
+    assert "SetListeningMode(kListeningModeManualStop);" in speaking_branch
+    assert speaking_branch.index("SuppressSttThinkingFor(kSttThinkingSuppressionWindowUs);") < speaking_branch.index(
+        "SetListeningMode(kListeningModeManualStop);"
+    )
+
+
+def test_wake_word_speaking_restart_arms_suppression_before_listening_state():
+    body = function_body(read_source(APPLICATION), "void Application::HandleWakeWordDetectedEvent()")
+    speaking_start = body.index("} else {", body.index("if (state == kDeviceStateListening) {"))
+    speaking_restart = body[speaking_start:]
+
+    assert "play_popup_on_listening_ = true;" in speaking_restart
+    assert "SuppressSttThinkingFor(kSttThinkingSuppressionWindowUs);" in speaking_restart
+    assert "SetListeningMode(GetDefaultListeningMode());" in speaking_restart
+    assert speaking_restart.index("SuppressSttThinkingFor(kSttThinkingSuppressionWindowUs);") < speaking_restart.index(
+        "SetListeningMode(GetDefaultListeningMode());"
+    )

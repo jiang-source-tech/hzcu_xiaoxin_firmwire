@@ -174,6 +174,7 @@ private:
     void SetListeningMode(ListeningMode mode);
     ListeningMode GetDefaultListeningMode() const;
     void SuppressSttThinkingFor(int64_t duration_us);
+    void ClearSttThinkingSuppression();
     bool IsSttThinkingSuppressed() const;
     
     // State change handler called by state machine

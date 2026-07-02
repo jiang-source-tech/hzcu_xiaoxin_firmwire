@@ -276,6 +276,9 @@ void Application::Run() {
 
         if (bits & MAIN_EVENT_VAD_CHANGE) {
             if (GetDeviceState() == kDeviceStateListening) {
+                if (audio_service_.IsVoiceDetected()) {
+                    ClearSttThinkingSuppression();
+                }
                 auto led = Board::GetInstance().GetLed();
                 led->OnStateChanged();
             }
@@ -1075,6 +1078,10 @@ ListeningMode Application::GetDefaultListeningMode() const {
 
 void Application::SuppressSttThinkingFor(int64_t duration_us) {
     suppress_stt_thinking_until_us_ = esp_timer_get_time() + duration_us;
+}
+
+void Application::ClearSttThinkingSuppression() {
+    suppress_stt_thinking_until_us_ = 0;
 }
 
 bool Application::IsSttThinkingSuppressed() const {
