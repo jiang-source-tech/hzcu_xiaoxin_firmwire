@@ -62,7 +62,7 @@ def test_state_machine_names_and_transitions_include_thinking():
 def test_lang_config_exposes_thinking_status_text():
     source = read_source(LANG_CONFIG)
 
-    assert 'constexpr const char* THINKING = "鎬濊€冧腑...";' in source
+    assert 'constexpr const char* THINKING = "思考中...";' in source
 
 
 def test_application_renders_thinking_state_as_status_and_pet_thinking():

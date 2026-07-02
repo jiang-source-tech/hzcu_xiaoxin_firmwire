@@ -75,3 +75,64 @@ Planned commit message:
 ```text
 feat: add xiaoxin thinking voice state
 ```
+
+## Task 1 review fix
+
+Reviewer issue addressed:
+
+- Corrected `Lang::Strings::THINKING` in `main/assets/lang_config.h` from mojibake to UTF-8 `思考中...`.
+- Updated `tests/xiaoxin_voice_state_flow_path_test.py` to assert the actual UTF-8 literal.
+
+### Regression red check
+
+Command:
+
+```powershell
+python -m pytest tests/xiaoxin_voice_state_flow_path_test.py -q
+```
+
+Output:
+
+```text
+..F.                                                                     [100%]
+================================== FAILURES ===================================
+________________ test_lang_config_exposes_thinking_status_text ________________
+
+    def test_lang_config_exposes_thinking_status_text():
+        source = read_source(LANG_CONFIG)
+
+>       assert 'constexpr const char* THINKING = "思考中...";' in source
+E       assert 'constexpr const char* THINKING = "思考中...";' in '// Auto-generated language config ...'
+
+tests\xiaoxin_voice_state_flow_path_test.py:65: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/xiaoxin_voice_state_flow_path_test.py::test_lang_config_exposes_thinking_status_text
+1 failed, 3 passed in 0.78s
+```
+
+### Required verification
+
+Command:
+
+```powershell
+python -m pytest tests/xiaoxin_voice_state_flow_path_test.py -q
+```
+
+Output:
+
+```text
+....                                                                     [100%]
+4 passed in 0.02s
+```
+
+Command:
+
+```powershell
+python -c "from pathlib import Path; print('思考中...' in Path('main/assets/lang_config.h').read_text(encoding='utf-8'))"
+```
+
+Output:
+
+```text
+True
+```
