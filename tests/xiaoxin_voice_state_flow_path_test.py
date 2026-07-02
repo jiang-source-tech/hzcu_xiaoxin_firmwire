@@ -33,6 +33,21 @@ def switch_case(source: str, marker: str, next_marker: str) -> str:
     return source[start:end]
 
 
+def branch_block(source: str, marker: str) -> str:
+    start = source.index(marker)
+    brace = source.index("{", start)
+    depth = 0
+    for index in range(brace, len(source)):
+        char = source[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[start : index + 1]
+    raise AssertionError(f"branch block not found: {marker}")
+
+
 def test_thinking_state_is_declared_between_listening_and_speaking():
     source = read_source(DEVICE_STATE)
 
@@ -152,7 +167,10 @@ def test_paopao_status_recognizes_thinking_status():
 
 def test_assistant_subtitle_only_sets_speaking_pet_when_device_is_speaking():
     body = function_body(read_source(PAOPAO_DISPLAY), "virtual void SetChatMessage(const char* role, const char* content) override")
-    assistant_section = switch_case(body, 'std::strcmp(role, "assistant") == 0', "}")
+    assistant_section = branch_block(body, 'std::strcmp(role, "assistant") == 0')
 
     assert "Application::GetInstance().GetDeviceState() == kDeviceStateSpeaking" in assistant_section
     assert "PAOPAO_PET_TRIGGER_SPEAKING" in assistant_section
+    assert "} else {" in assistant_section
+    fallback_section = assistant_section.split("} else {", 1)[1]
+    assert "DispatchPetMoodEvent(PAOPAO_PET_MOOD_EVENT_ASSISTANT_REPLY);" in fallback_section
