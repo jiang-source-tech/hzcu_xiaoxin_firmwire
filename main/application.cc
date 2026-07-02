@@ -25,6 +25,7 @@
 
 // 常驻门铃 MQTT 客户端（设备空闲/待机时被服务器叫醒用）。激活完成后启动一次。
 static DoorbellMqtt g_doorbell_mqtt;
+static constexpr int64_t kSttThinkingSuppressionWindowUs = 800 * 1000;
 
 static std::string NormalizeXiaoxinDeviceName(std::string text) {
     const char* variants[] = {"小新", "晓新"};
@@ -642,7 +643,7 @@ void Application::InitializeProtocol() {
             if (cJSON_IsString(text)) {
                 ESP_LOGI(TAG, ">> %s", text->valuestring);
                 Schedule([this, display, message = NormalizeXiaoxinDeviceName(std::string(text->valuestring))]() {
-                    if (GetDeviceState() == kDeviceStateListening) {
+                    if (GetDeviceState() == kDeviceStateListening && !IsSttThinkingSuppressed()) {
                         SetDeviceState(kDeviceStateThinking);
                     }
                     display->SetChatMessage("user", message.c_str());
@@ -863,6 +864,7 @@ void Application::HandleStartListeningEvent() {
         SetListeningMode(kListeningModeManualStop);
     } else if (state == kDeviceStateSpeaking) {
         AbortSpeaking(kAbortReasonNone);
+        SuppressSttThinkingFor(kSttThinkingSuppressionWindowUs);
         SetListeningMode(kListeningModeManualStop);
     }
 }
@@ -912,6 +914,7 @@ void Application::HandleWakeWordDetectedEvent() {
         while (audio_service_.PopPacketFromSendQueue());
 
         if (state == kDeviceStateListening) {
+            SuppressSttThinkingFor(kSttThinkingSuppressionWindowUs);
             protocol_->SendStartListening(GetDefaultListeningMode());
             audio_service_.ResetDecoder();
             audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
@@ -920,6 +923,7 @@ void Application::HandleWakeWordDetectedEvent() {
         } else {
             // Play popup sound and start listening again
             play_popup_on_listening_ = true;
+            SuppressSttThinkingFor(kSttThinkingSuppressionWindowUs);
             SetListeningMode(GetDefaultListeningMode());
         }
     } else if (state == kDeviceStateActivating) {
@@ -1067,6 +1071,14 @@ void Application::SetListeningMode(ListeningMode mode) {
 
 ListeningMode Application::GetDefaultListeningMode() const {
     return aec_mode_ == kAecOff ? kListeningModeAutoStop : kListeningModeRealtime;
+}
+
+void Application::SuppressSttThinkingFor(int64_t duration_us) {
+    suppress_stt_thinking_until_us_ = esp_timer_get_time() + duration_us;
+}
+
+bool Application::IsSttThinkingSuppressed() const {
+    return esp_timer_get_time() < suppress_stt_thinking_until_us_;
 }
 
 void Application::Reboot() {

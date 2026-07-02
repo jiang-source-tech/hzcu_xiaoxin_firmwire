@@ -79,6 +79,7 @@ def test_stt_text_moves_listening_to_thinking_before_user_subtitle():
     body = function_body(read_source(APPLICATION), "void Application::InitializeProtocol()")
     stt_section = switch_case(body, 'strcmp(type->valuestring, "stt") == 0', 'strcmp(type->valuestring, "llm") == 0')
 
+    assert "if (GetDeviceState() == kDeviceStateListening && !IsSttThinkingSuppressed())" in stt_section
     assert "SetDeviceState(kDeviceStateThinking);" in stt_section
     assert 'display->SetChatMessage("user", message.c_str());' in stt_section
     assert stt_section.index("SetDeviceState(kDeviceStateThinking);") < stt_section.index('display->SetChatMessage("user", message.c_str());')
@@ -92,3 +93,14 @@ def test_tts_start_moves_thinking_to_speaking_and_tts_stop_leaves_speaking():
     assert "if (GetDeviceState() == kDeviceStateSpeaking)" in tts_section
     assert "SetDeviceState(kDeviceStateListening);" in tts_section
     assert "SetDeviceState(kDeviceStateIdle);" in tts_section
+
+
+def test_wake_word_listening_restart_arms_stt_thinking_suppression_before_send_start_listening():
+    body = function_body(read_source(APPLICATION), "void Application::HandleWakeWordDetectedEvent()")
+    listening_restart = switch_case(body, "if (state == kDeviceStateListening) {", "} else {")
+
+    assert "SuppressSttThinkingFor(kSttThinkingSuppressionWindowUs);" in listening_restart
+    assert "protocol_->SendStartListening(GetDefaultListeningMode());" in listening_restart
+    assert listening_restart.index("SuppressSttThinkingFor(kSttThinkingSuppressionWindowUs);") < listening_restart.index(
+        "protocol_->SendStartListening(GetDefaultListeningMode());"
+    )
