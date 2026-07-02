@@ -63,7 +63,8 @@ def test_low_edge_shows_one_time_warning_without_stopping_core_tasks():
 
     assert "snapshot.low_edge" in handler
     assert "snapshot.state == XIAOXIN_BATTERY_STATE_LOW" not in handler
-    assert 'ShowNotification("电量低，请尽快充电"' in handler
+    assert "display->ShowLowBatteryNotification();" in handler
+    assert 'ShowNotification("电量低，请尽快充电"' not in handler
     assert "InitializeMotion()" not in handler
     assert "StartNetwork()" not in handler
     assert "SetEnabled(false)" not in handler
