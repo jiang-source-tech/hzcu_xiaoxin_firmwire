@@ -641,7 +641,10 @@ void Application::InitializeProtocol() {
             auto text = cJSON_GetObjectItem(root, "text");
             if (cJSON_IsString(text)) {
                 ESP_LOGI(TAG, ">> %s", text->valuestring);
-                Schedule([display, message = NormalizeXiaoxinDeviceName(std::string(text->valuestring))]() {
+                Schedule([this, display, message = NormalizeXiaoxinDeviceName(std::string(text->valuestring))]() {
+                    if (GetDeviceState() == kDeviceStateListening) {
+                        SetDeviceState(kDeviceStateThinking);
+                    }
                     display->SetChatMessage("user", message.c_str());
                 });
             }

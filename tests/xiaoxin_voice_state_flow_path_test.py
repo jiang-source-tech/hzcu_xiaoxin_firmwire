@@ -73,3 +73,22 @@ def test_application_renders_thinking_state_as_status_and_pet_thinking():
     assert 'display->SetEmotion("neutral");' in thinking_case
     assert "audio_service_.EnableVoiceProcessing(false);" in thinking_case
     assert "audio_service_.EnableWakeWordDetection(false);" in thinking_case
+
+
+def test_stt_text_moves_listening_to_thinking_before_user_subtitle():
+    body = function_body(read_source(APPLICATION), "void Application::InitializeProtocol()")
+    stt_section = switch_case(body, 'strcmp(type->valuestring, "stt") == 0', 'strcmp(type->valuestring, "llm") == 0')
+
+    assert "SetDeviceState(kDeviceStateThinking);" in stt_section
+    assert 'display->SetChatMessage("user", message.c_str());' in stt_section
+    assert stt_section.index("SetDeviceState(kDeviceStateThinking);") < stt_section.index('display->SetChatMessage("user", message.c_str());')
+
+
+def test_tts_start_moves_thinking_to_speaking_and_tts_stop_leaves_speaking():
+    body = function_body(read_source(APPLICATION), "void Application::InitializeProtocol()")
+    tts_section = switch_case(body, 'strcmp(type->valuestring, "tts") == 0', 'strcmp(type->valuestring, "stt") == 0')
+
+    assert "SetDeviceState(kDeviceStateSpeaking);" in tts_section
+    assert "if (GetDeviceState() == kDeviceStateSpeaking)" in tts_section
+    assert "SetDeviceState(kDeviceStateListening);" in tts_section
+    assert "SetDeviceState(kDeviceStateIdle);" in tts_section
