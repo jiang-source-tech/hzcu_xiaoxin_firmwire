@@ -16,4 +16,4 @@ enum DeviceState {
     kDeviceStateFatalError
 };
 
-#endif // _DEVICE_STATE_H_ 
+#endif // _DEVICE_STATE_H_
