@@ -817,7 +817,7 @@ void Application::HandleToggleChatEvent() {
         SetListeningMode(mode);
     } else if (state == kDeviceStateSpeaking) {
         AbortSpeaking(kAbortReasonNone);
-    } else if (state == kDeviceStateListening) {
+    } else if (state == kDeviceStateListening || state == kDeviceStateThinking) {
         protocol_->CloseAudioChannel();
         SetDeviceState(kDeviceStateIdle);
     }
@@ -879,7 +879,7 @@ void Application::HandleStopListeningEvent() {
         audio_service_.EnableAudioTesting(false);
         SetDeviceState(kDeviceStateWifiConfiguring);
         return;
-    } else if (state == kDeviceStateListening) {
+    } else if (state == kDeviceStateListening || state == kDeviceStateThinking) {
         if (protocol_) {
             protocol_->SendStopListening();
         }
@@ -911,7 +911,7 @@ void Application::HandleWakeWordDetectedEvent() {
         }
         // Channel already opened, continue directly
         ContinueWakeWordInvoke(wake_word);
-    } else if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
+    } else if (state == kDeviceStateSpeaking || state == kDeviceStateListening || state == kDeviceStateThinking) {
         AbortSpeaking(kAbortReasonWakeWordDetected);
         // Clear send queue to avoid sending residues to server
         while (audio_service_.PopPacketFromSendQueue());

@@ -144,6 +144,22 @@ def test_manual_start_listening_from_speaking_arms_suppression_before_listening_
     )
 
 
+def test_toggle_chat_cancels_thinking_to_idle_like_active_listening():
+    body = function_body(read_source(APPLICATION), "void Application::HandleToggleChatEvent()")
+    cancel_branch = branch_block(body, "state == kDeviceStateListening || state == kDeviceStateThinking")
+
+    assert "protocol_->CloseAudioChannel();" in cancel_branch
+    assert "SetDeviceState(kDeviceStateIdle);" in cancel_branch
+
+
+def test_stop_listening_cancels_thinking_to_idle():
+    body = function_body(read_source(APPLICATION), "void Application::HandleStopListeningEvent()")
+    cancel_branch = branch_block(body, "state == kDeviceStateListening || state == kDeviceStateThinking")
+
+    assert "protocol_->SendStopListening();" in cancel_branch
+    assert "SetDeviceState(kDeviceStateIdle);" in cancel_branch
+
+
 def test_wake_word_speaking_restart_arms_suppression_before_listening_state():
     body = function_body(read_source(APPLICATION), "void Application::HandleWakeWordDetectedEvent()")
     speaking_start = body.index("} else {", body.index("if (state == kDeviceStateListening) {"))
@@ -153,6 +169,22 @@ def test_wake_word_speaking_restart_arms_suppression_before_listening_state():
     assert "SuppressSttThinkingFor(kSttThinkingSuppressionWindowUs);" in speaking_restart
     assert "SetListeningMode(GetDefaultListeningMode());" in speaking_restart
     assert speaking_restart.index("SuppressSttThinkingFor(kSttThinkingSuppressionWindowUs);") < speaking_restart.index(
+        "SetListeningMode(GetDefaultListeningMode());"
+    )
+
+
+def test_wake_word_thinking_restart_arms_suppression_before_listening_state():
+    body = function_body(read_source(APPLICATION), "void Application::HandleWakeWordDetectedEvent()")
+
+    assert "state == kDeviceStateSpeaking || state == kDeviceStateListening || state == kDeviceStateThinking" in body
+
+    thinking_start = body.index("} else {", body.index("if (state == kDeviceStateListening) {"))
+    thinking_restart = body[thinking_start:]
+
+    assert "play_popup_on_listening_ = true;" in thinking_restart
+    assert "SuppressSttThinkingFor(kSttThinkingSuppressionWindowUs);" in thinking_restart
+    assert "SetListeningMode(GetDefaultListeningMode());" in thinking_restart
+    assert thinking_restart.index("SuppressSttThinkingFor(kSttThinkingSuppressionWindowUs);") < thinking_restart.index(
         "SetListeningMode(GetDefaultListeningMode());"
     )
 
