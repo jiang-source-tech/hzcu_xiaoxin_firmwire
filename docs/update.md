@@ -1,5 +1,42 @@
 ﻿# Update
 
+## 2026-07-02 00:00:00 +08:00
+
+### Waveshare ESP32-S3 Touch LCD 1.46/1.46C 低电提醒通知链路修复
+
+#### 背景
+
+实机反馈低电量触发后，没有以通知卡片和通知分页内容的形式出现，而是显示在屏幕最上方用于 `说话中...`、`聆听中...` 等状态文字的位置。该位置属于旧的顶部状态/notification label，不应承载低电量这类系统通知。
+
+#### 修改内容
+
+- 修复低电量 LOW 边沿提示路径：
+  - `HandleBatterySnapshot()` 在 `snapshot.low_edge` 时不再调用普通 `ShowNotification("电量低，请尽快充电")`。
+  - 新增 `PaopaoPetDisplay::ShowLowBatteryNotification()`，专门构造 `XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY` 事件。
+  - 低电提醒现在通过 `UpsertNotificationEventLocked()` 写入通知中心，并进入统一 heads-up 通知队列。
+- 保留低电量原有行为边界：
+  - 仍然只由 `snapshot.low_edge` 触发一次。
+  - 不停止宠物动画、网络、音频或其他核心体验。
+  - CRITICAL 临界低电关机路径保持不变，仍显示 `电量不足，即将关机` 并进入主动关机流程。
+- 更新路径测试：
+  - 锁定 LOW 边沿调用 `display->ShowLowBatteryNotification()`。
+  - 明确禁止 LOW 边沿继续调用普通 `ShowNotification("电量低，请尽快充电")`，防止回归到顶部状态文字区域。
+  - 锁定低电通知使用 `XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY`、标题 `低电量`、正文 `电量低，请尽快充电`、标签 `电量`。
+
+#### 涉及文件
+
+- `main/boards/waveshare/esp32-s3-touch-lcd-1.46/esp32-s3-touch-lcd-1.46.cc`
+- `tests/xiaoxin_low_battery_shutdown_path_test.py`
+- `tests/xiaoxin_notification_visual_path_test.py`
+- `docs/update.md`
+
+#### 验证结果
+
+- `python -m pytest tests/xiaoxin_low_battery_shutdown_path_test.py tests/xiaoxin_notification_visual_path_test.py -q`：通过，`32 passed`。
+- `python -m pytest tests/xiaoxin_bottom_subtitle_stream_test.py tests/xiaoxin_serial_debug_command_test.py -q`：通过，`5 passed`。
+- `python -m pytest tests -q`：通过，`179 passed`。
+- 当前未执行完整 ESP-IDF 固件构建；发布固件前仍需在 ESP-IDF shell 中执行完整构建并做实机低电提醒验证。
+
 ## 2026-07-01 00:00:00 +08:00
 
 ### Waveshare ESP32-S3 Touch LCD 1.46/1.46C 低电主动关机、诊断与总览电量显示

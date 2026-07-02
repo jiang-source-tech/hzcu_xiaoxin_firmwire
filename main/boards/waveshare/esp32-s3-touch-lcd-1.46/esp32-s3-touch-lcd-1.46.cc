@@ -857,6 +857,20 @@ public:
         RaiseOverlayObjects();
     }
 
+    void ShowLowBatteryNotification() {
+        DisplayLockGuard lock(this);
+        const xiaoxin_notification_event_t event = {
+            .type = XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY,
+            .title = "低电量",
+            .body = "电量低，请尽快充电",
+            .tag = "电量",
+            .priority = 2,
+            .ttl_ms = 0,
+        };
+        UpsertNotificationEventLocked(event);
+        RaiseOverlayObjects();
+    }
+
     bool UpsertNotification(
         const char* id,
         const char* title,
@@ -5422,7 +5436,7 @@ private:
         }
 
         if (snapshot.low_edge && display != nullptr) {
-            display->ShowNotification("电量低，请尽快充电", 3000);
+            display->ShowLowBatteryNotification();
         }
 
         if (snapshot.critical_edge) {

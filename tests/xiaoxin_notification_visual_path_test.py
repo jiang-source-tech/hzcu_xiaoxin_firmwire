@@ -273,13 +273,20 @@ def test_low_battery_notification_uses_status_copy_without_percent():
     assert "SyncLowBatteryNotificationLocked();" not in status_body
 
 
-def test_low_battery_notification_requires_battery_power_source():
+def test_low_battery_notification_uses_typed_notification_event():
     source = read_source()
+    body = function_body(source, "void ShowLowBatteryNotification()")
 
     assert "void SyncLowBatteryNotificationLocked()" not in source
-    assert "XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY" not in source
     assert "low_battery_notification_active_" not in source
     assert "last_low_battery_notification_" not in source
+    assert "DisplayLockGuard lock(this);" in body
+    assert "XIAOXIN_NOTIFICATION_EVENT_LOW_BATTERY" in body
+    assert '.title = "低电量"' in body
+    assert '.body = "电量低，请尽快充电"' in body
+    assert '.tag = "电量"' in body
+    assert "UpsertNotificationEventLocked(event);" in body
+    assert "RaiseOverlayObjects();" in body
 
 
 def test_low_battery_notification_reacts_to_state_changes_at_same_percent():
