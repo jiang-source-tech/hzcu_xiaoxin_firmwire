@@ -38,6 +38,7 @@ namespace Lang {
         constexpr const char* INFO = "信息";
         constexpr const char* INITIALIZING = "正在初始化...";
         constexpr const char* LISTENING = "聆听中...";
+        constexpr const char* THINKING = "鎬濊€冧腑...";
         constexpr const char* LOADING_ASSETS = "加载资源...";
         constexpr const char* LOADING_PROTOCOL = "登录服务器...";
         constexpr const char* MAX_VOLUME = "最大音量";
