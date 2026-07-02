@@ -140,3 +140,19 @@ def test_wake_word_speaking_restart_arms_suppression_before_listening_state():
     assert speaking_restart.index("SuppressSttThinkingFor(kSttThinkingSuppressionWindowUs);") < speaking_restart.index(
         "SetListeningMode(GetDefaultListeningMode());"
     )
+
+
+def test_paopao_status_recognizes_thinking_status():
+    body = function_body(read_source(PAOPAO_DISPLAY), "virtual void SetStatus(const char* status) override")
+
+    assert "StatusEquals(status, Lang::Strings::THINKING)" in body
+    assert "PAOPAO_PET_TRIGGER_THINKING" in body
+    assert "PAOPAO_PET_BEHAVIOR_VOICE_THINKING" in body
+
+
+def test_assistant_subtitle_only_sets_speaking_pet_when_device_is_speaking():
+    body = function_body(read_source(PAOPAO_DISPLAY), "virtual void SetChatMessage(const char* role, const char* content) override")
+    assistant_section = switch_case(body, 'std::strcmp(role, "assistant") == 0', "}")
+
+    assert "Application::GetInstance().GetDeviceState() == kDeviceStateSpeaking" in assistant_section
+    assert "PAOPAO_PET_TRIGGER_SPEAKING" in assistant_section

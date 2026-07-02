@@ -745,7 +745,8 @@ public:
                 PAOPAO_PET_TRIGGER_SPEAKING,
                 PAOPAO_PET_BEHAVIOR_VOICE_SPEAKING
             );
-        } else if (Contains(status, "Thinking") || Contains(status, "thinking")) {
+        } else if (StatusEquals(status, Lang::Strings::THINKING) ||
+                   Contains(status, "Thinking") || Contains(status, "thinking")) {
             DispatchPetVoiceState(
                 PAOPAO_PET_TRIGGER_THINKING,
                 PAOPAO_PET_BEHAVIOR_VOICE_THINKING
@@ -805,11 +806,15 @@ public:
                 PAOPAO_PET_MOOD_EVENT_CHAT_STARTED
             );
         } else if (std::strcmp(role, "assistant") == 0) {
-            DispatchPetVoiceState(
-                PAOPAO_PET_TRIGGER_SPEAKING,
-                PAOPAO_PET_BEHAVIOR_VOICE_SPEAKING,
-                PAOPAO_PET_MOOD_EVENT_ASSISTANT_REPLY
-            );
+            if (Application::GetInstance().GetDeviceState() == kDeviceStateSpeaking) {
+                DispatchPetVoiceState(
+                    PAOPAO_PET_TRIGGER_SPEAKING,
+                    PAOPAO_PET_BEHAVIOR_VOICE_SPEAKING,
+                    PAOPAO_PET_MOOD_EVENT_ASSISTANT_REPLY
+                );
+            } else {
+                DispatchPetMoodEvent(PAOPAO_PET_MOOD_EVENT_ASSISTANT_REPLY);
+            }
         }
 
         LcdDisplay::SetChatMessage(role, content);
